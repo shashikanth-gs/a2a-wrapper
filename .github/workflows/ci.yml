@@ -34,3 +34,5 @@ jobs:
 
       - name: Build, typecheck, and test
         run: npx turbo run build typecheck test
+        env:
+          TURBO_TELEMETRY_DISABLED: 1

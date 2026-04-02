@@ -20,7 +20,6 @@
     "@changesets/cli": "^2.27.0",
     "turbo": "^2.5.0"
   },
-  "packageManager": "npm@11.6.2",
   "engines": {
     "node": ">=18.0.0"
   }
