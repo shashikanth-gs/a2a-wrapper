@@ -32,5 +32,8 @@ coverage/
 # npm pack artifacts
 *.tgz
 
+# Lock file (generated per-platform due to optional native deps)
+package-lock.json
+
 # Turborepo
 .turbo/
