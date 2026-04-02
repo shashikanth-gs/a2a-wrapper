@@ -18,23 +18,26 @@ const REPO_ROOT = resolve(__dirname, "../../../../..");
 
 describe("Test 1a — Node 22 ESM: vscode-jsonrpc exports field", () => {
   it("vscode-jsonrpc/package.json has an exports field with ./node mapping", () => {
-    // The package is nested under @github/copilot-sdk's own node_modules
-    const pkgPath = join(
-      REPO_ROOT,
-      "a2a-copilot",
-      "node_modules",
-      "@github",
-      "copilot-sdk",
-      "node_modules",
-      "vscode-jsonrpc",
-      "package.json",
-    );
+    // vscode-jsonrpc may be hoisted to different locations depending on the
+    // package manager and environment (local dev vs CI). Check both candidates.
+    const candidates = [
+      join(REPO_ROOT, "a2a-copilot", "node_modules", "vscode-jsonrpc", "package.json"),
+      join(REPO_ROOT, "a2a-copilot", "node_modules", "@github", "copilot-sdk", "node_modules", "vscode-jsonrpc", "package.json"),
+    ];
 
-    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+    let pkg: Record<string, unknown> | undefined;
+    for (const p of candidates) {
+      try {
+        pkg = JSON.parse(readFileSync(p, "utf-8"));
+        break;
+      } catch {
+        // candidate not found, try next
+      }
+    }
 
-    // On unfixed code this FAILS — the exports field is missing
-    expect(pkg.exports).toBeDefined();
-    expect(pkg.exports).toHaveProperty("./node");
+    expect(pkg, "vscode-jsonrpc/package.json not found in any candidate path").toBeDefined();
+    expect(pkg!.exports).toBeDefined();
+    expect(pkg!.exports).toHaveProperty("./node");
   });
 });
 
