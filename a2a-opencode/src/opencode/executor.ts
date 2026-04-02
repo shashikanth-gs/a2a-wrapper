@@ -27,6 +27,7 @@ import {
   publishStreamingChunk,
   publishLastChunkMarker,
   publishTraceArtifact,
+  publishTask,
 } from "./event-publisher.js";
 import type { OpenCodeEvent, Part as OpenCodePart, SessionStatus } from "./types.js";
 import { createDeferred, sleep } from "../utils/deferred.js";
@@ -311,10 +312,11 @@ export class OpenCodeExecutor implements AgentExecutor {
     const agentName = this.config.agentCard.name;
 
     try {
-      // 1. Submitted — emit a status-update event so the SDK's DefaultRequestHandler
-      // can track the initial state. Publishing a full Task object via bus.publish
-      // is not valid; only typed event objects are supported.
+      // 1. Register task with the SDK's ResultManager, then emit submitted status.
+      // The ResultManager requires a task event (kind: "task") before it will
+      // accept status-update or artifact-update events for new tasks.
       if (!task) {
+        publishTask(bus, taskId, contextId);
         publishStatus(bus, taskId, contextId, "submitted");
       }
 

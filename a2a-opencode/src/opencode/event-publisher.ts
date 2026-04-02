@@ -7,11 +7,37 @@
  */
 
 import type {
+  Task,
   TaskStatusUpdateEvent,
   TaskArtifactUpdateEvent,
 } from "@a2a-js/sdk";
 import type { ExecutionEventBus } from "@a2a-js/sdk/server";
 import { v4 as uuidv4 } from "uuid";
+
+// ─── Task Registration ─────────────────────────────────────────────────────
+
+/**
+ * Publish a task event to register the task with the SDK's ResultManager.
+ * This MUST be published before any status-update or artifact-update events
+ * for new tasks, otherwise the ResultManager will drop subsequent events
+ * as "unknown task".
+ */
+export function publishTask(
+  bus: ExecutionEventBus,
+  taskId: string,
+  contextId: string,
+): void {
+  const event: Task = {
+    kind: "task",
+    id: taskId,
+    contextId,
+    status: {
+      state: "submitted",
+      timestamp: new Date().toISOString(),
+    },
+  };
+  bus.publish(event as any);
+}
 
 // ─── Status Updates ─────────────────────────────────────────────────────────
 

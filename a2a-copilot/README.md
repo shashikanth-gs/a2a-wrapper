@@ -60,7 +60,7 @@ Or run without installing:
 npx a2a-copilot --config agents/example/config.json
 ```
 
-> **Prerequisites:** A GitHub account with Copilot access and either the [`gh` CLI](https://cli.github.com/) authenticated (`gh auth login`) or a `GITHUB_TOKEN` environment variable set.
+> **⚠️ Authentication required:** You must set a `GITHUB_TOKEN` environment variable **or** run `gh auth login` before starting the server. Without valid GitHub credentials the server will fail with an auth error. You also need a GitHub account with Copilot access.
 
 ## Architecture
 
@@ -71,7 +71,7 @@ A2A Client (Orchestrator / Inspector / curl)
   ▼
 Express Server  (a2a-copilot)
   │  ├─ /.well-known/agent-card.json  → Agent Card
-  │  ├─ /a2a/jsonrpc                  → JSON-RPC  (tasks/send, tasks/sendSubscribe, …)
+  │  ├─ /a2a/jsonrpc                  → JSON-RPC  (message/send, message/sendSubscribe, …)
   │  ├─ /a2a/rest                     → REST handler
   │  ├─ /context                      → Read context.md
   │  ├─ /context/build                → Trigger context discovery
@@ -306,11 +306,28 @@ Implements **A2A v0.3.0**:
 | Endpoint | Description |
 |---|---|
 | `GET /.well-known/agent-card.json` | Agent identity and capabilities |
-| `POST /a2a/jsonrpc` | JSON-RPC: `tasks/send`, `tasks/sendSubscribe`, `tasks/get`, `tasks/cancel` |
+| `POST /a2a/jsonrpc` | JSON-RPC: `message/send`, `message/sendSubscribe` |
 | `POST /a2a/rest` | REST equivalent |
 | `GET /health` | Health check |
 | `POST /context/build` | Trigger context discovery |
 | `GET /context` | Read the built context file |
+
+Example JSON-RPC request (`message/send`):
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "message/send",
+  "messageId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "params": {
+    "message": {
+      "role": "user",
+      "parts": [{ "kind": "text", "text": "Hello, agent!" }]
+    }
+  }
+}
+```
 
 Streaming uses SSE for real-time status updates and artifact chunks. Set `--stream-artifacts` for spec-correct chunk streaming or leave it unset (default) for buffered output compatible with the [A2A Inspector](https://github.com/google-deepmind/a2a).
 
@@ -325,6 +342,16 @@ copilot --headless --port 4321
 # Point the wrapper at it
 a2a-copilot --config agents/example/config.json --cli-url localhost:4321
 ```
+
+## Known Issues
+
+### Node 22 ESM compatibility
+
+The `vscode-jsonrpc` package (a transitive dependency of `@github/copilot-sdk`) lacks an `exports` map in its `package.json`. Node 22's stricter ESM resolver rejects the `vscode-jsonrpc/node` subpath import, causing a startup crash.
+
+A `postinstall` script is included that automatically patches `vscode-jsonrpc/package.json` to add the missing `exports` field. The patch runs on every `npm install` and is idempotent — it is a no-op on Node 18/20 or when the field already exists.
+
+If you see `ERR_MODULE_NOT_FOUND` referencing `vscode-jsonrpc/node`, run `npm install` again to re-apply the patch.
 
 ## Related Packages
 

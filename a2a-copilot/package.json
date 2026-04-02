@@ -16,11 +16,13 @@
     "clean": "rm -rf dist",
     "rebuild": "npm run clean && npm run build",
     "typecheck": "tsc --noEmit",
-    "test": "vitest --run"
+    "test": "vitest --run",
+    "postinstall": "node scripts/postinstall.mjs"
   },
   "files": [
     "dist",
     "agents",
+    "scripts",
     "LICENSE"
   ],
   "publishConfig": {

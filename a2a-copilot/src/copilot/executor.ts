@@ -22,6 +22,7 @@ import {
   publishStreamingChunk,
   publishLastChunkMarker,
   publishThoughtArtifact,
+  publishTask,
 } from "./event-publisher.js";
 import { createDeferred } from "../utils/deferred.js";
 import { logger } from "../utils/logger.js";
@@ -64,7 +65,7 @@ export class CopilotExecutor implements AgentExecutor {
     } catch (err) {
       const msg = (err as Error).message ?? String(err);
       const isNotFound = msg.includes("ENOENT") || msg.includes("not found") || msg.includes("spawn");
-      const isAuth = msg.toLowerCase().includes("auth") || msg.toLowerCase().includes("login") || msg.toLowerCase().includes("token") || msg.toLowerCase().includes("unauthorized");
+      const isAuth = msg.toLowerCase().includes("auth") || msg.toLowerCase().includes("login") || msg.toLowerCase().includes("token") || msg.toLowerCase().includes("unauthorized") || msg.includes("onPermissionRequest handler");
       if (isNotFound) {
         throw new Error(
           "GitHub Copilot CLI not found. Install it with: gh extension install github/gh-copilot\n" +
@@ -214,10 +215,11 @@ export class CopilotExecutor implements AgentExecutor {
     }
 
     try {
-      // 1. Submitted — emit a status-update event so the SDK's DefaultRequestHandler
-      // can track the initial state. Publishing a full Task object via bus.publish
-      // is not valid; only typed event objects are supported.
+      // 1. Register task with the SDK's ResultManager, then emit submitted status.
+      // The ResultManager requires a task event (kind: "task") before it will
+      // accept status-update or artifact-update events for new tasks.
       if (!task) {
+        publishTask(bus, taskId, contextId);
         publishStatus(bus, taskId, contextId, "submitted");
       }
 
@@ -434,10 +436,13 @@ export class CopilotExecutor implements AgentExecutor {
     } catch (error) {
       const msg = (error as Error).message ?? String(error);
       const isConnErr = msg.includes("ECONNREFUSED") || msg.includes("ENOTFOUND") || msg.includes("connect") || msg.includes("socket");
+      const isAuthErr = msg.includes("onPermissionRequest") || msg.toLowerCase().includes("permission") || msg.includes("handler is required");
       const cliUrl = this.config.copilot.cliUrl;
-      const userMsg = isConnErr && cliUrl
-        ? `Cannot reach GitHub Copilot CLI server at ${cliUrl}. Is it running?`
-        : `Error: ${msg}`;
+      const userMsg = isAuthErr
+        ? "GITHUB_TOKEN not set. Run `gh auth login` or set GITHUB_TOKEN env var."
+        : isConnErr && cliUrl
+          ? `Cannot reach GitHub Copilot CLI server at ${cliUrl}. Is it running?`
+          : `Error: ${msg}`;
       log.error("Execution failed", { taskId, error: msg });
       publishStatus(bus, taskId, contextId, "failed", userMsg, true);
       bus.finished();

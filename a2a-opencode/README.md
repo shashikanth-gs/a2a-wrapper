@@ -351,6 +351,23 @@ Implements **A2A v0.3.0**:
 | `POST /context/build` | Trigger context discovery |
 | `GET /context` | Read the built context file |
 
+Example JSON-RPC request (`message/send`):
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "message/send",
+  "messageId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "params": {
+    "message": {
+      "role": "user",
+      "parts": [{ "kind": "text", "text": "Hello, agent!" }]
+    }
+  }
+}
+```
+
 Streaming uses SSE for real-time status updates and artifact chunks. Set `--stream-artifacts` for spec-correct chunk streaming or leave it unset (default) for buffered output compatible with the [A2A Inspector](https://github.com/google-deepmind/a2a).
 
 ## API Reference (Postman)
