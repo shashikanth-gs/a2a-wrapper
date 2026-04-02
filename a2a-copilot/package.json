@@ -1,6 +1,6 @@
 {
   "name": "a2a-copilot",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "A2A (Agent-to-Agent) protocol wrapper for the GitHub Copilot SDK. Drop a JSON config file in, get a fully-spec-compliant A2A server out. Supports any agent persona, MCP tool servers, streaming, context building, and multi-turn conversations.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

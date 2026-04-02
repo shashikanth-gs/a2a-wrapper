@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.2
+
+### Patch Changes
+
+- Upgrade @github/copilot-sdk from ^0.1.25 to ^0.2.0 (stable release). vscode-jsonrpc is no longer a transitive dependency, resolving the Node 22 ESM crash upstream.
+
 ## 1.2.1
 
 ### Patch Changes
