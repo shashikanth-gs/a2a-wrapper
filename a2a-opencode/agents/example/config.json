@@ -1,0 +1,127 @@
+{
+  "$comment": [
+    "Example Agent — Minimal starter configuration for a2a-wrapper-opencode.",
+    "",
+    "Use this as a copy-paste starting point when building your own agent:",
+    "  cp -r agents/example agents/my-agent",
+    "  # Edit agents/my-agent/config.json for your use case",
+    "  ./agents/my-agent/start.sh start",
+    "",
+    "This agent has no external MCP tool servers. To connect one, add an 'mcp'",
+    "section — see the commented-out block at the bottom of this file for the",
+    "shape of both local (stdio) and remote (HTTP/SSE) MCP server configs."
+  ],
+
+  "agentCard": {
+    "$comment": [
+      "The agent card is served at GET /agent/card and advertises this agent to",
+      "A2A-compatible orchestrators and callers. Fill in a clear name and",
+      "description — they are the first thing callers see."
+    ],
+
+    "name": "Example Agent",
+    "description": "A minimal example agent. Replace this description with what your agent actually does.",
+    "version": "1.0.0",
+    "protocolVersion": "0.3.0",
+
+    "defaultInputModes": ["text"],
+    "defaultOutputModes": ["text"],
+    "streaming": true,
+
+    "skills": [
+      {
+        "$comment": "Skills are optional but help orchestrators understand agent capabilities without calling it experimentally.",
+        "id": "general-assistant",
+        "name": "General Assistant",
+        "description": "Answer questions, reason through problems, and assist with general tasks",
+        "tags": ["general", "qa", "reasoning", "assistant"]
+      }
+    ]
+  },
+
+  "server": {
+    "$comment": [
+      "Each agent must use a unique port when running multiple agents on the same host.",
+      "Change advertiseHost to your machine's IP or domain when running behind Docker or a proxy.",
+      "Set advertiseProtocol to 'https' when running behind a TLS-terminating proxy."
+    ],
+    "port": 3000,
+    "hostname": "0.0.0.0",
+    "advertiseHost": "localhost",
+    "advertiseProtocol": "http"
+  },
+
+  "opencode": {
+    "$comment": [
+      "Controls how the wrapper connects to OpenCode.",
+      "",
+      "baseUrl         — URL of the running OpenCode server process.",
+      "model           — The LLM provider/model string OpenCode accepts.",
+      "                  Examples: 'github-copilot/gpt-4o', 'anthropic/claude-3-5-sonnet',",
+      "                  'openai/gpt-4o'",
+      "systemPromptMode:",
+      "  'replace'     — A production-ready preamble is prepended to your prompt,",
+      "                  preventing tool/internals disclosure. Recommended for production.",
+      "  'append'      — Your prompt is injected as-is before the first user message."
+    ],
+    "baseUrl": "http://localhost:4097",
+    "projectDirectory": "/Users/gss/Views/open-code-projects/mcp-test",
+    "model": "github-copilot/claude-sonnet-4.5",
+    "agent": "general",
+    "systemPromptMode": "replace",
+    "systemPrompt": "You are a helpful assistant. Replace this system prompt with instructions that define your agent's role, persona, and expected behaviour."
+  },
+
+  "features": {
+    "$comment": [
+      "autoApprovePermissions — Automatically approve all OpenCode permission dialogs.",
+      "autoAnswerQuestions    — Automatically answer OpenCode question prompts.",
+      "streamArtifactChunks  — false (default): buffer and send a single artifact.",
+      "                        true: stream artifact chunks incrementally (spec-correct).",
+      "enablePollingFallback  — Fall back to HTTP polling when SSE streaming fails."
+    ],
+    "autoApprovePermissions": true,
+    "autoAnswerQuestions": true,
+    "streamArtifactChunks": false,
+    "enablePollingFallback": true
+  },
+
+  "timeouts": {
+    "$comment": [
+      "prompt          — Maximum milliseconds to wait for a full response.",
+      "                  Increase for agents that call slow external MCP tools.",
+      "pollingInterval — How often (ms) to poll for response updates when using",
+      "                  the polling fallback.",
+      "healthCheck     — How often (ms) to check OpenCode server health. 0 to disable."
+    ],
+    "prompt": 300000,
+    "pollingInterval": 2000,
+    "healthCheck": 30000
+  },
+
+  "logging": {
+    "$comment": "level — One of: 'debug' | 'info' | 'warn' | 'error'. Use 'debug' during development.",
+    "level": "debug"
+  },
+
+  "mcp": {
+    "everything": {
+      "type": "local",
+      "command": ["npx", "@modelcontextprotocol/server-everything"],
+      "enabled": true,
+      "timeout": 10000
+    },
+    "playwright": {
+      "type": "local",
+      "command": ["npx", "@playwright/mcp@latest"],
+      "enabled": true,
+      "timeout": 30000
+    },
+    "tavily": {
+      "type": "remote",
+      "url": "https://mcp.tavily.com/mcp/?tavilyApiKey=YOUR_API_KEY_HERE",
+      "enabled": true,
+      "timeout": 30000
+    }
+  }
+}

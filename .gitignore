@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Logs
+*.log
+nohup.out
+logs/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Runtime / PIDs
+*.pid
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test coverage
+coverage/
+
+# npm pack artifacts
+*.tgz
+
+# Turborepo
+.turbo/

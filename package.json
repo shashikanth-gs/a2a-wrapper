@@ -1,0 +1,27 @@
+{
+  "name": "a2a-wrapper",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Monorepo for A2A protocol wrappers",
+  "workspaces": [
+    "packages/*",
+    "a2a-*"
+  ],
+  "scripts": {
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck",
+    "clean": "turbo run clean",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release": "turbo run build && changeset publish"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.27.0",
+    "turbo": "^2.5.0"
+  },
+  "packageManager": "npm@11.6.2",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

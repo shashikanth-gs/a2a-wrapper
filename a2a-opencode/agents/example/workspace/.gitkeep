@@ -1,0 +1,4 @@
+# This workspace directory is available to the agent at runtime.
+# Add any files here that you want MCP tool servers to have access to.
+# If you add a filesystem MCP server to config.json, this directory
+# will be its root — the agent can only read/write within it.

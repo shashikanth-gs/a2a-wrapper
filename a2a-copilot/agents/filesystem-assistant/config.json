@@ -1,0 +1,120 @@
+{
+  "$comment": [
+    "Filesystem Assistant Agent — demonstrates the stdio filesystem MCP integration.",
+    "",
+    "This agent is connected to the @modelcontextprotocol/server-filesystem MCP server,",
+    "which provides the LLM with tools to read, write, list, and search files inside",
+    "the agent's workspace directory.",
+    "",
+    "It is a ready-to-run example of:",
+    "  - Using a stdio MCP server (launched as a child process by the wrapper)",
+    "  - Giving the LLM file I/O capabilities without exposing the host filesystem",
+    "  - Writing a system prompt that enforces clean tool usage behaviour",
+    "",
+    "To run:",
+    "  ./agents/filesystem-assistant/start.sh start",
+    "",
+    "The workspace directory (agents/filesystem-assistant/workspace/) is the only",
+    "part of the filesystem the agent can access. Place any seed files there."
+  ],
+
+  "agentCard": {
+    "$comment": [
+      "Describes this agent to A2A-compatible orchestrators and callers.",
+      "The agent card is served at GET /agent/card."
+    ],
+
+    "name": "Filesystem Assistant",
+    "description": "An assistant that can read, write, list, and search files in its workspace directory. Useful for document summarisation, file-based Q&A, and content generation tasks.",
+    "version": "1.0.0",
+    "protocolVersion": "0.3.0",
+
+    "defaultInputModes": ["text"],
+    "defaultOutputModes": ["text"],
+    "streaming": true,
+
+    "skills": [
+      {
+        "id": "file-read-write",
+        "name": "File Read / Write",
+        "description": "Read existing files and write new content to the workspace",
+        "tags": ["files", "read", "write", "workspace"]
+      },
+      {
+        "id": "file-search",
+        "name": "File Search",
+        "description": "Search the workspace for files by name or by content",
+        "tags": ["files", "search", "workspace"]
+      },
+      {
+        "id": "document-summarisation",
+        "name": "Document Summarisation",
+        "description": "Read documents from the workspace and summarise their contents",
+        "tags": ["summarisation", "documents", "analysis"]
+      },
+      {
+        "id": "content-generation",
+        "name": "Content Generation",
+        "description": "Draft, edit, and write new content directly to files in the workspace",
+        "tags": ["writing", "generation", "drafting"]
+      }
+    ]
+  },
+
+  "server": {
+    "$comment": [
+      "Each agent must use a unique port when running multiple agents on the same host.",
+      "Set advertiseProtocol to 'https' when running behind a TLS-terminating proxy."
+    ],
+    "port": 3001,
+    "hostname": "0.0.0.0",
+    "advertiseHost": "localhost",
+    "advertiseProtocol": "http"
+  },
+
+  "copilot": {
+    "$comment": [
+      "systemPromptMode: 'replace' gives the agent a clean persona, free of the SDK's",
+      "default coding-assistant framing. This is the recommended setting for deployed agents.",
+      "",
+      "workspaceDirectory is resolved at startup from the WORKSPACE_DIR environment variable",
+      "and passed to the MCP server. It is also substituted in the $WORKSPACE_DIR arg below."
+    ],
+    "model": "gpt-4o",
+    "streaming": true,
+    "systemPromptMode": "replace",
+    "systemPrompt": "You are the Filesystem Assistant — a helpful agent with access to a local file workspace via MCP tools. Your job is to help users work with files: reading, writing, searching, summarising, and organising content.\n\nNEVER present yourself as a coding assistant, terminal helper, or GitHub Copilot. NEVER mention Git, running commands, or software development unless the user explicitly asks.\n\nCRITICAL TOOL USAGE RULES:\n1. You have filesystem MCP tools (read_file, write_file, list_directory, search_files, etc.). Use them proactively — never ask the user to paste file contents you can read yourself.\n2. If a user asks to save or create something — use write_file immediately.\n3. If a user asks about a file — use read_file first, then answer.\n4. If a user asks what files exist — use list_directory first.\n5. Always confirm what you wrote or read by referencing the filename and key content.",
+    "workspaceDirectory": ""
+  },
+
+  "features": {
+    "streamArtifactChunks": false
+  },
+
+  "timeouts": {
+    "$comment": "120 s is sufficient for file operations. Increase if processing very large files.",
+    "prompt": 120000
+  },
+
+  "logging": {
+    "level": "info"
+  },
+
+  "mcp": {
+    "$comment": [
+      "The filesystem MCP server is launched as a child process by the wrapper (type: 'stdio').",
+      "It receives the workspace directory as a positional argument, which the wrapper",
+      "resolves from the WORKSPACE_DIR environment variable at startup.",
+      "",
+      "The $WORKSPACE_DIR placeholder in args is substituted by the wrapper at runtime.",
+      "Do NOT set this to '/' or any sensitive path — the agent will have full read/write",
+      "access to everything under the path you specify."
+    ],
+    "filesystem": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "$WORKSPACE_DIR"],
+      "enabled": true
+    }
+  }
+}

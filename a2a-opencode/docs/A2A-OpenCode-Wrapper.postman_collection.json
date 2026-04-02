@@ -1,0 +1,295 @@
+{
+  "info": {
+    "name": "A2A OpenCode Wrapper",
+    "description": "Postman collection for the A2A OpenCode Wrapper APIs.\n\nCovers all endpoints: A2A protocol (Agent Card, JSON-RPC, REST), Context API, and System endpoints.\n\nUse the `baseUrl` variable to point to your running agent:\n- Example Agent: http://localhost:3000",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000",
+      "description": "Base URL of your running A2A agent"
+    },
+    {
+      "key": "taskId",
+      "value": "task-{{$randomUUID}}",
+      "description": "Task ID for A2A requests"
+    }
+  ],
+  "item": [
+    {
+      "name": "System",
+      "description": "Health check and system endpoints",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            },
+            "description": "Returns the health status and agent name."
+          },
+          "response": [
+            {
+              "name": "Healthy",
+              "status": "OK",
+              "code": 200,
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"status\": \"healthy\",\n  \"agent\": \"Example A2A Agent\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "A2A Protocol",
+      "description": "Agent-to-Agent protocol endpoints (Agent Card, JSON-RPC, REST)",
+      "item": [
+        {
+          "name": "Get Agent Card",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/.well-known/agent-card.json",
+              "host": ["{{baseUrl}}"],
+              "path": [".well-known", "agent-card.json"]
+            },
+            "description": "Returns the A2A Agent Card with identity, capabilities, and skills.\nThe `url` field is dynamically rewritten based on the Host header.\n\nAlso available at:\n- /.well-known/agent.json (legacy)\n- /.well-known/agent-json (legacy)"
+          },
+          "response": [
+            {
+              "name": "Agent Card",
+              "status": "OK",
+              "code": 200,
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"name\": \"Example A2A Agent\",\n  \"description\": \"A generic A2A agent powered by OpenCode.\",\n  \"url\": \"http://localhost:3000/a2a/jsonrpc\",\n  \"version\": \"1.0.0\",\n  \"protocolVersion\": \"0.3.0\",\n  \"capabilities\": {\n    \"streaming\": true,\n    \"pushNotifications\": false,\n    \"stateTransitionHistory\": true\n  },\n  \"skills\": []\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get Agent Card (Legacy Path)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/.well-known/agent.json",
+              "host": ["{{baseUrl}}"],
+              "path": [".well-known", "agent.json"]
+            },
+            "description": "Legacy agent card path for older A2A Inspector versions."
+          },
+          "response": []
+        },
+        {
+          "name": "Send Task (tasks/send)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tasks/send\",\n  \"id\": \"req-1\",\n  \"params\": {\n    \"id\": \"{{taskId}}\",\n    \"message\": {\n      \"role\": \"user\",\n      \"parts\": [\n        {\n          \"kind\": \"text\",\n          \"text\": \"What can you help me with?\"\n        }\n      ]\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/a2a/jsonrpc",
+              "host": ["{{baseUrl}}"],
+              "path": ["a2a", "jsonrpc"]
+            },
+            "description": "Send a task to the agent via JSON-RPC. The agent processes the message using OpenCode + MCP tools and returns the result.\n\nThis is a synchronous call — it waits for the full response."
+          },
+          "response": [
+            {
+              "name": "Task Completed",
+              "status": "OK",
+              "code": 200,
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"req-1\",\n  \"result\": {\n    \"id\": \"task-123\",\n    \"contextId\": \"ctx-abc\",\n    \"status\": {\n      \"state\": \"completed\"\n    },\n    \"artifacts\": [\n      {\n        \"parts\": [\n          {\n            \"kind\": \"text\",\n            \"text\": \"I can help you with code analysis, file operations, and general development tasks.\"\n          }\n        ]\n      }\n    ]\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Send Task with Streaming (tasks/sendSubscribe)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "text/event-stream" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tasks/sendSubscribe\",\n  \"id\": \"req-2\",\n  \"params\": {\n    \"id\": \"{{taskId}}\",\n    \"message\": {\n      \"role\": \"user\",\n      \"parts\": [\n        {\n          \"kind\": \"text\",\n          \"text\": \"Analyze error logs from the last hour\"\n        }\n      ]\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/a2a/jsonrpc",
+              "host": ["{{baseUrl}}"],
+              "path": ["a2a", "jsonrpc"]
+            },
+            "description": "Send a task with SSE streaming. Returns a text/event-stream with real-time status updates, tool execution progress, and the final artifact.\n\nNote: Postman's SSE support is limited — use A2A Inspector or curl for best streaming experience:\n\ncurl -N -X POST {{baseUrl}}/a2a/jsonrpc \\\n  -H 'Content-Type: application/json' \\\n  -d '{...}'"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Task (tasks/get)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tasks/get\",\n  \"id\": \"req-3\",\n  \"params\": {\n    \"id\": \"{{taskId}}\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/a2a/jsonrpc",
+              "host": ["{{baseUrl}}"],
+              "path": ["a2a", "jsonrpc"]
+            },
+            "description": "Retrieve the current state of a previously submitted task by its ID."
+          },
+          "response": []
+        },
+        {
+          "name": "Cancel Task (tasks/cancel)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tasks/cancel\",\n  \"id\": \"req-4\",\n  \"params\": {\n    \"id\": \"{{taskId}}\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/a2a/jsonrpc",
+              "host": ["{{baseUrl}}"],
+              "path": ["a2a", "jsonrpc"]
+            },
+            "description": "Cancel a running task. The agent will abort the OpenCode session and return a canceled status."
+          },
+          "response": []
+        },
+        {
+          "name": "Send Task (Follow-up in same context)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"tasks/send\",\n  \"id\": \"req-5\",\n  \"params\": {\n    \"id\": \"task-followup-001\",\n    \"contextId\": \"my-conversation-1\",\n    \"message\": {\n      \"role\": \"user\",\n      \"parts\": [\n        {\n          \"kind\": \"text\",\n          \"text\": \"Show me the error counts broken down by sourcetype\"\n        }\n      ]\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/a2a/jsonrpc",
+              "host": ["{{baseUrl}}"],
+              "path": ["a2a", "jsonrpc"]
+            },
+            "description": "Send a follow-up message in the same conversation context.\n\nUsing the same `contextId` reuses the OpenCode session, preserving conversation history. This enables multi-turn conversations."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Context API",
+      "description": "Domain context management — build and retrieve pre-discovered domain knowledge",
+      "item": [
+        {
+          "name": "Get Context",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/context",
+              "host": ["{{baseUrl}}"],
+              "path": ["context"]
+            },
+            "description": "Returns the pre-built domain context file (context.md) as Markdown.\n\nThis file contains domain knowledge discovered by the agent using MCP tools.\n\nReturns 404 if the context file hasn't been built yet."
+          },
+          "response": [
+            {
+              "name": "Context Found",
+              "status": "OK",
+              "code": 200,
+              "header": [
+                { "key": "Content-Type", "value": "text/markdown" }
+              ],
+              "body": "# Domain Context\n\n## Workspace Overview\n- src/: TypeScript source files\n- agents/: Agent configuration files\n..."
+            },
+            {
+              "name": "Context Not Found",
+              "status": "Not Found",
+              "code": 404,
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"error\": \"Context file not found. Use POST /context/build to create it.\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Build Context (Default Prompt)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/context/build",
+              "host": ["{{baseUrl}}"],
+              "path": ["context", "build"]
+            },
+            "description": "Trigger domain context discovery using the agent's default contextPrompt from config.\n\nThe agent creates a dedicated OpenCode session, uses MCP tools to discover domain data, and writes findings to context.md in the workspace.\n\n⚠️ This is a long-running request (may take 1-5 minutes). Increase Postman's timeout settings."
+          },
+          "response": [
+            {
+              "name": "Build Completed",
+              "status": "OK",
+              "code": 200,
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"status\": \"completed\",\n  \"message\": \"Context file built successfully\",\n  \"response\": \"I've discovered the following domain information...\",\n  \"context\": \"# Domain Context\\n\\n## Indexes\\n...\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Build Context (Custom Prompt)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"prompt\": \"Explore the workspace, list all source files, and summarize what each module does.\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/context/build",
+              "host": ["{{baseUrl}}"],
+              "path": ["context", "build"]
+            },
+            "description": "Trigger domain context discovery with a custom prompt.\n\nOverrides the default contextPrompt from config. Useful for targeted discovery or refreshing specific sections of the context."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}
