@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import * as fc from "fast-check";
-import { existsSync } from "node:fs";
-import { globSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 /**
@@ -32,7 +31,9 @@ const FORBIDDEN_ARTIFACTS = [
 
 /** Discover all a2a-* wrapper directories at the repository root. */
 function getWrapperDirs(): string[] {
-  return globSync("a2a-*", { cwd: REPO_ROOT });
+  return readdirSync(REPO_ROOT, { withFileTypes: true })
+    .filter((e) => e.isDirectory() && e.name.startsWith("a2a-"))
+    .map((e) => e.name);
 }
 
 const wrapperDirs = getWrapperDirs();

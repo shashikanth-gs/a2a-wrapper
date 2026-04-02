@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import * as fc from "fast-check";
-import { readFileSync } from "node:fs";
-import { globSync } from "node:fs";
+import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 /**
@@ -14,7 +13,7 @@ import { join, resolve } from "node:path";
 /** Resolve the repository root (two levels up from packages/core/src). */
 const REPO_ROOT = resolve(__dirname, "../../../../..");
 
-/** Read workspace globs from root package.json. */
+/** Resolve workspace directories from root package.json globs. */
 function getWorkspacePackageDirs(): string[] {
   const rootPkg = JSON.parse(
     readFileSync(join(REPO_ROOT, "package.json"), "utf-8"),
@@ -22,7 +21,20 @@ function getWorkspacePackageDirs(): string[] {
   const workspaceGlobs: string[] = rootPkg.workspaces ?? [];
   const dirs: string[] = [];
   for (const pattern of workspaceGlobs) {
-    dirs.push(...globSync(pattern, { cwd: REPO_ROOT }));
+    if (pattern === "packages/*") {
+      const packagesDir = join(REPO_ROOT, "packages");
+      if (existsSync(packagesDir)) {
+        for (const entry of readdirSync(packagesDir, { withFileTypes: true })) {
+          if (entry.isDirectory()) dirs.push(`packages/${entry.name}`);
+        }
+      }
+    } else if (pattern === "a2a-*") {
+      for (const entry of readdirSync(REPO_ROOT, { withFileTypes: true })) {
+        if (entry.isDirectory() && entry.name.startsWith("a2a-")) {
+          dirs.push(entry.name);
+        }
+      }
+    }
   }
   return dirs;
 }
