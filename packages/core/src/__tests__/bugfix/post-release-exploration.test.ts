@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { resolve, join } from "node:path";
+import { tmpdir } from "node:os";
+import { execFileSync } from "node:child_process";
 
 /**
  * Bug Condition Exploration Tests — Post-Release Fixes
@@ -14,30 +16,37 @@ import { resolve, join } from "node:path";
 
 const REPO_ROOT = resolve(__dirname, "../../../../..");
 
-// ─── Test 1a — Node 22 ESM: vscode-jsonrpc exports field ─────────────────────
+// ─── Test 1a — Node 22 ESM: postinstall script patches vscode-jsonrpc ────────
 
 describe("Test 1a — Node 22 ESM: vscode-jsonrpc exports field", () => {
-  it("vscode-jsonrpc/package.json has an exports field with ./node mapping", () => {
-    // vscode-jsonrpc may be hoisted to different locations depending on the
-    // package manager and environment (local dev vs CI). Check both candidates.
-    const candidates = [
-      join(REPO_ROOT, "a2a-copilot", "node_modules", "vscode-jsonrpc", "package.json"),
-      join(REPO_ROOT, "a2a-copilot", "node_modules", "@github", "copilot-sdk", "node_modules", "vscode-jsonrpc", "package.json"),
-    ];
+  it("postinstall script adds exports field with ./node mapping", () => {
+    // Create a temp directory simulating a2a-copilot with an unpatched vscode-jsonrpc
+    const tmp = mkdtempSync(join(tmpdir(), "test-1a-"));
+    const nmDir = join(tmp, "node_modules", "vscode-jsonrpc");
+    mkdirSync(nmDir, { recursive: true });
+    mkdirSync(join(tmp, "scripts"), { recursive: true });
 
-    let pkg: Record<string, unknown> | undefined;
-    for (const p of candidates) {
-      try {
-        pkg = JSON.parse(readFileSync(p, "utf-8"));
-        break;
-      } catch {
-        // candidate not found, try next
-      }
+    // Write an unpatched vscode-jsonrpc package.json (no exports field)
+    const unpatched = { name: "vscode-jsonrpc", version: "8.2.1", main: "lib/common/api.js" };
+    writeFileSync(join(nmDir, "package.json"), JSON.stringify(unpatched, null, 2));
+
+    // Copy the postinstall script into the temp dir
+    const scriptSrc = readFileSync(join(REPO_ROOT, "a2a-copilot", "scripts", "postinstall.mjs"), "utf-8");
+    writeFileSync(join(tmp, "scripts", "postinstall.mjs"), scriptSrc);
+
+    // Run the postinstall script
+    execFileSync("node", [join(tmp, "scripts", "postinstall.mjs")], { cwd: tmp });
+
+    // Verify the patch was applied
+    const patched = JSON.parse(readFileSync(join(nmDir, "package.json"), "utf-8"));
+
+    try {
+      expect(patched.exports).toBeDefined();
+      expect(patched.exports).toHaveProperty("./node", "./lib/node/main.js");
+      expect(patched.exports).toHaveProperty(".", "./lib/common/api.js");
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
     }
-
-    expect(pkg, "vscode-jsonrpc/package.json not found in any candidate path").toBeDefined();
-    expect(pkg!.exports).toBeDefined();
-    expect(pkg!.exports).toHaveProperty("./node");
   });
 });
 
