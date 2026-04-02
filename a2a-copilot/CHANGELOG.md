@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-04-02
+
+### Changed
+
+- Migrated to monorepo structure with npm workspaces, Turborepo, and Changesets
+- Extracted shared infrastructure to `@a2a-wrapper/core` package (logging, config, events, server factory, session management, CLI scaffold)
+- Now depends on `@a2a-wrapper/core` for all shared functionality
+- Consolidated community docs (CONTRIBUTING, CODE_OF_CONDUCT, SECURITY, LICENSE) to repository root
+- Unified CI/CD with Turborepo-powered GitHub Actions workflows
+- Switched test script to `vitest --run` for non-interactive CI execution
+
 ## [1.0.0] - 2025-02-23
 
 ### Added

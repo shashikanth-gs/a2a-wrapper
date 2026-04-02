@@ -1,6 +1,6 @@
 {
   "name": "a2a-opencode",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "A2A (Agent-to-Agent) protocol wrapper for OpenCode. Drop a JSON config file in, get a fully-spec-compliant A2A server out. Supports any agent persona, MCP tool servers, SSE streaming with polling fallback, context building, and multi-turn conversations.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
