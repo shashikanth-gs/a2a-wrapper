@@ -301,6 +301,62 @@ export interface BaseMcpServerConfig {
   enabled?: boolean;
 }
 
+// ─── Events Config ──────────────────────────────────────────────────────
+
+/**
+ * Event transport configuration for sideband observability events.
+ *
+ * Controls how trace events (MCP tool calls, agent reasoning, lifecycle)
+ * are delivered. Only the two built-in transports are configurable via
+ * JSON config — for custom transports (Kafka, Redis, DB, etc.), use the
+ * programmatic API and pass a transport function to `createA2AServer()`.
+ *
+ * @see {@link @a2a-wrapper/core!EventTransport} for the transport interface.
+ * @see {@link @a2a-wrapper/core!AgentEventEmitter} for per-execution emission.
+ */
+export interface EventsConfig {
+  /**
+   * Enable event emission.
+   * @default true
+   */
+  enabled?: boolean;
+
+  /**
+   * Built-in transport type.
+   *
+   * - `"a2a"` — publish as sideband trace artifacts on the A2A
+   *   ExecutionEventBus (default, zero dependencies).
+   * - `"http"` — POST events as JSON to {@link httpUrl}.
+   *
+   * For custom transports, leave this unset and provide a transport
+   * function via the programmatic `createA2AServer()` API.
+   *
+   * @default "a2a"
+   */
+  transport?: "a2a" | "http";
+
+  /**
+   * HTTP endpoint URL for the `"http"` transport.
+   * Required when `transport` is `"http"`.
+   */
+  httpUrl?: string;
+
+  /**
+   * HTTP request timeout in milliseconds for the `"http"` transport.
+   * @default 10_000
+   */
+  httpTimeout?: number;
+
+  /**
+   * Custom HTTP headers sent with every event POST.
+   * Useful for authentication tokens:
+   * ```json
+   * { "Authorization": "Bearer ${CORTEX_TOKEN}" }
+   * ```
+   */
+  httpHeaders?: Record<string, string>;
+}
+
 // ─── Root Config ────────────────────────────────────────────────────────────
 
 /**
@@ -370,4 +426,15 @@ export interface BaseAgentConfig<TBackend = Record<string, unknown>> {
    * the {@link BaseMcpServerConfig} base interface.
    */
   mcp: Record<string, BaseMcpServerConfig>;
+
+  /**
+   * Event transport configuration for sideband observability events.
+   *
+   * Controls how trace data (MCP tool calls, agent reasoning, lifecycle)
+   * is delivered. Defaults to A2A sideband artifacts when omitted.
+   *
+   * For custom transports (Kafka, Redis, DB), leave this unset and pass
+   * a transport function via the programmatic `createA2AServer()` API.
+   */
+  events?: EventsConfig;
 }

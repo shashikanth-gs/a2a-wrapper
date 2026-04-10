@@ -36,7 +36,7 @@ describe("Property 7: Config file round trip", () => {
   const arbJsonLeaf = fc.oneof(
     fc.string(),
     fc.integer(),
-    fc.double({ noNaN: true, noDefaultInfinity: true }),
+    fc.double({ noNaN: true, noDefaultInfinity: true }).filter((n) => !Object.is(n, -0)),
     fc.boolean(),
     fc.constant(null),
   );

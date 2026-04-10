@@ -92,6 +92,7 @@ All public symbols are exported from the package root (`@a2a-wrapper/core`). Imp
 | `TimeoutConfig` | Timeout settings. |
 | `LoggingConfig` | Logging settings (level). |
 | `BaseMcpServerConfig` | Common MCP server config pattern. |
+| `EventsConfig` | Event transport config — `enabled`, `transport`, `httpUrl`, `httpTimeout`, `httpHeaders`. |
 | `SkillConfig` | Skill definition (id, name, description, tags, examples). |
 | `loadConfigFile<T>(filePath)` | Reads and parses a JSON config file. Throws descriptive errors on failure. |
 | `resolveConfig<T>(defaults, configFilePath?, envOverrides?, cliOverrides?)` | Merges config layers: defaults ← file ← env ← CLI. |
@@ -107,14 +108,112 @@ All public symbols are exported from the package root (`@a2a-wrapper/core`). Imp
 | `publishTraceArtifact(bus, taskId, contextId, traceKey, data)` | Publishes a structured `DataPart` trace artifact. |
 | `publishThoughtArtifact(bus, taskId, contextId, traceKey, text)` | Publishes a `TextPart` trace artifact. |
 
+### Event Transport
+
+Pluggable transport layer for sideband observability events (MCP tool calls, agent reasoning, lifecycle). Decouples event emission from A2A protocol internals so you can route trace data to any backend.
+
+| Export | Description |
+|---|---|
+| `A2ATransport` | Default transport — publishes trace artifacts on the A2A `ExecutionEventBus`. Zero dependencies. |
+| `HttpTransport` | POST events as JSON to a configurable HTTP endpoint. Supports custom headers for auth. |
+| `AgentEventEmitter` | Per-execution emitter that stamps events with agent identity, trace context, UUID, and timestamp. |
+| `resolveTransport(cfg, bus, taskId, contextId, custom?)` | Resolve the correct transport for a single task execution. |
+| `createTransport(cfg)` | Create a built-in transport from JSON config. |
+| `wrapTransport(transport)` | Normalize a function or object into an `EventTransport`. |
+| `EventTransport` | Interface — implement `send(event)` for custom transports. |
+| `EventTransportFn` | Convenience type — a plain `async (event) => void` function. |
+| `AgentEvent` | Structured event with `eventId`, `eventType`, `agentId`, `traceId`, `data`. |
+| `EventType` | Union: `tool_call_start`, `tool_call_end`, `thinking`, `decision`, `agent_started`, `agent_finished`, `agent_error`. |
+| `TRACE_EXTENSION_URI` | Constant `"urn:x-a2a:trace:v1"` — declared in agent card capabilities and on trace artifacts. |
+| `EventsConfig` | Config interface — `enabled`, `transport` (`"a2a"` or `"http"`), `httpUrl`, `httpTimeout`, `httpHeaders`. |
+
+#### Built-in transports
+
+| Transport | Config value | Description |
+|---|---|---|
+| A2A sideband | `"a2a"` (default) | Publishes trace artifacts on the `ExecutionEventBus`. Orchestrators discover them via the `urn:x-a2a:trace:v1` extension. |
+| HTTP collector | `"http"` | POSTs each event as JSON to `httpUrl`. Supports `httpHeaders` for Bearer tokens / API keys. |
+
+#### JSON config
+
+```json
+{
+  "events": {
+    "enabled": true,
+    "transport": "http",
+    "httpUrl": "https://telemetry.example.com/events",
+    "httpTimeout": 5000,
+    "httpHeaders": {
+      "Authorization": "Bearer ${TELEMETRY_TOKEN}"
+    }
+  }
+}
+```
+
+#### Custom transport (programmatic API)
+
+For Kafka, Redis, databases, or any custom sink — pass a transport function to `createA2AServer()`:
+
+```typescript
+import { createA2AServer } from "@a2a-wrapper/core";
+
+const handle = await createA2AServer(config, executorFactory, {
+  eventTransport: async (event) => {
+    await kafkaProducer.send({
+      topic: "agent-traces",
+      messages: [{ value: JSON.stringify(event) }],
+    });
+  },
+});
+```
+
+Or implement the `EventTransport` interface for full control:
+
+```typescript
+import type { EventTransport, AgentEvent } from "@a2a-wrapper/core";
+
+class MyTransport implements EventTransport {
+  async send(event: AgentEvent): Promise<void> {
+    await db.insert("events", {
+      id: event.eventId,
+      type: event.eventType,
+      agent: event.agentId,
+      trace: event.traceId,
+      data: event.data,
+      ts: event.timestamp,
+    });
+  }
+}
+```
+
+#### Using the emitter inside an executor
+
+```typescript
+import { resolveTransport, AgentEventEmitter } from "@a2a-wrapper/core";
+
+// Inside your executor's execute() method:
+const transport = resolveTransport(config.events, bus, taskId, contextId);
+const emitter = new AgentEventEmitter({
+  agentId: "my-agent",
+  agentName: "My Agent",
+  traceId: ctx.contextId,
+  transport,
+});
+
+// Emit events — they flow through the resolved transport
+await emitter.emit("tool_call_start", { toolName: "read_file", arguments: { path: "/data.json" } });
+await emitter.emit("tool_call_end", { toolName: "read_file", result: "...", durationMs: 42 });
+await emitter.emit("thinking", { content: "The data shows a spike in CPU usage..." });
+```
+
 ### Server
 
 | Export | Description |
 |---|---|
 | `buildAgentCard(config)` | Constructs an A2A `AgentCard` from `AgentCardConfig` + `ServerConfig`. |
 | `createA2AServer<T>(config, executorFactory, options?)` | Creates an Express app with standard A2A routes and starts listening. Returns a `ServerHandle`. |
-| `ServerOptions` | Options for protocol version, custom route hooks. |
-| `ServerHandle` | Returned by `createA2AServer` — contains `app`, `server`, `executor`, `shutdown()`. |
+| `ServerOptions` | Options for protocol version, custom route hooks, and custom `eventTransport`. |
+| `ServerHandle` | Returned by `createA2AServer` — contains `app`, `server`, `executor`, `eventTransport`, `shutdown()`. |
 
 ### Session
 

@@ -240,4 +240,6 @@ export interface AgentConfig {
    * Custom agent definitions to register with Copilot sessions.
    */
   customAgents?: CustomAgentConfig[];
+  /** Event transport configuration for sideband observability events. */
+  events?: import("@a2a-wrapper/core").EventsConfig;
 }

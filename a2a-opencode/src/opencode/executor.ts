@@ -26,9 +26,10 @@ import {
   publishFinalArtifact,
   publishStreamingChunk,
   publishLastChunkMarker,
-  publishTraceArtifact,
   publishTask,
 } from "./event-publisher.js";
+import { resolveTransport, AgentEventEmitter } from "@a2a-wrapper/core";
+import type { EventTransport, EventTransportFn } from "@a2a-wrapper/core";
 import type { OpenCodeEvent, Part as OpenCodePart, SessionStatus } from "./types.js";
 import { createDeferred, sleep } from "../utils/deferred.js";
 import { logger } from "../utils/logger.js";
@@ -76,6 +77,8 @@ export class OpenCodeExecutor implements AgentExecutor {
   private initialized = false;
   /** Track which sessions have already received the system prompt. */
   private promptedSessions = new Set<string>();
+  /** Optional custom event transport supplied via programmatic API. */
+  public customTransport?: EventTransport | EventTransportFn;
 
   constructor(config: Required<AgentConfig>) {
     this.config = config;
@@ -311,6 +314,21 @@ export class OpenCodeExecutor implements AgentExecutor {
     const agentId = this.config.agentCard.name.toLowerCase().replace(/\s+/g, "-");
     const agentName = this.config.agentCard.name;
 
+    // Resolve event transport and create per-execution emitter
+    const transport = resolveTransport(
+      this.config.events,
+      bus,
+      taskId,
+      contextId,
+      this.customTransport,
+    );
+    const emitter = new AgentEventEmitter({
+      agentId,
+      agentName,
+      traceId: traceCtx.traceId,
+      transport,
+    });
+
     try {
       // 1. Register task with the SDK's ResultManager, then emit submitted status.
       // The ResultManager requires a task event (kind: "task") before it will
@@ -419,74 +437,56 @@ export class OpenCodeExecutor implements AgentExecutor {
             }
             publishStatus(bus, taskId, contextId, "working", `Executing ${toolName}...`);
 
-            // Track for trace.mcp emission on completion
+            // Track for trace emission on completion
             const input = (state as Record<string, unknown>)?.input;
+            const toolCallId = callId || uuidv4();
             pendingToolCalls.set(callKey, {
-              callId: callId || uuidv4(),
+              callId: toolCallId,
               args: input ?? {},
               startTime: Date.now(),
+            });
+
+            // Emit tool_call_start via transport
+            emitter.emit("tool_call_start", {
+              toolCallId,
+              toolName,
+              arguments: truncate(sanitize(input ?? {})),
             });
           } else if (status === "completed") {
             const time = state?.time as Record<string, unknown> | undefined;
             const dur = time?.end && time?.start ? (time.end as number) - (time.start as number) : undefined;
             publishStatus(bus, taskId, contextId, "working", `Completed ${toolName}${dur ? ` (${dur}ms)` : ""}`);
 
-            // Emit trace.mcp sideband artifact
+            // Emit tool_call_end via transport
             const tracked = pendingToolCalls.get(callKey);
             pendingToolCalls.delete(callKey);
             const toolCallId = tracked?.callId || callId || uuidv4();
             const durationMs = tracked ? Date.now() - tracked.startTime : (dur ?? 0);
             const output = (state as Record<string, unknown>)?.output;
 
-            publishTraceArtifact(bus, taskId, contextId, "trace.mcp", {
-              tool_call_id: toolCallId,
-              tool: toolName,
-              agent_id: agentId,
-              agent_name: agentName,
-              trace_id: traceCtx.traceId,
-              request: {
-                method: "tools/call",
-                params: { name: toolName, arguments: truncate(sanitize(tracked?.args ?? {})) },
-              },
-              response: {
-                result: truncate(sanitize(output ?? "(no output captured)")),
-                is_error: false,
-              },
-              metadata: {
-                duration_ms: durationMs,
-                timestamp: new Date().toISOString(),
-                source: "mcp",
-              },
+            emitter.emit("tool_call_end", {
+              toolCallId,
+              toolName,
+              result: truncate(sanitize(output ?? "(no output captured)")),
+              isError: false,
+              durationMs,
             });
           } else if (status === "error") {
             const errMsg = (state?.error as string) ?? "Unknown error";
             publishStatus(bus, taskId, contextId, "working", `Error in ${toolName}: ${errMsg}`);
 
-            // Emit trace.mcp sideband artifact for error
+            // Emit tool_call_end (error) via transport
             const tracked = pendingToolCalls.get(callKey);
             pendingToolCalls.delete(callKey);
             const toolCallId = tracked?.callId || callId || uuidv4();
             const durationMs = tracked ? Date.now() - tracked.startTime : 0;
 
-            publishTraceArtifact(bus, taskId, contextId, "trace.mcp", {
-              tool_call_id: toolCallId,
-              tool: toolName,
-              agent_id: agentId,
-              agent_name: agentName,
-              trace_id: traceCtx.traceId,
-              request: {
-                method: "tools/call",
-                params: { name: toolName, arguments: truncate(sanitize(tracked?.args ?? {})) },
-              },
-              response: {
-                result: errMsg,
-                is_error: true,
-              },
-              metadata: {
-                duration_ms: durationMs,
-                timestamp: new Date().toISOString(),
-                source: "mcp",
-              },
+            emitter.emit("tool_call_end", {
+              toolCallId,
+              toolName,
+              result: errMsg,
+              isError: true,
+              durationMs,
             });
           }
         }

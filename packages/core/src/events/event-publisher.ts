@@ -42,6 +42,7 @@ import type {
 } from "@a2a-js/sdk";
 import type { ExecutionEventBus } from "@a2a-js/sdk/server";
 import { v4 as uuidv4 } from "uuid";
+import { TRACE_EXTENSION_URI } from "../server/agent-card.js";
 
 // ─── Status Updates ─────────────────────────────────────────────────────────
 
@@ -306,6 +307,11 @@ export function publishTraceArtifact(
     artifact: {
       artifactId: `${traceKey}-${uuidv4()}`,
       name: traceKey,
+      extensions: [TRACE_EXTENSION_URI],
+      metadata: {
+        traceType: traceKey,
+        timestamp: new Date().toISOString(),
+      },
       parts: [
         {
           kind: "data",
@@ -361,6 +367,11 @@ export function publishThoughtArtifact(
     artifact: {
       artifactId: `${traceKey}-${uuidv4()}`,
       name: traceKey,
+      extensions: [TRACE_EXTENSION_URI],
+      metadata: {
+        traceType: traceKey,
+        timestamp: new Date().toISOString(),
+      },
       parts: [{ kind: "text", text }],
     },
   };

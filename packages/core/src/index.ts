@@ -34,6 +34,7 @@ export type {
   BaseFeatureFlags,
   TimeoutConfig,
   LoggingConfig,
+  EventsConfig,
   BaseMcpServerConfig,
   BaseAgentConfig,
 } from "./config/types.js";
@@ -51,9 +52,27 @@ export {
   publishThoughtArtifact,
 } from "./events/event-publisher.js";
 
+// ─── Event Transport ────────────────────────────────────────────────────────
+
+export {
+  A2ATransport,
+  HttpTransport,
+  AgentEventEmitter,
+  resolveTransport,
+  createTransport,
+  wrapTransport,
+} from "./events/transport.js";
+
+export type {
+  EventTransport,
+  EventTransportFn,
+  AgentEvent,
+  EventType,
+} from "./events/transport.js";
+
 // ─── Server ─────────────────────────────────────────────────────────────────
 
-export { buildAgentCard, type BuildAgentCardInput } from "./server/agent-card.js";
+export { buildAgentCard, TRACE_EXTENSION_URI, type BuildAgentCardInput } from "./server/agent-card.js";
 
 export {
   createA2AServer,

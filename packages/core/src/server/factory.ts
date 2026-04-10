@@ -34,6 +34,7 @@ import {
 } from "@a2a-js/sdk/server/express";
 
 import type { BaseAgentConfig } from "../config/types.js";
+import type { EventTransport, EventTransportFn } from "../events/transport.js";
 import { buildAgentCard } from "./agent-card.js";
 
 // ─── A2AExecutor Interface ──────────────────────────────────────────────────
@@ -96,6 +97,29 @@ export interface ServerOptions {
    *                   that need to delegate to the backend.
    */
   registerRoutes?: (app: Express, executor: A2AExecutor) => void;
+
+  /**
+   * Custom event transport for sideband observability events.
+   *
+   * When provided, this transport is used instead of the built-in transports
+   * configured via `config.events`. Accepts either an object implementing
+   * {@link EventTransport} or a plain async function.
+   *
+   * This is the primary extension point for custom sinks (Kafka, Redis, DB):
+   *
+   * ```typescript
+   * createA2AServer(config, executorFactory, {
+   *   eventTransport: async (event) => {
+   *     await kafkaProducer.send({ topic: "traces", messages: [{ value: JSON.stringify(event) }] });
+   *   },
+   * });
+   * ```
+   *
+   * The transport is passed through to executors via the {@link ServerHandle}.
+   * Executors call `resolveTransport(config.events, bus, taskId, contextId, customTransport)`
+   * inside their `execute()` method to get the final transport for each request.
+   */
+  eventTransport?: EventTransport | EventTransportFn;
 }
 
 // ─── ServerHandle ───────────────────────────────────────────────────────────
@@ -116,6 +140,16 @@ export interface ServerHandle {
 
   /** The initialized backend executor. */
   executor: A2AExecutor;
+
+  /**
+   * Custom event transport supplied via {@link ServerOptions.eventTransport}.
+   * Executors pass this to `resolveTransport()` so the custom transport
+   * takes priority over config-driven built-in transports.
+   *
+   * `undefined` when no custom transport was provided — `resolveTransport()`
+   * will fall back to the config-driven transport (A2A sideband by default).
+   */
+  eventTransport?: EventTransport | EventTransportFn;
 
   /**
    * Gracefully shut down the server and executor.
@@ -285,6 +319,7 @@ export async function createA2AServer<T extends BaseAgentConfig<unknown>>(
     app,
     server: httpServer,
     executor,
+    eventTransport: options?.eventTransport,
     async shutdown() {
       httpServer.close();
       await executor.shutdown();

@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.3.0
+
+### Minor Changes
+
+- **Event Transport Integration** — executor now routes all trace events (tool calls, reasoning) through the new `@a2a-wrapper/core` event transport abstraction instead of calling `publishTraceArtifact` directly. Supports A2A sideband (default), HTTP collectors, and custom transports.
+- **Agent card delegates to core** — `buildAgentCard()` now delegates to `@a2a-wrapper/core`'s shared implementation, eliminating duplicated card construction logic.
+- **OpenCode SDK upgrade** — upgraded `@opencode-ai/sdk` from `1.3.13` to `1.4.3`. Renamed `FileDiff` → `SnapshotFileDiff` to match the new SDK export.
+
+### Patch Changes
+
+- **Default events config** — defaults now include `events: { enabled: true, transport: "a2a" }`.
+- Updated dependencies
+  - @a2a-wrapper/core@1.3.0
+
 ## 1.2.1
 
 ### Patch Changes

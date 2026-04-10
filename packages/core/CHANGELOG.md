@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.3.0
+
+### Minor Changes
+
+- **Event Transport Abstraction** — new pluggable transport layer for sideband observability events. Built-in `A2ATransport` (default, publishes trace artifacts on the A2A EventBus) and `HttpTransport` (POSTs events as JSON to any HTTP collector). Custom transports (Kafka, Redis, DB) supported via the programmatic `createA2AServer()` API.
+- **AgentEventEmitter** — per-execution emitter that stamps every event with agent identity, trace context, UUID, and ISO timestamp before routing through the transport.
+- **EventsConfig** — new config section on `BaseAgentConfig` for controlling event emission, transport type, HTTP endpoint, timeout, and custom headers.
+- **TRACE_EXTENSION_URI** — agent cards now declare `urn:x-a2a:trace:v1` in `capabilities.extensions` so orchestrators can discover sideband trace data.
+- **ServerOptions.eventTransport** — `createA2AServer()` now accepts an optional custom event transport for programmatic use.
+
+### Patch Changes
+
+- **Trace artifacts now include extension metadata** — `publishTraceArtifact()` and `publishThoughtArtifact()` now emit `extensions: [TRACE_EXTENSION_URI]` and `metadata: { traceType, timestamp }` on every trace artifact, allowing orchestrators to reliably distinguish trace artifacts from response artifacts.
+- **Fix flaky property-based test** — excluded `-0` from the `fc.double()` arbitrary in the config loader round-trip test. `-0` doesn't survive JSON serialization (`JSON.stringify(-0)` → `"0"` → `+0`), causing intermittent failures.
+
 ## 1.2.1
 
 ### Patch Changes

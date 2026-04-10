@@ -21,6 +21,16 @@ import type { AgentCard } from "@a2a-js/sdk";
 import type { AgentCardConfig, ServerConfig, SkillConfig } from "../config/types.js";
 
 /**
+ * Extension URI for trace/observability sideband artifacts.
+ *
+ * Declared in agent card `capabilities.extensions` so orchestrators can
+ * discover that this agent emits sideband data. Referenced on each trace
+ * artifact via `artifact.extensions` so consumers can reliably filter
+ * trace artifacts from real response artifacts at the protocol level.
+ */
+export const TRACE_EXTENSION_URI = "urn:x-a2a:trace:v1";
+
+/**
  * Input shape accepted by {@link buildAgentCard}.
  *
  * Only the `agentCard` and `server` configuration sections are required to
@@ -113,6 +123,17 @@ export function buildAgentCard(config: BuildAgentCardInput): AgentCard {
       // stateTransitionHistory was removed in A2A v1.0 as unimplemented.
       // We advertise false so v0.3.x clients that check this flag don't expect history.
       stateTransitionHistory: false,
+      // Declare the trace extension so orchestrators know this agent emits
+      // sideband artifacts for observability (MCP tool calls, reasoning, etc.).
+      extensions: [
+        {
+          uri: TRACE_EXTENSION_URI,
+          description:
+            "Emits trace.mcp and trace.thought sideband artifacts for observability. " +
+            "These artifacts carry MCP tool call evidence and agent reasoning and " +
+            "should be forwarded to telemetry sinks, not to the LLM.",
+        },
+      ],
     },
     // Retain protocolVersion for v0.3.x client backward compatibility.
     // When the SDK ships v1.0 types this moves into additionalInterfaces[].protocolVersion.

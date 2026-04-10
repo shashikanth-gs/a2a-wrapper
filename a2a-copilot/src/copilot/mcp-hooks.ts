@@ -20,8 +20,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import type { ExecutionEventBus } from "@a2a-js/sdk/server";
-import { publishTraceArtifact } from "./event-publisher.js";
+import type { AgentEventEmitter } from "@a2a-wrapper/core";
 import { logger } from "../utils/logger.js";
 
 const log = logger.child("mcp-hooks");
@@ -40,27 +39,10 @@ const SENSITIVE_KEYS = new Set([
   "credential",
 ]);
 
-// ─── Execution context passed per-task ──────────────────────────────────────
-
-export interface McpHooksContext {
-  /** A2A ExecutionEventBus for the current task. */
-  bus: ExecutionEventBus;
-  /** Current A2A taskId. */
-  taskId: string;
-  /** Current A2A contextId. */
-  contextId: string;
-  /** Agent identity for trace metadata. */
-  agentId: string;
-  /** Agent display name. */
-  agentName: string;
-  /** Trace ID (analysis ID) propagated from orchestrator. */
-  traceId: string;
-}
-
 // ─── Hooks class ────────────────────────────────────────────────────────────
 
 export class McpEvidenceHooks {
-  private context: McpHooksContext | null = null;
+  private emitter: AgentEventEmitter | null = null;
   /** Correlate start/end by session+toolName → { toolCallId, args, startTime }. */
   private activeToolCalls = new Map<
     string,
@@ -68,16 +50,16 @@ export class McpEvidenceHooks {
   >();
 
   /**
-   * Bind the A2A bus and task context for the current execution.
-   * Must be called before each prompt so trace artifacts carry the right IDs.
+   * Bind the emitter for the current execution.
+   * Must be called before each prompt so trace events route correctly.
    */
-  setContext(ctx: McpHooksContext): void {
-    this.context = ctx;
+  setEmitter(emitter: AgentEventEmitter): void {
+    this.emitter = emitter;
   }
 
-  /** Clear context after execution completes. */
-  clearContext(): void {
-    this.context = null;
+  /** Clear emitter after execution completes. */
+  clearEmitter(): void {
+    this.emitter = null;
     this.activeToolCalls.clear();
   }
 
@@ -110,6 +92,15 @@ export class McpEvidenceHooks {
 
         log.info("MCP tool call start", { toolName, toolCallId });
 
+        // Emit tool_call_start event via transport
+        if (this.emitter) {
+          this.emitter.emit("tool_call_start", {
+            toolCallId,
+            toolName,
+            arguments: truncate(sanitize(toolArgs)),
+          });
+        }
+
         // IMPORTANT: return permissionDecision to allow execution
         return { permissionDecision: "allow" };
       },
@@ -120,7 +111,6 @@ export class McpEvidenceHooks {
       ): Promise<null> => {
         const inp = input as Record<string, unknown>;
         const toolName = (inp.toolName as string) || "unknown";
-        const toolArgs = (inp.toolArgs as Record<string, unknown>) || {};
         const toolResult = inp.toolResult;
 
         // Recover tracked data from activeToolCalls
@@ -141,33 +131,14 @@ export class McpEvidenceHooks {
 
         log.info("MCP tool call end", { toolName, toolCallId, isError, durationMs });
 
-        // Emit the complete MCP call as a sideband trace artifact via A2A
-        if (this.context) {
-          const { bus, taskId, contextId, agentId, agentName, traceId } =
-            this.context;
-
-          publishTraceArtifact(bus, taskId, contextId, "trace.mcp", {
-            tool_call_id: toolCallId,
-            tool: toolName,
-            agent_id: agentId,
-            agent_name: agentName,
-            trace_id: traceId,
-            request: {
-              method: "tools/call",
-              params: {
-                name: toolName,
-                arguments: truncate(sanitize(toolArgs)),
-              },
-            },
-            response: {
-              result: truncate(sanitize(toolResult)),
-              is_error: isError,
-            },
-            metadata: {
-              duration_ms: durationMs,
-              timestamp: new Date().toISOString(),
-              source: "mcp",
-            },
+        // Emit tool_call_end event via transport
+        if (this.emitter) {
+          this.emitter.emit("tool_call_end", {
+            toolCallId,
+            toolName,
+            result: truncate(sanitize(toolResult)),
+            isError,
+            durationMs,
           });
         }
 

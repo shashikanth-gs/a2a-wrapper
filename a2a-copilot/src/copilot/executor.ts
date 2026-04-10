@@ -8,7 +8,7 @@
 
 import type { Message as A2AMessage } from "@a2a-js/sdk";
 import type { AgentExecutor, RequestContext, ExecutionEventBus } from "@a2a-js/sdk/server";
-import { CopilotClient } from "@github/copilot-sdk";
+import { CopilotClient, approveAll } from "@github/copilot-sdk";
 import { v4 as uuidv4 } from "uuid";
 import { readFile as fsReadFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -21,9 +21,10 @@ import {
   publishFinalArtifact,
   publishStreamingChunk,
   publishLastChunkMarker,
-  publishThoughtArtifact,
   publishTask,
 } from "./event-publisher.js";
+import { resolveTransport, AgentEventEmitter } from "@a2a-wrapper/core";
+import type { EventTransport, EventTransportFn } from "@a2a-wrapper/core";
 import { createDeferred } from "../utils/deferred.js";
 import { logger } from "../utils/logger.js";
 
@@ -35,6 +36,8 @@ export class CopilotExecutor implements AgentExecutor {
   private sessionManager: SessionManager | null = null;
   private mcpHooks: McpEvidenceHooks | null = null;
   private initialized = false;
+  /** Optional custom event transport supplied via programmatic API. */
+  public customTransport?: EventTransport | EventTransportFn;
 
   constructor(config: Required<AgentConfig>) {
     this.config = config;
@@ -153,6 +156,9 @@ export class CopilotExecutor implements AgentExecutor {
       }
     }
 
+    // Auto-approve MCP tool permissions for headless context building
+    opts.onPermissionRequest = approveAll;
+
     const session = await (this.client as any).createSession(opts);
     const sessionId = session.sessionId ?? "context-build";
 
@@ -202,16 +208,24 @@ export class CopilotExecutor implements AgentExecutor {
     const agentId = this.config.agentCard.name.toLowerCase().replace(/\s+/g, "-");
     const agentName = this.config.agentCard.name;
 
-    // Set MCP hooks context → trace artifacts flow via A2A sideband
+    // Resolve event transport and create per-execution emitter
+    const transport = resolveTransport(
+      this.config.events,
+      bus,
+      taskId,
+      contextId,
+      this.customTransport,
+    );
+    const emitter = new AgentEventEmitter({
+      agentId,
+      agentName,
+      traceId: traceCtx.traceId,
+      transport,
+    });
+
+    // Set MCP hooks context → trace artifacts flow via transport
     if (this.mcpHooks) {
-      this.mcpHooks.setContext({
-        bus,
-        taskId,
-        contextId,
-        agentId,
-        agentName,
-        traceId: traceCtx.traceId,
-      });
+      this.mcpHooks.setEmitter(emitter);
     }
 
     try {
@@ -277,12 +291,12 @@ export class CopilotExecutor implements AgentExecutor {
           }
         }));
 
-        // ── Reasoning complete → publish accumulated thought as trace artifact ──
+        // ── Reasoning complete → publish accumulated thought via transport ──
         unsubs.push(copilotSession.on("assistant.reasoning", (event: any) => {
           const content = event?.data?.content ?? reasoningAccumulator;
           if (content) {
             log.debug("Reasoning complete", { taskId, len: content.length });
-            publishThoughtArtifact(bus, taskId, contextId, "trace.thought", content);
+            emitter.emit("thinking", { content });
             reasoningAccumulator = "";
           }
         }));
@@ -448,7 +462,7 @@ export class CopilotExecutor implements AgentExecutor {
       bus.finished();
     } finally {
       this.sessionManager!.untrackTask(taskId);
-      this.mcpHooks?.clearContext();
+      this.mcpHooks?.clearEmitter();
     }
   }
   async cancelTask(taskId: string, bus: ExecutionEventBus): Promise<void> {

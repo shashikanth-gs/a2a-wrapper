@@ -231,4 +231,6 @@ export interface AgentConfig {
    * Keys are server names, values are local or remote configs.
    */
   mcp?: Record<string, McpServerConfig>;
+  /** Event transport configuration for sideband observability events. */
+  events?: import("@a2a-wrapper/core").EventsConfig;
 }

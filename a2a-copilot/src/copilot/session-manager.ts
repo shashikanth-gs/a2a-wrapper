@@ -6,6 +6,7 @@
  */
 
 import type { CopilotClient } from "@github/copilot-sdk";
+import { approveAll } from "@github/copilot-sdk";
 import type { AgentConfig, McpServerConfig } from "../config/types.js";
 import type { McpEvidenceHooks } from "./mcp-hooks.js";
 import { logger } from "../utils/logger.js";
@@ -192,6 +193,12 @@ export class SessionManager {
 
     // Create new session
     const opts = this.buildSessionOptions();
+
+    // Auto-approve all MCP tool permissions for headless operation.
+    // Without this, the SDK prompts for human approval on every tool call
+    // and hangs indefinitely in Docker / k8s / CI environments.
+    opts.onPermissionRequest = approveAll;
+
     log.info("Creating Copilot session", { contextId, model: opts.model, mcpServers: Object.keys((opts.mcpServers ?? {}) as Record<string, unknown>) });
 
     // The CopilotClient does not publish TypeScript types for createSession;

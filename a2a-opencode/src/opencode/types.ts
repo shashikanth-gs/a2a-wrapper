@@ -12,7 +12,7 @@ export type {
   UserMessage,
   AssistantMessage,
   Message,
-  FileDiff,
+  SnapshotFileDiff,
   Todo,
 } from "@opencode-ai/sdk/v2";
 

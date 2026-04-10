@@ -189,6 +189,10 @@ Create a `config.json` (see `agents/example/config.json` for the fully annotated
       "type": "http",
       "url": "http://localhost:8002/mcp"
     }
+  },
+  "events": {
+    "enabled": true,
+    "transport": "a2a"
   }
 }
 ```
@@ -269,6 +273,35 @@ $EDITOR agents/my-agent/config.json
   }
 }
 ```
+
+## Event Transport (Observability)
+
+Agents emit structured trace events for MCP tool calls, reasoning, and lifecycle. By default, these flow as sideband artifacts through the A2A protocol itself — orchestrators discover them via the `urn:x-a2a:trace:v1` extension on the agent card.
+
+### Default (A2A sideband)
+
+No config needed. Trace artifacts appear alongside response artifacts and can be filtered by the `urn:x-a2a:trace:v1` extension URI.
+
+### HTTP collector
+
+Route events to an external telemetry endpoint:
+
+```json
+{
+  "events": {
+    "enabled": true,
+    "transport": "http",
+    "httpUrl": "https://telemetry.example.com/events",
+    "httpHeaders": {
+      "Authorization": "Bearer ${TELEMETRY_TOKEN}"
+    }
+  }
+}
+```
+
+### Custom transport (programmatic)
+
+For Kafka, Redis, or database sinks, use the programmatic API. See the [`@a2a-wrapper/core` README](https://www.npmjs.com/package/@a2a-wrapper/core) for full details.
 
 ## Docker
 

@@ -58,4 +58,8 @@ export const DEFAULTS: Readonly<Required<AgentConfig>> = Object.freeze({
     level: "info",
   },
   mcp: {},
+  events: {
+    enabled: true,
+    transport: "a2a",
+  },
 });
