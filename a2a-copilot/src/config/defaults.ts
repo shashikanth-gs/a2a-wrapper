@@ -7,8 +7,19 @@
 
 import type { AgentConfig } from "./types.js";
 
+/**
+ * Default configuration values with all required sections populated.
+ *
+ * Fields that are genuinely optional at runtime (`memory`, `configDir`) are
+ * typed as `undefined` here rather than hidden behind an unsafe cast.
+ */
+export type DefaultAgentConfig = Omit<Required<AgentConfig>, "memory" | "configDir"> & {
+  memory: undefined;
+  configDir: undefined;
+};
+
 /** Deep-frozen default config. Never mutate — always merge over. */
-export const DEFAULTS: Readonly<Required<AgentConfig>> = Object.freeze({
+export const DEFAULTS: Readonly<DefaultAgentConfig> = Object.freeze({
   agentCard: {
     name: "Copilot A2A Agent",
     description: "A generic A2A agent powered by GitHub Copilot SDK.",
@@ -58,4 +69,6 @@ export const DEFAULTS: Readonly<Required<AgentConfig>> = Object.freeze({
     enabled: true,
     transport: "a2a",
   },
+  memory: undefined,
+  configDir: undefined,
 });

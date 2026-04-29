@@ -97,6 +97,25 @@ export {
   type CommonArgsResult,
 } from "./cli/scaffold.js";
 
+// ─── Memory ─────────────────────────────────────────────────────────────────
+
+export type {
+  MemoryConfig,
+  SkillManifest,
+  ParsedSkill,
+  BackendPaths,
+  MaterializeOptions,
+} from "./memory/index.js";
+
+export {
+  materializeMemory,
+  parseSkillManifest,
+  formatSkillManifest,
+  validateSkillManifest,
+  WELL_KNOWN_PATHS,
+  resolveMemoryPath,
+} from "./memory/index.js";
+
 // ─── A2A SDK Type Re-exports ────────────────────────────────────────────────
 //
 // Core-owned aliases for commonly used A2A SDK types. Wrapper projects

@@ -20,6 +20,7 @@
  * @module cli/scaffold
  */
 
+import path from "node:path";
 import { parseArgs } from "node:util";
 
 import { resolveConfig } from "../config/loader.js";
@@ -392,6 +393,11 @@ export function createCli<T extends BaseAgentConfig<unknown>>(
       envOverrides,
       cliOverrides,
     );
+
+    // Inject configDir for memory path resolution
+    config.configDir = commonResult.configPath
+      ? path.dirname(path.resolve(commonResult.configPath))
+      : process.cwd();
 
     // 4. Set log level
     const levelStr = config.logging?.level ?? "info";

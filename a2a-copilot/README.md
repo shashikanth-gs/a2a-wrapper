@@ -274,6 +274,79 @@ $EDITOR agents/my-agent/config.json
 }
 ```
 
+## Memory Persistence
+
+Give your agent persistent instructions and skills that survive across sessions. Declare them in config.json and they're materialized into the workspace at startup — the Copilot LLM reads them automatically.
+
+### Config
+
+```json
+{
+  "memory": {
+    "instructions": "./memory/instructions.md",
+    "skills": ["./memory/skills/code-review"]
+  }
+}
+```
+
+Paths are relative to the directory containing config.json.
+
+### Instructions
+
+A markdown file with project-level instructions, coding conventions, safety rules, or behavioral guidelines. Written to `.github/copilot-instructions.md` in the workspace.
+
+### Skills
+
+Each skill is a directory containing a `SKILL.md` file with YAML frontmatter and optional resource directories:
+
+```
+memory/skills/code-review/
+├── SKILL.md              # Required: frontmatter + instructions
+├── scripts/              # Optional: helper scripts
+├── references/           # Optional: reference docs
+└── assets/               # Optional: static files
+```
+
+**SKILL.md format:**
+
+```markdown
+---
+name: code-review
+description: Provides code review guidelines and checklists
+license: MIT
+allowed-tools:
+  - read_file
+  - search_files
+---
+
+# Code Review Skill
+
+Detailed instructions for the LLM...
+```
+
+The `name` field must be kebab-case (lowercase + hyphens, max 64 chars). It determines the output directory name under `.github/skills/`.
+
+### Where files are written
+
+| Source | Target in workspace |
+|---|---|
+| `memory.instructions` | `.github/copilot-instructions.md` |
+| `memory.skills[]/SKILL.md` | `.github/skills/<name>/SKILL.md` |
+| `memory.skills[]/scripts/` | `.github/skills/<name>/scripts/` |
+
+### `agentCard.skills` vs `memory.skills`
+
+These serve different purposes:
+
+- **`agentCard.skills`** — External metadata for orchestrators. Advertised in the agent card for discovery and routing.
+- **`memory.skills`** — Internal instructions for the LLM. Never exposed externally. Teaches the LLM *how* to perform tasks.
+
+Both should be maintained — the agent card tells callers what the agent can do, while memory skills tell the LLM how to do it. Descriptions may differ: agent card skills are high-level and marketing-friendly, memory skills are technical and detailed.
+
+### Example
+
+See [`agents/filesystem-assistant/`](agents/filesystem-assistant/) for a working example with instructions, a skill, and a helper script.
+
 ## Event Transport (Observability)
 
 Agents emit structured trace events for MCP tool calls, reasoning, and lifecycle. By default, these flow as sideband artifacts through the A2A protocol itself — orchestrators discover them via the `urn:x-a2a:trace:v1` extension on the agent card.

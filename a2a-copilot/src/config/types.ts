@@ -242,4 +242,16 @@ export interface AgentConfig {
   customAgents?: CustomAgentConfig[];
   /** Event transport configuration for sideband observability events. */
   events?: import("@a2a-wrapper/core").EventsConfig;
+  /**
+   * Optional memory configuration for persisting instructions and skills.
+   * When present, the materializer writes these to backend-specific paths
+   * in the workspace directory during executor initialization.
+   */
+  memory?: import("@a2a-wrapper/core").MemoryConfig;
+  /**
+   * Directory containing the agent's config.json file.
+   * Populated automatically by the CLI scaffold when a config file path is provided.
+   * Used by the materializer for resolving relative paths in memory config.
+   */
+  configDir?: string;
 }

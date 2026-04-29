@@ -14,6 +14,8 @@
  * @module config/types
  */
 
+import type { MemoryConfig } from "../memory/types.js";
+
 // ─── Skill Config ───────────────────────────────────────────────────────────
 
 /**
@@ -437,4 +439,19 @@ export interface BaseAgentConfig<TBackend = Record<string, unknown>> {
    * a transport function via the programmatic `createA2AServer()` API.
    */
   events?: EventsConfig;
+
+  /**
+   * Optional memory configuration for persisting instructions and skills.
+   * When present, the materializer writes these to backend-specific paths
+   * in the workspace directory during executor initialization.
+   */
+  memory?: MemoryConfig;
+
+  /**
+   * Directory containing the agent's config.json file.
+   * Populated automatically by the config loader when a config file path is provided.
+   * Used by the materializer for resolving relative paths in memory config.
+   * Defaults to process.cwd() when no config file is specified.
+   */
+  configDir?: string;
 }

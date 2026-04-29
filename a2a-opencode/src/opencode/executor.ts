@@ -28,8 +28,8 @@ import {
   publishLastChunkMarker,
   publishTask,
 } from "./event-publisher.js";
-import { resolveTransport, AgentEventEmitter } from "@a2a-wrapper/core";
-import type { EventTransport, EventTransportFn } from "@a2a-wrapper/core";
+import { resolveTransport, AgentEventEmitter, materializeMemory, WELL_KNOWN_PATHS } from "@a2a-wrapper/core";
+import type { EventTransport, EventTransportFn, BackendPaths } from "@a2a-wrapper/core";
 import type { OpenCodeEvent, Part as OpenCodePart, SessionStatus } from "./types.js";
 import { createDeferred, sleep } from "../utils/deferred.js";
 import { logger } from "../utils/logger.js";
@@ -88,6 +88,20 @@ export class OpenCodeExecutor implements AgentExecutor {
 
   async initialize(): Promise<void> {
     if (this.initialized) return;
+
+    // Memory materialization (before backend client setup)
+    if (this.config.memory) {
+      const workspaceDir = this.config.opencode.projectDirectory;
+      if (workspaceDir) {
+        const paths = this.resolveBackendPaths();
+        await materializeMemory({
+          memoryConfig: this.config.memory,
+          configDir: this.config.configDir ?? process.cwd(),
+          workspaceDir,
+          paths,
+        });
+      }
+    }
 
     const oc = this.config.opencode;
     this.client = new OpenCodeClientWrapper({
@@ -721,5 +735,14 @@ export class OpenCodeExecutor implements AgentExecutor {
       }
     }
     return "";
+  }
+
+  private resolveBackendPaths(): BackendPaths {
+    const model = this.config.opencode.model ?? "";
+    // Use word-boundary-aware matching to avoid false positives
+    // (e.g., "claudette" should not match "claude")
+    if (/\bclaude\b/i.test(model)) return WELL_KNOWN_PATHS.claude;
+    if (/\bcodex\b/i.test(model)) return WELL_KNOWN_PATHS.codex;
+    return WELL_KNOWN_PATHS.opencode;
   }
 }

@@ -23,7 +23,7 @@ import {
   publishLastChunkMarker,
   publishTask,
 } from "./event-publisher.js";
-import { resolveTransport, AgentEventEmitter } from "@a2a-wrapper/core";
+import { resolveTransport, AgentEventEmitter, materializeMemory, WELL_KNOWN_PATHS } from "@a2a-wrapper/core";
 import type { EventTransport, EventTransportFn } from "@a2a-wrapper/core";
 import { createDeferred } from "../utils/deferred.js";
 import { logger } from "../utils/logger.js";
@@ -47,6 +47,19 @@ export class CopilotExecutor implements AgentExecutor {
 
   async initialize(): Promise<void> {
     if (this.initialized) return;
+
+    // Memory materialization (before backend client setup)
+    if (this.config.memory) {
+      const workspaceDir = this.config.copilot.workspaceDirectory;
+      if (workspaceDir) {
+        await materializeMemory({
+          memoryConfig: this.config.memory,
+          configDir: this.config.configDir ?? process.cwd(),
+          workspaceDir,
+          paths: WELL_KNOWN_PATHS.copilot,
+        });
+      }
+    }
 
     // Create Copilot client
     const clientOpts: Record<string, unknown> = {};

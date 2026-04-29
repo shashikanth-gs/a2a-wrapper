@@ -16,6 +16,7 @@
 
 import { createRequire } from "node:module";
 import { parseArgs } from "node:util";
+import { dirname, resolve } from "node:path";
 import { resolveConfig } from "./config/loader.js";
 import type { AgentConfig } from "./config/types.js";
 import { createA2AServer } from "./server/index.js";
@@ -144,6 +145,11 @@ async function main() {
 
   // Resolve config: defaults ← file ← env ← CLI overrides
   const config = resolveConfig(configPath, overrides);
+
+  // Inject configDir for memory path resolution
+  config.configDir = configPath
+    ? dirname(resolve(configPath))
+    : process.cwd();
 
   // Apply log level
   const levelStr = config.logging?.level ?? "info";

@@ -237,6 +237,99 @@ await emitter.emit("thinking", { content: "The data shows a spike in CPU usage..
 | `parseCommonArgs<T>(argv, extraArgDefs?)` | Parses common CLI flags (`--port`, `--hostname`, `--log-level`, etc.) into typed config overrides. |
 | `CommonArgsResult<T>` | Result of `parseCommonArgs` — config path and partial overrides. |
 
+### Memory Persistence
+
+Materialize instructions and skills into the agent's workspace at startup. The LLM reads these files as part of its context, giving it persistent knowledge across sessions.
+
+| Export | Description |
+|---|---|
+| `materializeMemory(options)` | Main entry point — reads source files, validates manifests, writes to workspace. |
+| `parseSkillManifest(content)` | Parse a SKILL.md file into frontmatter + body. |
+| `formatSkillManifest(frontmatter, body)` | Serialize frontmatter + body back to SKILL.md format. |
+| `validateSkillManifest(manifest)` | Validate name (kebab-case, ≤64 chars) and description. Returns `null` if valid. |
+| `resolveMemoryPath(inputPath, configDir)` | Resolve relative/absolute paths against the config directory. |
+| `WELL_KNOWN_PATHS` | Pre-defined backend path mappings (copilot, claude, opencode, codex). |
+| `MemoryConfig` | Type — `{ instructions?: string; skills?: string[] }` |
+| `SkillManifest` | Type — parsed SKILL.md frontmatter (name, description, license, compatibility, allowedTools). |
+| `ParsedSkill` | Type — result of parsing: `{ manifest, body, rawFrontmatter }`. |
+| `BackendPaths` | Type — `{ instructionsPath: string; skillsBaseDir: string }`. |
+| `MaterializeOptions` | Type — input to `materializeMemory()`. |
+
+#### Config example
+
+```json
+{
+  "memory": {
+    "instructions": "./memory/instructions.md",
+    "skills": ["./memory/skills/code-review", "./memory/skills/testing"]
+  }
+}
+```
+
+#### SKILL.md format
+
+```markdown
+---
+name: code-review
+description: Provides code review guidelines and checklists
+license: MIT
+compatibility:
+  - copilot
+  - opencode
+allowed-tools:
+  - read_file
+  - search_files
+---
+
+# Code Review Skill
+
+Instructions for the LLM on how to perform code reviews...
+```
+
+#### Skill directory structure
+
+```
+memory/skills/code-review/
+├── SKILL.md              # Required: manifest + instructions
+├── scripts/              # Optional: executable scripts
+├── references/           # Optional: reference documents
+└── assets/               # Optional: static assets
+```
+
+#### Backend path mapping
+
+| Backend | Instructions path | Skills base dir |
+|---|---|---|
+| Copilot | `.github/copilot-instructions.md` | `.github/skills/` |
+| Claude | `CLAUDE.md` | `.claude/skills/` |
+| OpenCode | `.opencode/instructions.md` | `.opencode/skills/` |
+| Codex | `.codex/instructions.md` | `.agents/skills/` |
+
+#### Usage in an executor
+
+```typescript
+import { materializeMemory, WELL_KNOWN_PATHS } from "@a2a-wrapper/core";
+
+// In executor.initialize():
+if (config.memory && workspaceDir) {
+  await materializeMemory({
+    memoryConfig: config.memory,
+    configDir: config.configDir ?? process.cwd(),
+    workspaceDir,
+    paths: WELL_KNOWN_PATHS.copilot, // or .claude, .opencode, .codex
+  });
+}
+```
+
+#### Note on `agentCard.skills` vs `memory.skills`
+
+These are different concepts:
+
+- **`agentCard.skills`** — A2A protocol metadata advertised to orchestrators and callers. External-facing. Describes what the agent *can do* at a high level for discovery and routing.
+- **`memory.skills`** — Internal instructions materialized into the workspace for the LLM. Never exposed externally. Tells the LLM *how* to do things — patterns, guidelines, tool usage rules.
+
+Keep both in sync manually. You may want different descriptions: the agent card skill is marketing-friendly for orchestrators, while the memory skill is technical and detailed for the LLM.
+
 ### A2A SDK Re-exports
 
 | Export | Source |

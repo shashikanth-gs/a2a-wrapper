@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.4.0
+
+### Minor Changes
+
+- **Memory Persistence** — new `memory` config section allows agents to declare instructions and skills that are materialized into the workspace at startup. The core package provides a backend-agnostic materializer (`materializeMemory()`) that reads source files, validates SKILL.md frontmatter, and writes content to backend-specific paths before the executor handles its first request.
+- **SKILL.md Parser** — `parseSkillManifest()`, `formatSkillManifest()`, and `validateSkillManifest()` functions for parsing YAML frontmatter from skill files. Uses a lightweight regex-based parser (no js-yaml dependency). Supports kebab-case name validation, arrays, quoted strings, and round-trip fidelity.
+- **Well-Known Backend Paths** — `WELL_KNOWN_PATHS` constant with pre-defined path mappings for Copilot (`.github/`), Claude (`CLAUDE.md` + `.claude/`), OpenCode (`.opencode/`), and Codex (`.codex/` + `.agents/`). Wrappers can use these or define their own `BackendPaths`.
+- **Path Resolution** — `resolveMemoryPath()` utility for resolving relative/absolute paths against the config directory.
+- **BaseAgentConfig extended** — added optional `memory?: MemoryConfig` and `configDir?: string` fields to the base config type.
+- **CLI scaffold injects configDir** — `createCli()` now automatically populates `configDir` from the config file path for memory path resolution.
+
+### New Exports
+
+- Types: `MemoryConfig`, `SkillManifest`, `ParsedSkill`, `BackendPaths`, `MaterializeOptions`
+- Functions: `materializeMemory`, `parseSkillManifest`, `formatSkillManifest`, `validateSkillManifest`, `resolveMemoryPath`
+- Constants: `WELL_KNOWN_PATHS`
+
 ## 1.3.0
 
 ### Minor Changes

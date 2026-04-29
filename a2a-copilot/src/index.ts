@@ -34,6 +34,7 @@ export type {
   CustomAgentConfig,
 } from "./config/types.js";
 export { DEFAULTS } from "./config/defaults.js";
+export type { DefaultAgentConfig } from "./config/defaults.js";
 
 export { logger, LogLevel, Logger } from "./utils/logger.js";
 export { createDeferred, sleep } from "./utils/deferred.js";

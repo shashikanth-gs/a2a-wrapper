@@ -100,6 +100,11 @@
     "level": "info"
   },
 
+  "memory": {
+    "instructions": "./memory/instructions.md",
+    "skills": ["./memory/skills/file-operations"]
+  },
+
   "mcp": {
     "$comment": [
       "The filesystem MCP server is launched as a child process by the wrapper (type: 'stdio').",

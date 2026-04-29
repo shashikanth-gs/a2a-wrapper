@@ -23,6 +23,7 @@ export {
 export { resolveConfig, loadConfigFile, loadEnvOverrides } from "./config/loader.js";
 export type { AgentConfig, AgentCardConfig, ServerConfig, OpenCodeConfig, SessionConfig, FeatureFlags, TimeoutConfig, LoggingConfig, SkillConfig, McpServerConfig, McpLocalServerConfig, McpRemoteServerConfig, McpOAuthServerConfig } from "./config/types.js";
 export { DEFAULTS } from "./config/defaults.js";
+export type { DefaultAgentConfig } from "./config/defaults.js";
 
 export { registerMcpServers, getMcpStatus } from "./opencode/mcp-manager.js";
 export type { McpRegistrationResult, McpManagerOptions } from "./opencode/mcp-manager.js";
