@@ -316,4 +316,5 @@ The version pinned in this repo (`SKILLMAP_PACKAGE_VERSION` in
 - [`a2a-copilot/agents/multi-agent/`](../../a2a-copilot/agents/multi-agent/) — multi-agent config for a real Copilot parent
 - [`a2a-opencode/agents/multi-agent/`](../../a2a-opencode/agents/multi-agent/) — multi-agent config for a real OpenCode parent
 - [`a2a-mcp-skillmap` on npm](https://www.npmjs.com/package/a2a-mcp-skillmap) — the bridge package
+- [`a2a-mcp-skillmap` on GitHub](https://github.com/shashikanth-gs/a2a-mcp-skillmap) — source, full docs, config schema reference, response modes, session continuity, sync budget, OpenTelemetry
 - [A2A protocol spec](https://github.com/google-deepmind/a2a) — the underlying agent-to-agent protocol

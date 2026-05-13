@@ -332,9 +332,10 @@ Keep both in sync manually. You may want different descriptions: the agent card 
 
 ### Sub-Agents
 
-Expose remote A2A agents as MCP tools to the parent agent's underlying LLM runtime by spawning [`a2a-mcp-skillmap`](https://www.npmjs.com/package/a2a-mcp-skillmap) as a stdio child process. The parent reads a `subAgents` array from its config, generates a bridge configuration for skillmap, and registers the bridge as an MCP server before the executor handles its first request.
+Expose remote A2A agents as MCP tools to the parent agent's underlying LLM runtime by spawning [`a2a-mcp-skillmap`](https://www.npmjs.com/package/a2a-mcp-skillmap) ([GitHub](https://github.com/shashikanth-gs/a2a-mcp-skillmap)) as a stdio child process. The parent reads a `subAgents` array from its config, generates a bridge configuration for skillmap, and registers the bridge as an MCP server before the executor handles its first request.
 
 See [`.kiro/specs/a2a-subagents/`](../../.kiro/specs/a2a-subagents/) for the full spec (requirements, design, and tasks).
+See the [`a2a-mcp-skillmap` GitHub repo](https://github.com/shashikanth-gs/a2a-mcp-skillmap) for the bridge's own documentation — config schema, response modes, session continuity, sync budget, OpenTelemetry, and HTTP transport.
 
 | Export | Description |
 |---|---|

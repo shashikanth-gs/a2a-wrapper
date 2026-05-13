@@ -38,6 +38,8 @@ Each wrapper implements a single `A2AExecutor` interface and a thin config/CLI l
 
 Any parent agent can delegate to other A2A agents by declaring them under `subAgents` in its `config.json`. The wrapper spawns [`a2a-mcp-skillmap`](https://www.npmjs.com/package/a2a-mcp-skillmap) as a stdio MCP server and registers it under the reserved `a2a-subagents` key. Each remote skill becomes a callable MCP tool — the LLM dispatches to them like any other tool.
 
+> **Bridge:** [`a2a-mcp-skillmap`](https://github.com/shashikanth-gs/a2a-mcp-skillmap) — the open-source bridge that fetches A2A agent cards, projects each skill as an MCP tool, and serves them over stdio or HTTP. See that repo for the full bridge documentation, config schema reference, response modes, session continuity, and OpenTelemetry integration.
+
 ```json
 {
   "subAgents": {

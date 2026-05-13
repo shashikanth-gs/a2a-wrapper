@@ -389,7 +389,7 @@ Both should be maintained — the agent card tells callers what the agent can do
 
 ## Calling Other A2A Agents
 
-Expose remote A2A agents as MCP tools by declaring them under `subAgents` in your config. The wrapper spawns [`a2a-mcp-skillmap`](https://www.npmjs.com/package/a2a-mcp-skillmap) as a stdio MCP server and registers it under the reserved `a2a-subagents` key in the resolved `mcp` map. Each remote skill becomes a callable tool the OpenCode LLM can dispatch like any other MCP tool.
+Expose remote A2A agents as MCP tools by declaring them under `subAgents` in your config. The wrapper spawns [`a2a-mcp-skillmap`](https://www.npmjs.com/package/a2a-mcp-skillmap) ([GitHub](https://github.com/shashikanth-gs/a2a-mcp-skillmap)) as a stdio MCP server and registers it under the reserved `a2a-subagents` key in the resolved `mcp` map. Each remote skill becomes a callable tool the OpenCode LLM can dispatch like any other MCP tool.
 
 ```json
 {

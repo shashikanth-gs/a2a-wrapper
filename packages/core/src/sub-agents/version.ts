@@ -16,6 +16,7 @@
  *     to match)
  *
  * @see https://www.npmjs.com/package/a2a-mcp-skillmap
+ * @see https://github.com/shashikanth-gs/a2a-mcp-skillmap
  * @module sub-agents/version
  */
 
