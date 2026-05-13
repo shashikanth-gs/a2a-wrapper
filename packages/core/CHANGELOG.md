@@ -2,15 +2,17 @@
 
 ## 1.5.0 — 2026-05-13
 
-### Minor Changes
+### Added
 
-- **A2A Sub-Agents** — new `subAgents` config section lets a parent A2A agent expose remote A2A agents as MCP tools by spawning [`a2a-mcp-skillmap`](https://www.npmjs.com/package/a2a-mcp-skillmap) as a stdio MCP child process. The bridge is registered under the reserved `a2a-subagents` key in the resolved `mcp` map, so wrapper-side MCP wiring discovers it without any wrapper-specific code.
+- **A2A Sub-Agents** — new `subAgents` config section lets a parent A2A agent expose remote A2A agents as MCP tools by spawning [`a2a-mcp-skillmap`](https://github.com/shashikanth-gs/a2a-mcp-skillmap) as a stdio MCP child process. The bridge is registered under the reserved `a2a-subagents` key in the resolved `mcp` map, so wrapper-side MCP wiring discovers it without any wrapper-specific code.
 - **Bootstrap pipeline** — single entry point `bootstrapSubAgents()` orchestrates the full sequence: validate → build → write bridge config → probe → synthesize MCP descriptor. Wrapper integration is ~10 lines per wrapper.
-- **Pinned skillmap version** — new `SKILLMAP_PACKAGE_VERSION` constant pins the `a2a-mcp-skillmap` version invoked via `npx` (initial pin: `0.2.0`). Bumping the pin is a deliberate, reviewable change.
+- **Pinned skillmap version** — new `SKILLMAP_PACKAGE_VERSION` constant pins the `a2a-mcp-skillmap` version invoked via `npx` (pinned to `0.2.1`). Bumping the pin is a deliberate, reviewable change.
 - **Reachability probe** — `probeSubAgents()` runs parallel HTTP probes against each sub-agent's effective URL at startup with structured `ProbeResult`s. Failures log warnings but never abort startup.
+- **Sync budget** — new `SubAgentsOptions.syncBudgetMs` field controls how long the bridge waits for an A2A response before returning a task handle for async polling.
 - **Reserved-key collision detection** — fail-fast validation rejects configs that manually define an MCP server under `a2a-subagents`.
-- **Env-var substitution** — `auth.token` may reference environment variables via `${VAR}` syntax. Missing variables produce a startup warning and the auth block is omitted (the bridge calls without credentials).
-- **BaseAgentConfig extended** — added optional `subAgents?: SubAgentsConfig` field to the base config type.
+- **Env-var substitution** — `auth.token` may reference environment variables via `${VAR}` syntax. Missing variables produce a startup warning and the auth block is omitted.
+- **`BaseAgentConfig.subAgents`** — optional `subAgents?: SubAgentsConfig` field added to the base config type.
+- **JSON schema** — `schemas/agent-config.schema.json` generated from TypeScript types via `npm run schema`. Drift-detection and schema validation tests ship in CI.
 
 ### New Exports
 
@@ -21,7 +23,7 @@
 
 ## 1.4.0
 
-### Minor Changes
+### Added
 
 - **Memory Persistence** — new `memory` config section allows agents to declare instructions and skills that are materialized into the workspace at startup. The core package provides a backend-agnostic materializer (`materializeMemory()`) that reads source files, validates SKILL.md frontmatter, and writes content to backend-specific paths before the executor handles its first request.
 - **SKILL.md Parser** — `parseSkillManifest()`, `formatSkillManifest()`, and `validateSkillManifest()` functions for parsing YAML frontmatter from skill files. Uses a lightweight regex-based parser (no js-yaml dependency). Supports kebab-case name validation, arrays, quoted strings, and round-trip fidelity.
@@ -38,7 +40,7 @@
 
 ## 1.3.0
 
-### Minor Changes
+### Added
 
 - **Event Transport Abstraction** — new pluggable transport layer for sideband observability events. Built-in `A2ATransport` (default, publishes trace artifacts on the A2A EventBus) and `HttpTransport` (POSTs events as JSON to any HTTP collector). Custom transports (Kafka, Redis, DB) supported via the programmatic `createA2AServer()` API.
 - **AgentEventEmitter** — per-execution emitter that stamps every event with agent identity, trace context, UUID, and ISO timestamp before routing through the transport.
@@ -46,14 +48,14 @@
 - **TRACE_EXTENSION_URI** — agent cards now declare `urn:x-a2a:trace:v1` in `capabilities.extensions` so orchestrators can discover sideband trace data.
 - **ServerOptions.eventTransport** — `createA2AServer()` now accepts an optional custom event transport for programmatic use.
 
-### Patch Changes
+### Changed
 
 - **Trace artifacts now include extension metadata** — `publishTraceArtifact()` and `publishThoughtArtifact()` now emit `extensions: [TRACE_EXTENSION_URI]` and `metadata: { traceType, timestamp }` on every trace artifact, allowing orchestrators to reliably distinguish trace artifacts from response artifacts.
 - **Fix flaky property-based test** — excluded `-0` from the `fc.double()` arbitrary in the config loader round-trip test. `-0` doesn't survive JSON serialization (`JSON.stringify(-0)` → `"0"` → `+0`), causing intermittent failures.
 
 ## 1.2.1
 
-### Patch Changes
+### Changed
 
 - Fix post-release bugs: Node 22 ESM resolution (postinstall patch for vscode-jsonrpc), auth error message clarity (GITHUB_TOKEN guidance), README corrections (message/\* method names, messageId in examples), and ResultManager race condition (publish task event before status-update in both executors).
 
