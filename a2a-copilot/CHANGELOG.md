@@ -2,38 +2,38 @@
 
 ## 1.5.0 — 2026-05-13
 
-### Minor Changes
+### Added
 
-- **A2A Sub-Agents** — new `subAgents` config section lets the parent agent expose remote A2A agents as MCP tools to the Copilot LLM. The wrapper spawns [`a2a-mcp-skillmap`](https://www.npmjs.com/package/a2a-mcp-skillmap) as a stdio MCP server and registers it under the reserved `a2a-subagents` key. Each remote skill becomes a callable tool the LLM can dispatch like any other MCP tool. See `agents/multi-agent/` for an example.
+- **A2A Sub-Agents** — new `subAgents` config section lets the parent agent expose remote A2A agents as MCP tools to the Copilot LLM. The wrapper spawns [`a2a-mcp-skillmap`](https://github.com/shashikanth-gs/a2a-mcp-skillmap) as a stdio MCP server and registers it under the reserved `a2a-subagents` key. Each remote skill becomes a callable tool the LLM can dispatch like any other MCP tool. See `agents/multi-agent/` for an example.
 - **Pinned skillmap version** — the synthesized MCP entry invokes `npx -y a2a-mcp-skillmap@<pinned>` rather than the unpinned package name, so a future skillmap release cannot silently change semantics.
-- **JSON schema for `config.json`** — `schemas/agent-config.schema.json` is now generated from the TypeScript types via `npm run schema`. Editors that read `$schema` references will autocomplete and validate config files. Two test guardrails ship in CI: one validates every bundled example against the schema, one regenerates the schema from the types and asserts byte-equality with the committed copy so drift is caught at PR time.
+- **JSON schema for `config.json`** — `schemas/agent-config.schema.json` generated from the TypeScript types via `npm run schema`. Drift-detection and schema validation tests ship in CI.
 
-### Patch Changes
+### Changed
 
 - Updated dependencies
   - @a2a-wrapper/core@1.5.0
 
 ## 1.4.0
 
-### Minor Changes
+### Added
 
 - **Memory Persistence** — agents can now declare `memory.instructions` and `memory.skills` in their config.json. At startup, the executor materializes these files into the workspace at `.github/copilot-instructions.md` and `.github/skills/<name>/`, making them available to the Copilot LLM across sessions. Skills include SKILL.md manifests and optional resource directories (scripts/, references/, assets/).
 - **configDir injection** — the CLI now automatically derives and injects `configDir` from the config file path, enabling relative path resolution in memory configs.
 
-### Patch Changes
+### Changed
 
 - Updated dependencies
   - @a2a-wrapper/core@1.4.0
 
 ## 1.3.0
 
-### Minor Changes
+### Added
 
 - **Event Transport Integration** — executor and MCP hooks now route all trace events (tool calls, reasoning) through the new `@a2a-wrapper/core` event transport abstraction instead of calling `publishTraceArtifact` directly. Supports A2A sideband (default), HTTP collectors, and custom transports.
 - **Agent card delegates to core** — `buildAgentCard()` now delegates to `@a2a-wrapper/core`'s shared implementation, eliminating duplicated card construction logic.
 - **MCP hooks refactored** — `McpEvidenceHooks` now uses `AgentEventEmitter` instead of raw `ExecutionEventBus`. Emits separate `tool_call_start` and `tool_call_end` events for better observability granularity.
 
-### Patch Changes
+### Changed
 
 - **Fix MCP tool permissions hang in headless environments** — added `approveAll` from `@github/copilot-sdk` to `SessionManager.getOrCreate()` and `CopilotExecutor.buildContext()`. Without this, the SDK prompts for human approval on every MCP tool call and hangs indefinitely in Docker, Kubernetes, and CI environments.
 - **Default events config** — defaults now include `events: { enabled: true, transport: "a2a" }`.
@@ -42,13 +42,13 @@
 
 ## 1.2.2
 
-### Patch Changes
+### Changed
 
 - Upgrade @github/copilot-sdk from ^0.1.25 to ^0.2.0 (stable release). vscode-jsonrpc is no longer a transitive dependency, resolving the Node 22 ESM crash upstream.
 
 ## 1.2.1
 
-### Patch Changes
+### Changed
 
 - Fix post-release bugs: Node 22 ESM resolution (postinstall patch for vscode-jsonrpc), auth error message clarity (GITHUB_TOKEN guidance), README corrections (message/\* method names, messageId in examples), and ResultManager race condition (publish task event before status-update in both executors).
 - Updated dependencies
