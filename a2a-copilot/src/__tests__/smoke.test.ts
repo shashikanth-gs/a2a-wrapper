@@ -250,3 +250,114 @@ describe("loadEnvOverrides — BYOK env vars", () => {
     }
   });
 });
+
+// ─── resolveConfig — MCP env-token substitution ─────────────────────────────
+
+describe("resolveConfig — MCP env-token substitution", () => {
+  const OLD_ENV = process.env;
+
+  beforeEach(() => {
+    process.env = { ...OLD_ENV };
+  });
+
+  afterEach(() => {
+    process.env = OLD_ENV;
+  });
+
+  function writeMcpConfig(mcp: Record<string, unknown>): string {
+    const tmp = join(tmpdir(), `a2a-mcp-tokens-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
+    writeFileSync(tmp, JSON.stringify({ agentCard: { name: "Test" }, mcp }));
+    return tmp;
+  }
+
+  it("substitutes ${VAR} in http headers", () => {
+    process.env["LINEAR_API_KEY"] = "secret-123";
+    const tmp = writeMcpConfig({
+      linear: {
+        type: "http",
+        url: "https://mcp.linear.app/mcp",
+        headers: { Authorization: "Bearer ${LINEAR_API_KEY}" },
+      },
+    });
+    try {
+      const cfg = resolveConfig(tmp);
+      const srv = cfg.mcp!.linear as { headers?: Record<string, string> };
+      expect(srv.headers?.Authorization).toBe("Bearer secret-123");
+    } finally {
+      rmSync(tmp, { force: true });
+    }
+  });
+
+  it("substitutes ${VAR} in sse headers", () => {
+    process.env["NOTION_TOKEN"] = "ntn_abc";
+    const tmp = writeMcpConfig({
+      notion: {
+        type: "sse",
+        url: "https://mcp.notion.com/sse",
+        headers: { "X-Api-Key": "${NOTION_TOKEN}" },
+      },
+    });
+    try {
+      const cfg = resolveConfig(tmp);
+      const srv = cfg.mcp!.notion as { headers?: Record<string, string> };
+      expect(srv.headers?.["X-Api-Key"]).toBe("ntn_abc");
+    } finally {
+      rmSync(tmp, { force: true });
+    }
+  });
+
+  it("substitutes ${VAR} in stdio env values", () => {
+    process.env["GH_PAT"] = "ghp_xxx";
+    const tmp = writeMcpConfig({
+      github: {
+        type: "stdio",
+        command: "npx",
+        args: ["-y", "@some/mcp-server"],
+        env: { GITHUB_TOKEN: "${GH_PAT}" },
+      },
+    });
+    try {
+      const cfg = resolveConfig(tmp);
+      const srv = cfg.mcp!.github as { env?: Record<string, string> };
+      expect(srv.env?.GITHUB_TOKEN).toBe("ghp_xxx");
+    } finally {
+      rmSync(tmp, { force: true });
+    }
+  });
+
+  it("substitutes bare $VAR in stdio args (backward compatible)", () => {
+    process.env["WORKSPACE_DIR"] = "/tmp/ws";
+    const tmp = writeMcpConfig({
+      fs: {
+        type: "stdio",
+        command: "npx",
+        args: ["-y", "@modelcontextprotocol/server-filesystem", "$WORKSPACE_DIR"],
+      },
+    });
+    try {
+      const cfg = resolveConfig(tmp);
+      const srv = cfg.mcp!.fs as { args?: string[] };
+      expect(srv.args?.[2]).toBe("/tmp/ws");
+    } finally {
+      rmSync(tmp, { force: true });
+    }
+  });
+
+  it("leaves unresolved tokens unchanged", () => {
+    delete process.env["DOES_NOT_EXIST"];
+    const tmp = writeMcpConfig({
+      svc: {
+        type: "http",
+        url: "https://example.com/mcp",
+        headers: { Authorization: "Bearer ${DOES_NOT_EXIST}" },
+      },
+    });
+    try {
+      const cfg = resolveConfig(tmp);
+      const srv = cfg.mcp!.svc as { headers?: Record<string, string> };
+      expect(srv.headers?.Authorization).toBe("Bearer ${DOES_NOT_EXIST}");
+    } finally {
+      rmSync(tmp, { force: true });
+    }
+  });
+});

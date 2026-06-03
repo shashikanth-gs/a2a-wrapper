@@ -212,9 +212,19 @@ export class CopilotExecutor implements AgentExecutor {
       for (const [name, serverCfg] of Object.entries(mcpCfg)) {
         if ("enabled" in serverCfg && serverCfg.enabled === false) continue;
         if (serverCfg.type === "http") {
-          mcpServers[name] = { type: "http", url: serverCfg.url, tools: ["*"] };
+          mcpServers[name] = {
+            type: "http",
+            url: serverCfg.url,
+            tools: ["*"],
+            ...(serverCfg.headers ? { headers: serverCfg.headers } : {}),
+          };
         } else if (serverCfg.type === "sse") {
-          mcpServers[name] = { type: "sse", url: serverCfg.url, tools: ["*"] };
+          mcpServers[name] = {
+            type: "sse",
+            url: serverCfg.url,
+            tools: ["*"],
+            ...(serverCfg.headers ? { headers: serverCfg.headers } : {}),
+          };
         } else if (serverCfg.type === "stdio") {
           mcpServers[name] = {
             type: "stdio",

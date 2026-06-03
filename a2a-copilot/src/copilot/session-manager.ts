@@ -102,9 +102,19 @@ export class SessionManager {
         if ("enabled" in cfg && cfg.enabled === false) continue;
 
         if (cfg.type === "http") {
-          mcpServers[name] = { type: "http", url: cfg.url, tools: ["*"] };
+          mcpServers[name] = {
+            type: "http",
+            url: cfg.url,
+            tools: ["*"],
+            ...(cfg.headers ? { headers: cfg.headers } : {}),
+          };
         } else if (cfg.type === "sse") {
-          mcpServers[name] = { type: "sse", url: cfg.url, tools: ["*"] };
+          mcpServers[name] = {
+            type: "sse",
+            url: cfg.url,
+            tools: ["*"],
+            ...(cfg.headers ? { headers: cfg.headers } : {}),
+          };
         } else if (cfg.type === "stdio") {
           mcpServers[name] = {
             type: "stdio",

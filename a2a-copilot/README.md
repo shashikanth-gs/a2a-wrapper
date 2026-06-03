@@ -345,6 +345,37 @@ $EDITOR agents/my-agent/config.json
 }
 ```
 
+### Authenticated remote servers (custom headers)
+
+Many hosted MCP servers (Linear, Notion, remote GitHub MCP, etc.) require auth headers. Add a `headers` map to any `http` or `sse` server. Header values support `${ENV_VAR}` substitution so **secrets never live in `config.json`** — reference an environment variable and supply the value at runtime:
+
+```json
+"mcp": {
+  "linear": {
+    "type": "http",
+    "url": "https://mcp.linear.app/mcp",
+    "headers": {
+      "Authorization": "Bearer ${LINEAR_API_KEY}"
+    }
+  },
+  "notion": {
+    "type": "sse",
+    "url": "https://mcp.notion.com/sse",
+    "headers": {
+      "X-Api-Key": "${NOTION_TOKEN}"
+    }
+  }
+}
+```
+
+Run with the secrets in the environment:
+
+```bash
+LINEAR_API_KEY=lin_xxx NOTION_TOKEN=ntn_yyy ./agents/my-agent/start.sh start
+```
+
+Unresolved tokens (no matching env var) are left as-is so misconfigurations stay visible rather than silently sending an empty header.
+
 ### stdio server (child process)
 
 ```json
@@ -352,10 +383,15 @@ $EDITOR agents/my-agent/config.json
   "filesystem": {
     "type": "stdio",
     "command": "npx",
-    "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/workspace"]
+    "args": ["-y", "@modelcontextprotocol/server-filesystem", "$WORKSPACE_DIR"],
+    "env": {
+      "SOME_API_KEY": "${SOME_API_KEY}"
+    }
   }
 }
 ```
+
+Both `args` and `env` values support env-var substitution — use `${VAR}` (recommended, works mid-string) or bare `$VAR`. This keeps tokens out of committed config while letting the spawned server receive them.
 
 ## Memory Persistence
 

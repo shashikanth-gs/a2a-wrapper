@@ -298,6 +298,13 @@
           "description": "Enable on startup (default: true)",
           "type": "boolean"
         },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Optional HTTP headers sent with every request to this server. Use for auth tokens, API keys, etc. Values support `${ENV_VAR}` (or `$ENV_VAR`) substitution so secrets stay out of config.json — e.g. `{ \"Authorization\": \"Bearer ${LINEAR_API_KEY}\" }`.",
+          "type": "object"
+        },
         "type": {
           "const": "http",
           "type": "string"
@@ -335,6 +342,13 @@
           "description": "Enable on startup (default: true)",
           "type": "boolean"
         },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Optional HTTP headers sent with every request to this server. Use for auth tokens, API keys, etc. Values support `${ENV_VAR}` (or `$ENV_VAR`) substitution so secrets stay out of config.json — e.g. `{ \"Authorization\": \"Bearer ${NOTION_TOKEN}\" }`.",
+          "type": "object"
+        },
         "type": {
           "const": "sse",
           "type": "string"
@@ -355,7 +369,7 @@
       "description": "Configuration for a stdio-based MCP server.",
       "properties": {
         "args": {
-          "description": "Arguments to pass to the command",
+          "description": "Arguments to pass to the command. Values support `${ENV_VAR}` (or `$ENV_VAR`) substitution.",
           "items": {
             "type": "string"
           },
@@ -373,7 +387,7 @@
           "additionalProperties": {
             "type": "string"
           },
-          "description": "Environment variables for the spawned process",
+          "description": "Environment variables for the spawned process. Values support `${ENV_VAR}` (or `$ENV_VAR`) substitution so secrets stay out of config.json — e.g. `{ \"API_KEY\": \"${MY_API_KEY}\" }`.",
           "type": "object"
         },
         "type": {

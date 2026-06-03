@@ -277,6 +277,13 @@ export interface McpHttpServerConfig {
   type: "http";
   /** URL of the remote MCP server (e.g. http://127.0.0.1:8002/mcp) */
   url: string;
+  /**
+   * Optional HTTP headers sent with every request to this server.
+   * Use for auth tokens, API keys, etc. Values support `${ENV_VAR}` (or
+   * `$ENV_VAR`) substitution so secrets stay out of config.json — e.g.
+   * `{ "Authorization": "Bearer ${LINEAR_API_KEY}" }`.
+   */
+  headers?: Record<string, string>;
   /** Enable on startup (default: true) */
   enabled?: boolean;
 }
@@ -286,6 +293,13 @@ export interface McpSseServerConfig {
   type: "sse";
   /** URL of the SSE MCP server endpoint (e.g. http://127.0.0.1:8001/sse) */
   url: string;
+  /**
+   * Optional HTTP headers sent with every request to this server.
+   * Use for auth tokens, API keys, etc. Values support `${ENV_VAR}` (or
+   * `$ENV_VAR`) substitution so secrets stay out of config.json — e.g.
+   * `{ "Authorization": "Bearer ${NOTION_TOKEN}" }`.
+   */
+  headers?: Record<string, string>;
   /** Enable on startup (default: true) */
   enabled?: boolean;
 }
@@ -295,9 +309,16 @@ export interface McpStdioServerConfig {
   type: "stdio";
   /** Command to launch the MCP server */
   command: string;
-  /** Arguments to pass to the command */
+  /**
+   * Arguments to pass to the command.
+   * Values support `${ENV_VAR}` (or `$ENV_VAR`) substitution.
+   */
   args?: string[];
-  /** Environment variables for the spawned process */
+  /**
+   * Environment variables for the spawned process.
+   * Values support `${ENV_VAR}` (or `$ENV_VAR`) substitution so secrets
+   * stay out of config.json — e.g. `{ "API_KEY": "${MY_API_KEY}" }`.
+   */
   env?: Record<string, string>;
   /** Enable on startup (default: true) */
   enabled?: boolean;
