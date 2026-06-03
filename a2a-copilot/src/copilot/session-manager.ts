@@ -35,11 +35,17 @@ export interface CopilotSession {
   /**
    * Blocking send: dispatches the prompt and resolves with the complete
    * assistant response. Suitable for non-streaming, single-turn interactions.
+   *
+   * SDK 1.0.0: returns AssistantMessageEvent | undefined (was { data?: { content? } })
    */
-  sendAndWait(params: { prompt: string }, timeoutMs?: number): Promise<{ data?: { content?: string } }>;
+  sendAndWait(params: { prompt: string }, timeoutMs?: number): Promise<{ data?: { content?: string } } | undefined>;
   /**
-   * Destroy this session and release all SDK-side resources.
-   * Always call before discarding a session to avoid resource leaks.
+   * Disconnect this session and release all SDK-side resources.
+   * Session data on disk is preserved for later resumption.
+   */
+  disconnect(): Promise<void>;
+  /**
+   * @deprecated Use disconnect() instead.
    */
   destroy(): Promise<void>;
 }
@@ -269,9 +275,9 @@ export class SessionManager {
     const entry = this.contextSessions.get(contextId);
     if (!entry) return;
     try {
-      await (entry.session as any).destroy();
+      await entry.session.disconnect();
     } catch (e) {
-      log.warn("Session destroy failed", { sessionId: entry.sessionId, error: (e as Error).message });
+      log.warn("Session disconnect failed", { sessionId: entry.sessionId, error: (e as Error).message });
     }
     this.contextSessions.delete(contextId);
   }
@@ -287,7 +293,7 @@ export class SessionManager {
       for (const [contextId, entry] of this.contextSessions.entries()) {
         if (now - entry.lastUsed > ttl) {
           log.info("Cleaning up expired session", { contextId, sessionId: entry.sessionId });
-          (entry.session as any).destroy().catch(() => {});
+          entry.session.disconnect().catch(() => {});
           this.contextSessions.delete(contextId);
         }
       }
@@ -302,7 +308,7 @@ export class SessionManager {
     }
     for (const [contextId, entry] of this.contextSessions.entries()) {
       try {
-        await (entry.session as any).destroy();
+        await entry.session.disconnect();
       } catch { /* best effort */ }
       this.contextSessions.delete(contextId);
     }

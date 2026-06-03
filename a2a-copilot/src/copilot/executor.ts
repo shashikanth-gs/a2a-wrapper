@@ -8,7 +8,7 @@
 
 import type { Message as A2AMessage } from "@a2a-js/sdk";
 import type { AgentExecutor, RequestContext, ExecutionEventBus } from "@a2a-js/sdk/server";
-import { CopilotClient, approveAll } from "@github/copilot-sdk";
+import { CopilotClient, approveAll, RuntimeConnection } from "@github/copilot-sdk";
 import { v4 as uuidv4 } from "uuid";
 import { readFile as fsReadFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -88,30 +88,35 @@ export class CopilotExecutor implements AgentExecutor {
       };
     }
 
-    // Create Copilot client
+    // Create Copilot client — SDK 1.0.0 uses RuntimeConnection factories
+    // instead of the flat options object from 0.2.x.
     const clientOpts: Record<string, unknown> = {};
+
     if (this.config.copilot.cliUrl) {
-      clientOpts.cliUrl = this.config.copilot.cliUrl;
-    }
-    // GitHub PAT for auth (required in Docker where `gh` CLI is unavailable)
-    if (this.config.copilot.githubToken) {
-      clientOpts.githubToken = this.config.copilot.githubToken;
-    }
-    // Start the CLI process in the workspace directory so file tools resolve correctly
-    if (this.config.copilot.workspaceDirectory) {
-      clientOpts.cwd = this.config.copilot.workspaceDirectory;
+      // Connect to a pre-running CLI server (Docker, CI, remote)
+      clientOpts.connection = RuntimeConnection.forUri(this.config.copilot.cliUrl);
+    } else {
+      // Spawn the CLI binary managed by this process (default path)
+      // workingDirectory sets the cwd for the spawned binary.
+      if (this.config.copilot.workspaceDirectory) {
+        clientOpts.workingDirectory = this.config.copilot.workspaceDirectory;
+      }
+      // GitHub PAT for auth (required in Docker where `gh` CLI is unavailable)
+      if (this.config.copilot.githubToken) {
+        clientOpts.gitHubToken = this.config.copilot.githubToken;
+      }
     }
 
     this.client = new CopilotClient(clientOpts as any);
     try {
-      await (this.client as any).start();
+      await this.client.start();
     } catch (err) {
       const msg = (err as Error).message ?? String(err);
-      const isNotFound = msg.includes("ENOENT") || msg.includes("not found") || msg.includes("spawn");
-      const isAuth = msg.toLowerCase().includes("auth") || msg.toLowerCase().includes("login") || msg.toLowerCase().includes("token") || msg.toLowerCase().includes("unauthorized") || msg.includes("onPermissionRequest handler");
+      const isNotFound = msg.includes("ENOENT") || msg.includes("not found") || msg.includes("spawn") || msg.includes("CLI not found");
+      const isAuth = msg.toLowerCase().includes("auth") || msg.toLowerCase().includes("login") || msg.toLowerCase().includes("token") || msg.toLowerCase().includes("unauthorized");
       if (isNotFound) {
         throw new Error(
-          "GitHub Copilot CLI not found. Install it with: gh extension install github/gh-copilot\n" +
+          "GitHub Copilot CLI not found. Ensure @github/copilot is installed.\n" +
           "Then authenticate with: gh auth login"
         );
       }
@@ -144,7 +149,7 @@ export class CopilotExecutor implements AgentExecutor {
       this.sessionManager = null;
     }
     if (this.client) {
-      await (this.client as any).stop();
+      await this.client.stop();
       this.client = null;
     }
     this.initialized = false;
@@ -220,9 +225,10 @@ export class CopilotExecutor implements AgentExecutor {
     const fullPrompt = contextPrompt;
 
     const response = await session.sendAndWait({ prompt: fullPrompt });
-    const responseText = response?.data?.content ?? "";
+    // SDK 1.0.0: sendAndWait returns AssistantMessageEvent | undefined
+    const responseText = (response as any)?.data?.content ?? "";
 
-    await session.destroy();
+    await session.disconnect();
 
     log.info("Context build complete", { sessionId, responseLen: responseText.length });
     return responseText;
@@ -476,6 +482,7 @@ export class CopilotExecutor implements AgentExecutor {
             copilotSession.sendAndWait({ prompt: promptText }, timeoutMs),
             timeout,
           ]);
+          // SDK 1.0.0: sendAndWait returns AssistantMessageEvent | undefined
           accumulatedText = (response as any)?.data?.content ?? "";
         } catch (e) {
           if (!(e as Error).message.includes("timeout")) throw e;
