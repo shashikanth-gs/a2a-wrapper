@@ -21,15 +21,27 @@ const LEVEL_NAMES: Record<LogLevel, string> = {
 
 export class Logger {
   private readonly name: string;
-  private level: LogLevel;
+  /**
+   * Mutable level holder shared between a logger and all of its descendants.
+   * Because children share the parent's holder, calling `setLevel()` on the
+   * root logger (e.g. after config resolution in cli.ts) propagates to every
+   * child logger — even ones created at module-import time before the level
+   * was configured.
+   */
+  private readonly levelRef: { value: LogLevel };
 
-  constructor(name: string, level: LogLevel = LogLevel.INFO) {
+  constructor(name: string, level: LogLevel | { value: LogLevel } = LogLevel.INFO) {
     this.name = name;
-    this.level = level;
+    // Accept either a concrete level (root logger) or a shared holder (child).
+    this.levelRef = typeof level === "object" ? level : { value: level };
   }
 
   setLevel(level: LogLevel): void {
-    this.level = level;
+    this.levelRef.value = level;
+  }
+
+  get level(): LogLevel {
+    return this.levelRef.value;
   }
 
   static parseLevel(str: string): LogLevel {
@@ -43,7 +55,8 @@ export class Logger {
   }
 
   child(childName: string): Logger {
-    return new Logger(`${this.name}:${childName}`, this.level);
+    // Share the same level holder so root setLevel() reaches this child.
+    return new Logger(`${this.name}:${childName}`, this.levelRef);
   }
 
   debug(msg: string, data?: Record<string, unknown>): void { this.write(LogLevel.DEBUG, msg, data); }
@@ -52,7 +65,7 @@ export class Logger {
   error(msg: string, data?: Record<string, unknown>): void { this.write(LogLevel.ERROR, msg, data); }
 
   private write(level: LogLevel, msg: string, data?: Record<string, unknown>): void {
-    if (level < this.level) return;
+    if (level < this.levelRef.value) return;
     const ts = new Date().toISOString();
     const prefix = `[${ts}] [${LEVEL_NAMES[level]}] [${this.name}]`;
     const line = data ? `${prefix} ${msg} ${JSON.stringify(data)}` : `${prefix} ${msg}`;

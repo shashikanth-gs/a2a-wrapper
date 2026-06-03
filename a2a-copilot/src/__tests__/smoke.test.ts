@@ -60,6 +60,16 @@ describe("Logger", () => {
     const log = new Logger("test");
     expect(log.child("sub")).toBeInstanceOf(Logger);
   });
+
+  it("setLevel on parent propagates to children created beforehand", () => {
+    const parent = new Logger("parent", LogLevel.INFO);
+    const child = parent.child("child");
+    // Child starts at the shared INFO level.
+    expect(child.level).toBe(LogLevel.INFO);
+    // Changing the parent's level after the child exists must reach the child.
+    parent.setLevel(LogLevel.DEBUG);
+    expect(child.level).toBe(LogLevel.DEBUG);
+  });
 });
 
 // ─── loadConfigFile ──────────────────────────────────────────────────────────
