@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.6.0 — 2026-06-03
+
+### Added
+
+- **`substituteEnvTokensInString`** — new exported helper. Replaces `${VAR}` (explicit form) and `$VAR` (bare form) tokens in a single string. Works mid-string, e.g. `"Bearer ${TOKEN}"`.
+- **`substituteEnvTokensInRecord`** — new exported helper. Applies env-var substitution to every value of a `Record<string, string>`, e.g. HTTP headers or process environment maps. Returns `undefined` for `undefined` input.
+- Both helpers are exported from the `@a2a-wrapper/core` barrel so wrapper loaders don't duplicate the implementation.
+
+### Changed
+
+- **`substituteEnvTokens` (existing)** — now supports `${VAR}` in addition to bare `$VAR`. Backward-compatible.
+
 ## 1.5.0 — 2026-05-13
 
 ### Added

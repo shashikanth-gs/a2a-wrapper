@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.6.0 — 2026-06-03
+
+### Added
+
+- **Bring Your Own Model (BYOK)** — new `copilot.provider` config block lets you point the wrapper at any OpenAI-compatible endpoint instead of GitHub Copilot. Supports Ollama (local), OpenAI, Anthropic, Azure OpenAI, Azure AI Foundry, vLLM, LiteLLM, and any OpenAI-compatible API. The same `COPILOT_PROVIDER_*` env vars the `gh copilot` CLI uses are supported. No GitHub Copilot account required when using a custom provider.
+- **New bundled example: `agents/ollama/`** — ready-to-run local agent backed by Ollama (verified with `qwen3.6`).
+- **MCP custom headers** — `http` and `sse` MCP server configs now accept a `headers: Record<string, string>` map. Use for auth tokens and API keys against hosted MCP servers (Linear, Notion, remote GitHub MCP, etc.).
+- **Env-var substitution extended** — `${ENV_VAR}` (explicit, recommended) and `$ENV_VAR` (bare, backward-compatible) substitution now applies to stdio `args`, stdio `env` values, and http/sse `headers` values. Keeps secrets out of `config.json`.
+
+### Fixed
+
+- **BYOK models emitting tool calls as plain text** — when a BYOK provider is configured and the model outputs a raw `{"name":...,"arguments":...}` JSON blob instead of a proper response (common with small local models lacking native tool-calling support), the wrapper detects it and returns an actionable error message instead of leaking raw JSON to the caller.
+- **Logger level propagation** — `level: "debug"` in config now correctly reaches all child loggers. Previously, child loggers captured the level at module-import time before config was loaded.
+
+### Changed
+
+- **`@github/copilot-sdk` upgraded `0.2.2 → 1.0.0`** — migrated to the `RuntimeConnection` factory API; `session.destroy()` renamed to `session.disconnect()`. SDK 1.0.0 bumped CLI dependency to `@github/copilot@1.0.59`.
+- **`@github/copilot` CLI upgraded `1.0.39 → 1.0.59`** — includes the v1.0.56 BYOK provider fix (custom providers now work correctly in headless SDK sessions), plus 20 versions of improvements.
+- Updated dependencies
+  - @a2a-wrapper/core@1.6.0
+
 ## 1.5.0 — 2026-05-13
 
 ### Added

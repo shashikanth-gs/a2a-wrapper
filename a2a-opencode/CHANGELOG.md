@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.6.0 — 2026-06-03
+
+### Added
+
+- **MCP custom headers** — `remote` MCP server configs now accept a `headers: Record<string, string>` map. Use for auth tokens and API keys against hosted MCP servers (Linear, Notion, remote GitHub MCP, etc.). Header values support `${ENV_VAR}` substitution so secrets stay out of `config.json`.
+- **Env-var substitution extended** — `${ENV_VAR}` (explicit, recommended) and `$ENV_VAR` (bare, backward-compatible) substitution now applies to local `command` args, local `environment` values, and remote `headers` values.
+- **`@opencode-ai/sdk` upgraded `1.14.29 → 1.15.13`** — no breaking changes; v2 API surface is additive.
+
+### Fixed
+
+- **Logger level propagation** — `level: "debug"` in config now correctly reaches all child loggers. Previously, child loggers captured the level at module-import time before config was loaded.
+
+### Changed
+
+- Updated dependencies
+  - @a2a-wrapper/core@1.6.0
+
 ## 1.5.0 — 2026-05-13
 
 ### Added
