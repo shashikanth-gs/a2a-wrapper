@@ -10,14 +10,36 @@
 # The build context must be the monorepo root so that @a2a-wrapper/core is
 # resolved via workspace linking rather than the npm registry.
 #
-# Run (with an agent config):
+# ---------------------------------------------------------------------------
+# Authentication — choose ONE of the two approaches below:
+# ---------------------------------------------------------------------------
+#
+# Option A — OpenAI API key (recommended for CI / cloud / team deployments):
 #   docker run -p 3020:3020 \
 #     -e OPENAI_API_KEY=<your-key> \
 #     -e WORKSPACE_DIR=/workspace \
 #     -v /host/path/to/repo:/workspace \
-#     a2a-codex:latest --config agents/example/config.json
+#     a2a-codex:latest
 #
-# Override the agent config at runtime via CMD or by mounting a volume:
+# Option B — ChatGPT subscription (you have already run `codex login` locally):
+#   Mount your local Codex credential store read-only into the container.
+#   The codex CLI looks for credentials in ~/.codex/auth.json; inside the
+#   container the node user's home is /home/node.
+#
+#   docker run -p 3020:3020 \
+#     -e WORKSPACE_DIR=/workspace \
+#     -e CODEX_MODEL=gpt-5.5 \
+#     -v ~/.codex:/home/node/.codex:ro \
+#     -v /host/path/to/repo:/workspace \
+#     a2a-codex:latest
+#
+#   Note: OAuth tokens in auth.json expire (typically after a few hours). The
+#   CLI cannot refresh them from inside a read-only mount. Re-run `codex login`
+#   on your host when the container starts returning auth errors.
+#   For long-running deployments, Option A (API key) is more reliable.
+#
+# ---------------------------------------------------------------------------
+# Override the agent config at runtime by mounting a custom config:
 #   docker run -p 3020:3020 \
 #     -e OPENAI_API_KEY=<your-key> \
 #     -v /host/path/my-agent:/app/agents/my-agent \
@@ -25,9 +47,9 @@
 #     a2a-codex:latest --config agents/my-agent/config.json
 #
 # Environment variables:
-#   OPENAI_API_KEY   OpenAI API key (required)
+#   OPENAI_API_KEY   OpenAI API key (Option A auth)
 #   WORKSPACE_DIR    Absolute path to the Git repository inside the container (required)
-#   CODEX_MODEL      Override the model (e.g. o4-mini, o3, gpt-4o)
+#   CODEX_MODEL      Override the model (e.g. gpt-5.5, o4-mini, o3)
 #   PORT             A2A server port (default: from config, fallback 3020)
 #   LOG_LEVEL        debug | info | warn | error (default: info)
 #   ADVERTISE_HOST   Hostname embedded in agent card URLs (default: localhost)
@@ -74,6 +96,12 @@ RUN rm -rf node_modules/@a2a-wrapper/core && \
 # Stage 2 — Runtime: minimal production image
 # ---------------------------------------------------------------------------
 FROM node:20-slim
+
+# The bundled Codex CLI binary (musl-linked Rust) needs system CA certificates
+# to establish TLS connections to the OpenAI/ChatGPT API. node:20-slim omits
+# the ca-certificates package by default.
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 LABEL org.opencontainers.image.title="A2A OpenAI Codex Wrapper" \
       org.opencontainers.image.description="A2A protocol wrapper for the OpenAI Codex SDK" \
