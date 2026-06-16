@@ -52,7 +52,8 @@ export type EventType =
   | "decision"
   | "agent_started"
   | "agent_finished"
-  | "agent_error";
+  | "agent_error"
+  | "context_window";
 
 /**
  * A single agent event carrying structured trace data.

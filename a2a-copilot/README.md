@@ -524,6 +524,119 @@ Route events to an external telemetry endpoint:
 
 For Kafka, Redis, or database sinks, use the programmatic API. See the [`@a2a-wrapper/core` README](https://www.npmjs.com/package/@a2a-wrapper/core) for full details.
 
+## LLM Usage and Cost Telemetry
+
+Every task execution tracks token counts, latency, model, and cost. Telemetry is delivered in three tiers:
+
+| Tier | Always-on? | What you get |
+|---|---|---|
+| **Tier 1** | ✅ Always | `metadata["x-usage"]` on the final `completed` status event |
+| **Tier 2** | `trackUsage: true` | One `trace.usage` sideband artifact per LLM API call |
+| **Tier 3** | `trackUsage: true` | `contextWindow` fill snapshot inside `x-usage` |
+
+### Enabling
+
+Add `trackUsage: true` to your `features` block:
+
+```json
+{
+  "features": {
+    "trackUsage": true
+  }
+}
+```
+
+### Tier 1 — Session summary (always-on)
+
+Every successfully completed task includes a `UsageTelemetryData` object under `metadata["x-usage"]` on the final status event — regardless of `trackUsage`. This gives you per-task totals with zero config.
+
+```json
+{
+  "kind": "status-update",
+  "final": true,
+  "status": { "state": "completed", "timestamp": "..." },
+  "metadata": {
+    "x-usage": {
+      "llmCalls": 1,
+      "model": "gpt-5.4-mini",
+      "inputTokens": 6226,
+      "outputTokens": 34,
+      "cacheReadTokens": 5632,
+      "cacheWriteTokens": 0,
+      "reasoningTokens": 27,
+      "durationMs": 3140,
+      "cost": 0.33,
+      "calls": [{ "model": "gpt-5.4-mini", "inputTokens": 6226, ... }],
+      "contextWindow": {
+        "currentTokens": 6957,
+        "tokenLimit": 272000,
+        "conversationTokens": 85,
+        "systemTokens": 194,
+        "toolDefinitionsTokens": 6678,
+        "messagesLength": 2
+      }
+    }
+  }
+}
+```
+
+`cost` is always present — `null` when no cost was reported by the provider, a finite number ≥ 0 otherwise (`0` is a valid Copilot-native quota value).
+
+`contextWindow` is present when at least one `session.usage_info` event was received from the SDK. Absent (not `null`) otherwise.
+
+### Tier 2 — Per-call trace artifacts (`trackUsage: true`)
+
+When `trackUsage` is `true`, one `trace.usage` artifact is emitted per LLM API call, carrying the full `UsageCallRecord`:
+
+```json
+{
+  "kind": "artifact-update",
+  "artifact": {
+    "name": "trace.usage",
+    "parts": [{
+      "kind": "data",
+      "data": {
+        "model": "gpt-5.4-mini",
+        "inputTokens": 6226,
+        "outputTokens": 34,
+        "cacheReadTokens": 5632,
+        "cacheWriteTokens": 0,
+        "reasoningTokens": 27,
+        "durationMs": 3140,
+        "timeToFirstTokenMs": 2887,
+        "cost": 0.33,
+        "apiEndpoint": "/responses",
+        "initiator": "user"
+      }
+    }]
+  }
+}
+```
+
+For tool-heavy tasks that make multiple LLM calls, you'll see one `trace.usage` artifact per call, giving you a complete per-call breakdown.
+
+### Tier 3 — Context-window snapshots (`trackUsage: true`)
+
+When `trackUsage` is `true`, the `contextWindow` field in `x-usage` reflects the most recent context-window snapshot from the SDK. This shows token fill by category (conversation, system prompt, tool definitions) and the model's total context limit.
+
+### Field reference — `UsageTelemetryData`
+
+| Field | Type | Description |
+|---|---|---|
+| `llmCalls` | `number` | Total number of LLM API calls in this task |
+| `model` | `string \| null` | Model name from the last call; `null` if no calls |
+| `inputTokens` | `number` | Sum of prompt tokens across all calls |
+| `outputTokens` | `number` | Sum of completion tokens across all calls |
+| `cacheReadTokens` | `number` | Sum of cache-hit tokens (prompt cache read) |
+| `cacheWriteTokens` | `number` | Sum of cache-miss tokens (new cache entry) |
+| `reasoningTokens` | `number` | Sum of internal reasoning tokens (o-series) |
+| `durationMs` | `number` | Sum of call durations in milliseconds |
+| `cost` | `number \| null` | Sum of provider-reported costs; `null` if none reported |
+| `calls` | `UsageCallRecord[]` | Full per-call log in recording order |
+| `contextWindow?` | `ContextWindowSnapshot` | Most recent context-window snapshot (optional) |
+
+Field names align with [OpenTelemetry Generative AI Semantic Conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/) for downstream observability interoperability.
+
 ## Docker
 
 ```bash

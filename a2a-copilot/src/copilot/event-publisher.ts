@@ -48,6 +48,7 @@ export function publishStatus(
   state: "submitted" | "working" | "input-required" | "completed" | "canceled" | "failed" | "rejected",
   messageText?: string,
   final = false,
+  metadata?: Record<string, unknown>,
 ): void {
   const event: TaskStatusUpdateEvent = {
     kind: "status-update",
@@ -69,6 +70,7 @@ export function publishStatus(
         : {}),
     },
     final,
+    ...(metadata ? { metadata } : {}),
   };
   bus.publish(event);
 }

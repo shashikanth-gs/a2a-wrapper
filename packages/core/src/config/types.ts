@@ -235,6 +235,22 @@ export interface BaseFeatureFlags {
    * @default false (buffered)
    */
   streamArtifactChunks?: boolean;
+
+  /**
+   * Enable detailed per-call LLM usage telemetry.
+   *
+   * When true:
+   * - A `trace.usage` sideband artifact is published after each LLM API call
+   *   (Tier 2 — per-call trace artifacts).
+   * - Context-window fill snapshots are forwarded via AgentEventEmitter as
+   *   `context_window` events (Tier 3 — real-time monitoring).
+   *
+   * Tier 1 (session-level summary in `metadata["x-usage"]` on the final
+   * completed event) is always active regardless of this flag.
+   *
+   * @default false
+   */
+  trackUsage?: boolean;
 }
 
 // ─── Timeout Config ─────────────────────────────────────────────────────────

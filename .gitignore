@@ -41,3 +41,6 @@ package-lock.json
 
 # Kiro
 .kiro/
+
+# Temporary experiments / local test scripts
+tmp/

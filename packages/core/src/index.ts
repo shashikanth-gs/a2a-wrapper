@@ -149,6 +149,11 @@ export {
   bootstrapSubAgents,
 } from "./sub-agents/index.js";
 
+// ─── Usage Telemetry ────────────────────────────────────────────────────────
+
+export type { UsageCallRecord, UsageTelemetryData, ContextWindowSnapshot } from "./events/usage.js";
+export { LlmUsageAccumulator } from "./events/usage.js";
+
 // ─── A2A SDK Type Re-exports ────────────────────────────────────────────────
 //
 // Core-owned aliases for commonly used A2A SDK types. Wrapper projects

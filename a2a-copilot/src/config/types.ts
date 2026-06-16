@@ -252,6 +252,9 @@ export interface FeatureFlags {
    * Default: false (buffered).
    */
   streamArtifactChunks?: boolean;
+
+  /** @see BaseFeatureFlags.trackUsage */
+  trackUsage?: boolean;
 }
 
 // ─── Timeout Config ─────────────────────────────────────────────────────────

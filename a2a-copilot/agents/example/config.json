@@ -78,7 +78,7 @@
       "    COPILOT_PROVIDER_BASE_URL, COPILOT_PROVIDER_TYPE,",
       "    COPILOT_PROVIDER_API_KEY, COPILOT_PROVIDER_WIRE_API, COPILOT_MODEL"
     ],
-    "model": "gpt-4o",
+    "model": "gpt-5.4-mini",
     "streaming": true,
     "systemPromptMode": "replace",
     "systemPrompt": "You are a helpful assistant. Replace this system prompt with instructions that define your agent's role, persona, and expected behaviour."
@@ -88,9 +88,19 @@
     "$comment": [
       "streamArtifactChunks: false (default) — buffers artifact chunks and sends them",
       "as a single artifact. More compatible with A2A inspector tools.",
-      "Set to true for spec-correct incremental artifact streaming."
+      "Set to true for spec-correct incremental artifact streaming.",
+      "",
+      "trackUsage: true — enables detailed LLM usage telemetry.",
+      "  Tier 1 (always-on): a UsageTelemetryData summary is injected into",
+      "    metadata['x-usage'] on every final completed TaskStatusUpdateEvent.",
+      "  Tier 2 (opt-in, trackUsage: true): a trace.usage sideband artifact is",
+      "    published for each LLM API call (token counts, latency, cost, model).",
+      "  Tier 3 (opt-in, trackUsage: true): context-window fill snapshots are",
+      "    forwarded via AgentEventEmitter as context_window events.",
+      "Set to false or omit to suppress Tier 2 and Tier 3 while keeping Tier 1."
     ],
-    "streamArtifactChunks": false
+    "streamArtifactChunks": false,
+    "trackUsage": true
   },
 
   "timeouts": {

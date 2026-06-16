@@ -22,6 +22,7 @@ import {
   publishStreamingChunk,
   publishLastChunkMarker,
   publishTask,
+  publishTraceArtifact,
 } from "./event-publisher.js";
 import {
   resolveTransport,
@@ -29,11 +30,15 @@ import {
   materializeMemory,
   WELL_KNOWN_PATHS,
   bootstrapSubAgents,
+  LlmUsageAccumulator,
 } from "@a2a-wrapper/core";
 import type {
   EventTransport,
   EventTransportFn,
   SynthesizedMcpDescriptor,
+  UsageCallRecord,
+  ContextWindowSnapshot,
+  UsageTelemetryData,
 } from "@a2a-wrapper/core";
 import { createDeferred } from "../utils/deferred.js";
 import { logger } from "../utils/logger.js";
@@ -326,6 +331,9 @@ export class CopilotExecutor implements AgentExecutor {
       this.mcpHooks.setEmitter(emitter);
     }
 
+    // ── Usage accumulator — one per execute() call, local scope only ──────
+    const accumulator = new LlmUsageAccumulator();
+
     try {
       // 1. Register task with the SDK's ResultManager, then emit submitted status.
       // The ResultManager requires a task event (kind: "task") before it will
@@ -474,6 +482,56 @@ export class CopilotExecutor implements AgentExecutor {
           resolveDone();
         }));
 
+        // ── LLM usage tracking — assistant.usage ────────────────────────────
+        unsubs.push(copilotSession.on("assistant.usage", (event: any) => {
+          const d = event?.data ?? {};
+          const callRecord: UsageCallRecord = {
+            model:              d.model             ?? "",
+            inputTokens:        d.inputTokens        ?? 0,
+            outputTokens:       d.outputTokens       ?? 0,
+            cacheReadTokens:    d.cacheReadTokens     ?? 0,
+            cacheWriteTokens:   d.cacheWriteTokens    ?? 0,
+            reasoningTokens:    d.reasoningTokens     ?? 0,
+            durationMs:         d.duration            ?? 0,
+            timeToFirstTokenMs: d.timeToFirstTokenMs  ?? null,
+            cost:               d.cost               ?? null,
+            apiEndpoint:        d.apiEndpoint         ?? null,
+            initiator:          d.initiator           ?? null,
+          };
+          accumulator.record(callRecord);
+
+          if (this.config.features.trackUsage) {
+            try {
+              publishTraceArtifact(bus, taskId, contextId, "trace.usage",
+                callRecord as unknown as Record<string, unknown>);
+            } catch (e) {
+              log.warn("Failed to publish trace.usage artifact", { taskId, error: (e as Error).message });
+            }
+          }
+        }));
+
+        // ── LLM usage tracking — session.usage_info ────────────────────────
+        unsubs.push(copilotSession.on("session.usage_info", (event: any) => {
+          const d = event?.data ?? {};
+          const snapshot: ContextWindowSnapshot = {
+            currentTokens:          d.currentTokens,
+            tokenLimit:             d.tokenLimit              ?? null,
+            conversationTokens:     d.conversationTokens       ?? null,
+            systemTokens:           d.systemTokens             ?? null,
+            toolDefinitionsTokens:  d.toolDefinitionsTokens    ?? null,
+            messagesLength:         d.messagesLength            ?? null,
+          };
+          accumulator.setContextWindow(snapshot);
+
+          if (this.config.features.trackUsage) {
+            try {
+              emitter.emit("context_window", snapshot as unknown as Record<string, unknown>);
+            } catch (e) {
+              log.warn("Failed to emit context_window event", { taskId, error: (e as Error).message });
+            }
+          }
+        }));
+
         // Set up timeout
         const timeoutMs = this.config.timeouts.prompt ?? 600_000;
         const timer = setTimeout(() => {
@@ -510,7 +568,55 @@ export class CopilotExecutor implements AgentExecutor {
           accumulatedText += "\n\n---\n*Response truncated: processing time limit reached.*";
         }
       } else {
-        // Non-streaming: wait for complete response
+        // Non-streaming: subscribe to usage events before sendAndWait
+        const unsubUsage = copilotSession.on("assistant.usage", (event: any) => {
+          const d = event?.data ?? {};
+          const callRecord: UsageCallRecord = {
+            model:              d.model             ?? "",
+            inputTokens:        d.inputTokens        ?? 0,
+            outputTokens:       d.outputTokens       ?? 0,
+            cacheReadTokens:    d.cacheReadTokens     ?? 0,
+            cacheWriteTokens:   d.cacheWriteTokens    ?? 0,
+            reasoningTokens:    d.reasoningTokens     ?? 0,
+            durationMs:         d.duration            ?? 0,
+            timeToFirstTokenMs: d.timeToFirstTokenMs  ?? null,
+            cost:               d.cost               ?? null,
+            apiEndpoint:        d.apiEndpoint         ?? null,
+            initiator:          d.initiator           ?? null,
+          };
+          accumulator.record(callRecord);
+
+          if (this.config.features.trackUsage) {
+            try {
+              publishTraceArtifact(bus, taskId, contextId, "trace.usage",
+                callRecord as unknown as Record<string, unknown>);
+            } catch (e) {
+              log.warn("Failed to publish trace.usage artifact", { taskId, error: (e as Error).message });
+            }
+          }
+        });
+
+        const unsubCtxWin = copilotSession.on("session.usage_info", (event: any) => {
+          const d = event?.data ?? {};
+          const snapshot: ContextWindowSnapshot = {
+            currentTokens:          d.currentTokens,
+            tokenLimit:             d.tokenLimit              ?? null,
+            conversationTokens:     d.conversationTokens       ?? null,
+            systemTokens:           d.systemTokens             ?? null,
+            toolDefinitionsTokens:  d.toolDefinitionsTokens    ?? null,
+            messagesLength:         d.messagesLength            ?? null,
+          };
+          accumulator.setContextWindow(snapshot);
+
+          if (this.config.features.trackUsage) {
+            try {
+              emitter.emit("context_window", snapshot as unknown as Record<string, unknown>);
+            } catch (e) {
+              log.warn("Failed to emit context_window event", { taskId, error: (e as Error).message });
+            }
+          }
+        });
+
         const timeoutMs = this.config.timeouts.prompt ?? 600_000;
         const timeout = new Promise<never>((_, rej) =>
           setTimeout(() => rej(new Error(`Prompt timeout after ${timeoutMs}ms`)), timeoutMs),
@@ -526,6 +632,9 @@ export class CopilotExecutor implements AgentExecutor {
         } catch (e) {
           if (!(e as Error).message.includes("timeout")) throw e;
           log.warn("Prompt timed out", { taskId, timeoutMs });
+        } finally {
+          unsubUsage();
+          unsubCtxWin();
         }
       }
 
@@ -561,7 +670,27 @@ export class CopilotExecutor implements AgentExecutor {
       } else {
         publishFinalArtifact(bus, taskId, contextId, accumulatedText);
       }
-      publishStatus(bus, taskId, contextId, "completed", undefined, true);
+
+      // Tier 1 — inject usage summary into final completed event metadata
+      let usageSummary: UsageTelemetryData | undefined;
+      try {
+        usageSummary = accumulator.summary();
+      } catch (e) {
+        log.warn("accumulator.summary() failed, omitting x-usage from final event", {
+          taskId,
+          error: (e as Error).message,
+        });
+      }
+
+      publishStatus(
+        bus,
+        taskId,
+        contextId,
+        "completed",
+        undefined,
+        true,
+        usageSummary ? { "x-usage": usageSummary } : undefined,
+      );
       bus.finished();
       log.info("Task completed", { taskId, len: accumulatedText.length });
 
