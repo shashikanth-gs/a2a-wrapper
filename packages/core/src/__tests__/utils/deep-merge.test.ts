@@ -198,8 +198,11 @@ describe("Property 9: Environment token substitution", () => {
           for (let i = 0; i < tokenNames.length; i++) {
             const tokenName = tokenNames[i];
             if (envMap.has(tokenName)) {
-              // Token should be replaced with the env var value
+              // Token should be replaced with the mocked env var value
               expect(result[i]).toBe(envMap.get(tokenName));
+            } else if (process.env[tokenName] !== undefined) {
+              // Token was not mocked, but exists in the real environment (e.g. CI=true in GitHub Actions)
+              expect(result[i]).toBe(process.env[tokenName]);
             } else {
               // Token should be left unchanged (kept as $VAR_NAME)
               expect(result[i]).toBe("$" + tokenName);
