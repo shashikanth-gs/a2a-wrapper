@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.7.0
+
+### Minor Changes
+
+- feat: add comprehensive LLM usage telemetry and tracking
+
 ## 1.6.1 — 2026-06-06
 
 ### Added

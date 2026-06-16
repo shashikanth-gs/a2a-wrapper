@@ -1,5 +1,12 @@
 # a2a-codex
 
+## 1.6.1
+
+### Patch Changes
+
+- Updated dependencies
+  - @a2a-wrapper/core@1.7.0
+
 ## 1.6.0
 
 ### Minor Changes

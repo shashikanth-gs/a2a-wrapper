@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.7.0
+
+### Minor Changes
+
+- feat: add comprehensive LLM usage telemetry and tracking
+
+### Patch Changes
+
+- Updated dependencies
+  - @a2a-wrapper/core@1.7.0
+
 ## 1.6.0 — 2026-06-03
 
 ### Added
