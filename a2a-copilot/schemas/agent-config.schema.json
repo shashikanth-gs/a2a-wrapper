@@ -277,7 +277,6 @@
           "type": "boolean"
         },
         "trackUsage": {
-          "description": "Enable detailed per-call LLM usage telemetry.\n\nThree delivery tiers:\n- **Tier 1 (always-on)**: A `UsageTelemetryData` summary is injected into `metadata[\"x-usage\"]` on every final completed `TaskStatusUpdateEvent`. Active regardless of this flag.\n- **Tier 2 (opt-in, `trackUsage: true`)**: A `trace.usage` sideband artifact is published per LLM API call, containing token counts, latency, model, cost, and endpoint.\n- **Tier 3 (opt-in, `trackUsage: true`)**: Context-window fill snapshots are included in the `x-usage` summary as `contextWindow` and forwarded via `AgentEventEmitter` as `context_window` events.\n\nDefault: false.",
           "type": "boolean"
         }
       },
