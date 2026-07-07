@@ -52,6 +52,7 @@ Options:
   --no-auto-answer            Do not auto-answer questions
   --stream-artifacts          Stream artifact chunks (spec-correct, streaming clients)
   --no-stream-artifacts       Buffer artifacts — Inspector-compatible (default)
+  --session-map-file <path>   Path to JSON file for persisting contextId→sessionId mapping
   --log-level <level>         Log level: debug | info | warn | error  (default: info)
   --help                      Show this help message
   --version                   Show version
@@ -86,6 +87,7 @@ function parseCliArgs(): { configPath?: string; overrides: Partial<AgentConfig> 
       "stream-artifacts": { type: "boolean" },
       "no-stream-artifacts": { type: "boolean" },
       "log-level":        { type: "string" },
+      "session-map-file": { type: "string" },
       help:               { type: "boolean", short: "h" },
       version:            { type: "boolean", short: "v" },
     },
@@ -142,6 +144,11 @@ function parseCliArgs(): { configPath?: string; overrides: Partial<AgentConfig> 
 
   if (Object.keys(featureOverrides).length > 0) {
     overrides.features = featureOverrides as AgentConfig["features"];
+  }
+
+  // Session
+  if (values["session-map-file"]) {
+    overrides.session = { ...overrides.session, sessionMapFile: values["session-map-file"] as string };
   }
 
   // Logging
