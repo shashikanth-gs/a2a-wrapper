@@ -38,7 +38,7 @@ function redactSecrets(text: string): string {
   // Negative lookbehind (rather than \b) so compound, underscore-joined names like
   // DB_PASSWORD or API_KEY still match — "_" is a \w char and would otherwise block \b.
   return text.replace(
-    /(?<![A-Za-z0-9])(api_?key|access_?token|private_?key|client_?secret|token|key|password|secret|credential|authorization)s?\s*[:=]\s*\S+/gi,
+    /(?<![A-Za-z0-9])(api_?key|access_?token|private_?key|client_?secret|token|key|password|secret|credential|authorization)s?\s*[:=]\s*(?:Bearer\s+|Basic\s+)?\S+/gi,
     "$1=<redacted>",
   );
 }
@@ -136,7 +136,7 @@ export class EventMapper {
 
       if (block.type === "thinking") {
         if (features.emitThinkingEvents && typeof block.thinking === "string" && block.thinking) {
-          this.emitter.emit("thinking", { content: block.thinking });
+          this.emitter.emit("thinking", { content: redactSecrets(block.thinking).substring(0, 2000) });
         }
         continue;
       }

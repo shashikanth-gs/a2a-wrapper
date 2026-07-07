@@ -168,6 +168,26 @@ describe("EventMapper", () => {
     expect(out).not.toContain("hunter2");
     expect(out).toContain("<redacted>");
   });
+
+  it("redacts and truncates thinking content", () => {
+    const { mapper, emitted } = makeMapper();
+    mapper.handleMessage(assistantMsg([
+      { type: "thinking", thinking: "the file has api_key=sk-live-9 in it " + "x".repeat(3000) },
+    ]));
+    const content = emitted[0].data.content as string;
+    expect(content).not.toContain("sk-live-9");
+    expect(content.length).toBeLessThanOrEqual(2000);
+  });
+
+  it("redacts Bearer tokens fully", () => {
+    const { mapper, emitted } = makeMapper();
+    mapper.handleMessage({
+      type: "user",
+      parent_tool_use_id: null,
+      message: { content: [{ type: "tool_result", tool_use_id: "t", content: "Authorization: Bearer sk-ant-secret123" }] },
+    });
+    expect(emitted[0].data.output as string).not.toContain("sk-ant-secret123");
+  });
 });
 
 describe("sanitizeMessage", () => {
