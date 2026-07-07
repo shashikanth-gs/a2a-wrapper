@@ -148,13 +148,18 @@ export async function createA2AServer(config: Required<AgentConfig>): Promise<Se
 
   // GET /session-status?contextId=<id> — probe whether a resumable session exists
   app.get("/session-status", async (req, res) => {
-    const contextId = req.query.contextId as string | undefined;
-    if (!contextId) {
-      res.status(400).json({ error: "contextId query parameter is required" });
-      return;
+    try {
+      const contextId = req.query.contextId;
+      if (!contextId || typeof contextId !== "string") {
+        res.status(400).json({ error: "contextId query parameter is required and must be a single string value" });
+        return;
+      }
+      const exists = await executor.sessionExists(contextId);
+      res.json({ exists });
+    } catch (e) {
+      log.error("Session status check failed", { error: (e as Error).message });
+      res.status(500).json({ error: (e as Error).message });
     }
-    const exists = await executor.sessionExists(contextId);
-    res.json({ exists });
   });
 
   // POST /context/build — build or refresh the context file

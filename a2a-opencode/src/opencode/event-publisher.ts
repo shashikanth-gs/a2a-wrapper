@@ -31,7 +31,7 @@ export function publishTask(
   contextId: string,
   metadata?: Record<string, unknown>,
 ): void {
-  const event: Task & { metadata?: Record<string, unknown> } = {
+  const event: Task = {
     kind: "task",
     id: taskId,
     contextId,
@@ -41,7 +41,7 @@ export function publishTask(
     },
     ...(metadata !== undefined ? { metadata } : {}),
   };
-  bus.publish(event as any);
+  bus.publish(event);
 }
 
 // ─── Status Updates ─────────────────────────────────────────────────────────
@@ -201,7 +201,7 @@ export function publishTraceArtifact(
           kind: "data",
           data,
           metadata: { mimeType: "application/json" },
-        } as any,
+        },
       ],
     },
   };

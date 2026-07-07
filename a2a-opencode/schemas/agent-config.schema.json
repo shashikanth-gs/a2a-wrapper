@@ -92,6 +92,7 @@
           "type": "string"
         },
         "events": {
+          "$ref": "#/definitions/EventsConfig",
           "description": "Event transport configuration for sideband observability events."
         },
         "features": {
@@ -110,6 +111,7 @@
           "type": "object"
         },
         "memory": {
+          "$ref": "#/definitions/MemoryConfig",
           "description": "Optional memory configuration for persisting instructions and skills. When present, the materializer writes these to backend-specific paths in the workspace directory during executor initialization."
         },
         "opencode": {
@@ -125,6 +127,7 @@
           "description": "Session management"
         },
         "subAgents": {
+          "$ref": "#/definitions/SubAgentsConfig",
           "description": "Optional sub-agents to expose as MCP tools via the `a2a-mcp-skillmap` bridge. When present, the parent agent spawns skillmap as a stdio MCP server and registers it under the reserved `a2a-subagents` key in the resolved  {@link  mcp }  map. Sub-agents declared here become callable as ordinary MCP tools by the OpenCode runtime.\n\nWhen this field is absent or `agents` is empty, the parent skips every sub-agent code path with no side effects."
         },
         "timeouts": {
@@ -135,6 +138,37 @@
       "required": [
         "agentCard"
       ],
+      "type": "object"
+    },
+    "EventsConfig": {
+      "additionalProperties": false,
+      "description": "Event transport configuration for sideband observability events.",
+      "properties": {
+        "enabled": {
+          "description": "Enable event emission (default: true)",
+          "type": "boolean"
+        },
+        "httpHeaders": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Custom HTTP headers sent with every event POST. Supports ${ENV_VAR} substitution.",
+          "type": "object"
+        },
+        "httpTimeout": {
+          "description": "HTTP request timeout in ms for the \"http\" transport (default: 10_000)",
+          "type": "number"
+        },
+        "httpUrl": {
+          "description": "HTTP endpoint URL for the \"http\" transport. Required when transport is \"http\".",
+          "type": "string"
+        },
+        "transport": {
+          "description": "Built-in transport type: \"a2a\" (default) or \"http\".",
+          "enum": ["a2a", "http"],
+          "type": "string"
+        }
+      },
       "type": "object"
     },
     "FeatureFlags": {
@@ -167,6 +201,24 @@
         "level": {
           "description": "Log level: \"debug\" | \"info\" | \"warn\" | \"error\" (default: \"info\")",
           "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "MemoryConfig": {
+      "additionalProperties": false,
+      "description": "Memory configuration for persisting instructions and skills into the agent workspace.",
+      "properties": {
+        "instructions": {
+          "description": "Path to a markdown instructions file. Resolved relative to config directory when relative.",
+          "type": "string"
+        },
+        "skills": {
+          "description": "Paths to skill directories, each containing a SKILL.md file. Resolved relative to config directory when relative.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         }
       },
       "type": "object"
@@ -431,6 +483,96 @@
           "type": "number"
         }
       },
+      "type": "object"
+    },
+    "SubAgentAuthConfig": {
+      "description": "Outbound credentials the bridge presents when calling a remote A2A sub-agent.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "mode": { "const": "none", "type": "string" }
+          },
+          "required": ["mode"],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "mode": { "const": "bearer", "type": "string" },
+            "token": { "type": "string" }
+          },
+          "required": ["mode", "token"],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "headerName": { "type": "string" },
+            "mode": { "const": "api_key", "type": "string" },
+            "token": { "type": "string" }
+          },
+          "required": ["mode", "token"],
+          "type": "object"
+        }
+      ]
+    },
+    "SubAgentConfig": {
+      "additionalProperties": false,
+      "description": "One remote A2A agent exposed as MCP tools via the bridge.",
+      "properties": {
+        "agentCardUrl": {
+          "description": "URL of the sub-agent's A2A agent card (http: or https:).",
+          "type": "string"
+        },
+        "auth": {
+          "$ref": "#/definitions/SubAgentAuthConfig",
+          "description": "Outbound credentials presented when calling this sub-agent."
+        },
+        "endpointUrlOverride": {
+          "description": "Optional override URL the bridge probes instead of agentCardUrl.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Stable identifier (ASCII letters, digits, hyphens, underscores). Becomes prefix on generated MCP tool names.",
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "type": "string"
+        }
+      },
+      "required": ["name", "agentCardUrl"],
+      "type": "object"
+    },
+    "SubAgentsConfig": {
+      "additionalProperties": false,
+      "description": "Top-level sub-agents configuration. When absent or agents is empty, all sub-agent code paths are skipped.",
+      "properties": {
+        "agents": {
+          "description": "Remote A2A agents to expose as MCP tools via the bridge.",
+          "items": { "$ref": "#/definitions/SubAgentConfig" },
+          "type": "array"
+        },
+        "options": {
+          "additionalProperties": false,
+          "description": "Optional bridge-wide knobs.",
+          "properties": {
+            "probeTimeoutMs": {
+              "description": "Probe timeout in ms for startup reachability checks (default: 5000).",
+              "type": "number"
+            },
+            "responseMode": {
+              "description": "Skillmap response shaping mode (default: \"artifact\").",
+              "enum": ["structured", "compact", "artifact", "raw"],
+              "type": "string"
+            },
+            "syncBudgetMs": {
+              "description": "Sync budget in ms passed to the bridge. 0 to wait indefinitely (default: 30000).",
+              "type": "number"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "required": ["agents"],
       "type": "object"
     }
   }

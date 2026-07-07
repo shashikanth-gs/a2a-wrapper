@@ -28,7 +28,7 @@ describe("publishTask", () => {
     expect(event.metadata?.sessionCreated).toBe(true);
   });
 
-  it("does not add metadata field when empty object passed", () => {
+  it("does not set sessionCreated when empty metadata object passed", () => {
     const bus = makeBus();
     publishTask(bus, "task-3", "ctx-3", {});
     const event = (bus.publish as ReturnType<typeof vi.fn>).mock.calls[0][0];
