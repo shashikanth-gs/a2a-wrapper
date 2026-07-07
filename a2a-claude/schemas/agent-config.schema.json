@@ -1,0 +1,582 @@
+{
+  "$ref": "#/definitions/AgentConfig",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "AgentCardConfig": {
+      "additionalProperties": false,
+      "description": "Agent identity and capabilities advertised via the A2A Agent Card.",
+      "properties": {
+        "defaultInputModes": {
+          "description": "Supported input modes (default: [\"text\"])",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "defaultOutputModes": {
+          "description": "Supported output modes (default: [\"text\"])",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "description": {
+          "description": "Agent description (shown to orchestrators / callers)",
+          "type": "string"
+        },
+        "name": {
+          "description": "Human-readable agent name",
+          "type": "string"
+        },
+        "protocolVersion": {
+          "description": "Protocol version (default: \"0.3.0\")",
+          "type": "string"
+        },
+        "provider": {
+          "additionalProperties": false,
+          "description": "Agent provider info",
+          "properties": {
+            "organization": {
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "organization"
+          ],
+          "type": "object"
+        },
+        "pushNotifications": {
+          "description": "Enable push notifications (default: false)",
+          "type": "boolean"
+        },
+        "skills": {
+          "description": "Skills this agent exposes",
+          "items": {
+            "$ref": "#/definitions/SkillConfig"
+          },
+          "type": "array"
+        },
+        "stateTransitionHistory": {
+          "deprecated": "This capability is not implemented in the A2A v1.0 spec and\nwas removed. Kept for backward compatibility only — value is ignored.\nDefault: false.",
+          "description": "Enable state transition history capability advertisement.",
+          "type": "boolean"
+        },
+        "streaming": {
+          "description": "Enable streaming capability (default: true)",
+          "type": "boolean"
+        },
+        "version": {
+          "description": "Agent software version (default: \"1.0.0\")",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "description"
+      ],
+      "type": "object"
+    },
+    "AgentConfig": {
+      "additionalProperties": false,
+      "description": "Complete agent configuration for a2a-claude.\n\nThis is what a JSON config file (e.g. `agents/example/config.json`) maps to. All fields except `agentCard` are optional — sensible secure defaults are applied for everything.",
+      "properties": {
+        "agentCard": {
+          "$ref": "#/definitions/AgentCardConfig",
+          "description": "Agent card identity & capabilities"
+        },
+        "claude": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "workingDirectory": { "type": "string" },
+            "model": { "type": "string" },
+            "fallbackModel": { "type": "string" },
+            "permissionMode": { "enum": ["acceptEdits", "dontAsk", "plan", "bypassPermissions"] },
+            "allowedTools": { "type": "array", "items": { "type": "string" } },
+            "disallowedTools": { "type": "array", "items": { "type": "string" } },
+            "systemPromptAppend": { "type": "string" },
+            "customSystemPrompt": { "type": "string" },
+            "settingSources": { "type": "array", "items": { "enum": ["user", "project", "local"] } },
+            "maxTurns": { "type": "integer", "minimum": 1 },
+            "maxBudgetUsd": { "type": "number", "exclusiveMinimum": 0 },
+            "additionalDirectories": { "type": "array", "items": { "type": "string" } },
+            "sandbox": { "type": "object" },
+            "executablePathOverride": { "type": "string" },
+            "dangerouslyAllowBypassPermissions": { "type": "boolean" },
+            "contextFile": { "type": "string" },
+            "contextPrompt": { "type": "string" }
+          }
+        },
+        "server": {
+          "$ref": "#/definitions/ServerConfig",
+          "description": "Network / server settings"
+        },
+        "session": {
+          "$ref": "#/definitions/SessionConfig",
+          "description": "Session management"
+        },
+        "features": {
+          "$ref": "#/definitions/FeatureFlags",
+          "description": "Feature flags"
+        },
+        "timeouts": {
+          "$ref": "#/definitions/TimeoutConfig",
+          "description": "Timeout settings"
+        },
+        "logging": {
+          "$ref": "#/definitions/LoggingConfig",
+          "description": "Logging settings"
+        },
+        "mcp": {
+          "additionalProperties": {
+            "$ref": "#/definitions/McpServerConfig"
+          },
+          "description": "MCP servers to register with Claude at startup. Keys are server names; values are stdio or http server configs. The key \"a2a-subagents\" is reserved for the sub-agent bridge.",
+          "type": "object"
+        },
+        "events": {
+          "$ref": "#/definitions/EventsConfig",
+          "description": "Event transport configuration for sideband observability events."
+        },
+        "memory": {
+          "$ref": "#/definitions/MemoryConfig",
+          "description": "Optional memory configuration for persisting instructions and skills. When present, the materializer writes these to backend-specific paths in the workspace directory during executor initialization."
+        },
+        "subAgents": {
+          "$ref": "#/definitions/SubAgentsConfig",
+          "description": "Optional sub-agents to expose as MCP tools via the `a2a-mcp-skillmap` bridge. When present, the parent agent spawns skillmap as a stdio MCP server and registers it under the reserved `a2a-subagents` key in the resolved  {@link  mcp }  map. Sub-agents declared here become callable as ordinary MCP tools by the Claude runtime.\n\nWhen this field is absent or `agents` is empty, the parent skips every sub-agent code path with no side effects."
+        },
+        "configDir": {
+          "description": "Directory containing the agent's config.json file. Populated automatically by the CLI scaffold when a config file path is provided. Used by the materializer for resolving relative paths in memory config.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "agentCard"
+      ],
+      "type": "object"
+    },
+    "EventsConfig": {
+      "additionalProperties": false,
+      "description": "Event transport configuration for sideband observability events.\n\nControls how trace events (MCP tool calls, agent reasoning, lifecycle) are delivered. Only the two built-in transports are configurable via JSON config — for custom transports (Kafka, Redis, DB, etc.), use the programmatic API and pass a transport function to `createA2AServer()`.",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "description": "Enable event emission.",
+          "type": "boolean"
+        },
+        "httpHeaders": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Custom HTTP headers sent with every event POST. Useful for authentication tokens: ```json { \"Authorization\": \"Bearer ${CORTEX_TOKEN}\" } ```",
+          "type": "object"
+        },
+        "httpTimeout": {
+          "default": "10_000",
+          "description": "HTTP request timeout in milliseconds for the `\"http\"` transport.",
+          "type": "number"
+        },
+        "httpUrl": {
+          "description": "HTTP endpoint URL for the `\"http\"` transport. Required when `transport` is `\"http\"`.",
+          "type": "string"
+        },
+        "transport": {
+          "default": "a2a",
+          "description": "Built-in transport type.\n\n- `\"a2a\"` — publish as sideband trace artifacts on the A2A   ExecutionEventBus (default, zero dependencies).\n- `\"http\"` — POST events as JSON to  {@link  httpUrl } .\n\nFor custom transports, leave this unset and provide a transport function via the programmatic `createA2AServer()` API.",
+          "enum": [
+            "a2a",
+            "http"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "FeatureFlags": {
+      "additionalProperties": false,
+      "description": "Feature toggles for runtime behavior.",
+      "properties": {
+        "streamArtifactChunks": {
+          "description": "Stream artifact chunks individually (A2A spec-correct) vs buffer and send single artifact (inspector-compatible). Default: false (buffered).",
+          "type": "boolean"
+        },
+        "emitThinkingEvents": {
+          "description": "Publish thinking summaries as sideband events (default: true).",
+          "type": "boolean"
+        },
+        "emitToolEvents": {
+          "description": "Publish tool_call_start/end sideband events (default: true).",
+          "type": "boolean"
+        },
+        "emitFileChangeEvents": {
+          "description": "Publish file change metadata as decision sideband events (default: true).",
+          "type": "boolean"
+        },
+        "emitTodoEvents": {
+          "description": "Publish todo-list updates as decision sideband events (default: true).",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "LoggingConfig": {
+      "additionalProperties": false,
+      "description": "Logging settings.",
+      "properties": {
+        "level": {
+          "description": "Log level: \"debug\" | \"info\" | \"warn\" | \"error\" (default: \"info\")",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "McpHttpServerConfig": {
+      "additionalProperties": false,
+      "description": "Configuration for an MCP server connected via HTTP (streamable).",
+      "properties": {
+        "enabled": {
+          "description": "Enable on startup (default: true)",
+          "type": "boolean"
+        },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Optional HTTP headers sent with every request to this server. Use for auth tokens, API keys, etc. Values support `${ENV_VAR}` (or `$ENV_VAR`) substitution so secrets stay out of config.json — e.g. `{ \"Authorization\": \"Bearer ${LINEAR_API_KEY}\" }`.",
+          "type": "object"
+        },
+        "toolTimeoutSec": {
+          "description": "Per-tool call timeout in seconds.",
+          "type": "number"
+        },
+        "type": {
+          "const": "http",
+          "type": "string"
+        },
+        "url": {
+          "description": "URL of the remote MCP server (e.g. http://127.0.0.1:8002/mcp)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "url"
+      ],
+      "type": "object"
+    },
+    "McpServerConfig": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/McpHttpServerConfig"
+        },
+        {
+          "$ref": "#/definitions/McpStdioServerConfig"
+        }
+      ],
+      "description": "MCP server configuration. Only stdio and http (Streamable HTTP) transports are supported. SSE-only servers are not supported — use http or stdio instead."
+    },
+    "McpStdioServerConfig": {
+      "additionalProperties": false,
+      "description": "Configuration for a stdio-based MCP server.",
+      "properties": {
+        "args": {
+          "description": "Arguments to pass to the command. Values support `${ENV_VAR}` (or `$ENV_VAR`) substitution.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "command": {
+          "description": "Command to launch the MCP server",
+          "type": "string"
+        },
+        "disabledTools": {
+          "description": "Denylist of tool names to block.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "enabled": {
+          "description": "Enable on startup (default: true)",
+          "type": "boolean"
+        },
+        "enabledTools": {
+          "description": "Allowlist of tool names to expose. If set, only these tools are accessible.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "env": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Environment variables for the spawned process. Values support `${ENV_VAR}` (or `$ENV_VAR`) substitution so secrets stay out of config.json — e.g. `{ \"API_KEY\": \"${MY_API_KEY}\" }`.",
+          "type": "object"
+        },
+        "startupTimeoutSec": {
+          "description": "MCP server startup timeout in seconds.",
+          "type": "number"
+        },
+        "toolTimeoutSec": {
+          "description": "Per-tool call timeout in seconds.",
+          "type": "number"
+        },
+        "type": {
+          "const": "stdio",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "command"
+      ],
+      "type": "object"
+    },
+    "MemoryConfig": {
+      "additionalProperties": false,
+      "description": "Optional memory configuration section in agent config.json.\n\nDeclares instructions and skills to materialize into the agent's workspace at startup. Both fields are optional — operators can declare instructions only, skills only, or both.\n\nPaths are resolved relative to the directory containing config.json (Config_Directory) unless they are absolute.",
+      "properties": {
+        "instructions": {
+          "description": "Path to a markdown instructions file. Resolved relative to Config_Directory when relative, used as-is when absolute.",
+          "type": "string"
+        },
+        "skills": {
+          "description": "Paths to skill directories, each containing a SKILL.md file. Resolved relative to Config_Directory when relative, used as-is when absolute.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "ServerConfig": {
+      "additionalProperties": false,
+      "description": "Network and server settings.",
+      "properties": {
+        "advertiseHost": {
+          "description": "Hostname advertised in agent card URLs (default: \"localhost\"). Set to machine IP or \"host.containers.internal\" for Docker.",
+          "type": "string"
+        },
+        "advertiseProtocol": {
+          "description": "Protocol used in advertised URLs (default: \"http\"). Set to \"https\" when the agent is deployed behind TLS or a TLS-terminating reverse proxy. The A2A spec requires HTTPS for production deployments.",
+          "enum": [
+            "http",
+            "https"
+          ],
+          "type": "string"
+        },
+        "hostname": {
+          "description": "Bind address (default: \"0.0.0.0\")",
+          "type": "string"
+        },
+        "port": {
+          "description": "A2A server port (default: 3030)",
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "SessionConfig": {
+      "additionalProperties": false,
+      "description": "Session lifecycle management.",
+      "properties": {
+        "cleanupInterval": {
+          "description": "Session cleanup interval in ms (default: 300_000 = 5 min)",
+          "type": "number"
+        },
+        "reuseByContext": {
+          "description": "Reuse sessions by A2A contextId (default: true)",
+          "type": "boolean"
+        },
+        "titlePrefix": {
+          "description": "Session title prefix (default: \"A2A Session\")",
+          "type": "string"
+        },
+        "ttl": {
+          "description": "Session TTL in ms (default: 3_600_000 = 1 hour)",
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "SkillConfig": {
+      "additionalProperties": false,
+      "description": "A single skill exposed on the agent card.",
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "examples": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "description"
+      ],
+      "type": "object"
+    },
+    "SubAgentAuthConfig": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "const": "none",
+              "type": "string"
+            }
+          },
+          "required": [
+            "mode"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "const": "bearer",
+              "type": "string"
+            },
+            "token": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "mode",
+            "token"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "headerName": {
+              "type": "string"
+            },
+            "mode": {
+              "const": "api_key",
+              "type": "string"
+            },
+            "token": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "mode",
+            "token"
+          ],
+          "type": "object"
+        }
+      ],
+      "description": "Outbound credentials the bridge presents when calling a remote A2A sub-agent. Forwarded verbatim into the bridge config consumed by `a2a-mcp-skillmap`.\n\n`mode: \"none\"` is equivalent to omitting the `auth` field entirely and produces no auth block in the generated bridge config.\n\nFor `mode: \"api_key\"`, the optional `headerName` defaults to whatever `a2a-mcp-skillmap` uses (typically `X-API-Key`).\n\nTokens may reference environment variables via `${VAR_NAME}` syntax; the substitution happens during validation and missing variables cause the auth block to be omitted with a warning."
+    },
+    "SubAgentConfig": {
+      "additionalProperties": false,
+      "description": "One remote A2A agent the parent will expose as MCP tools via the `a2a-mcp-skillmap` bridge.",
+      "properties": {
+        "agentCardUrl": {
+          "description": "URL of the sub-agent's A2A agent card. Required.\n\nTypically `https://<host>/.well-known/agent-card.json`, but any URL the bridge can probe is valid. Must use the `http:` or `https:` protocol.",
+          "type": "string"
+        },
+        "auth": {
+          "$ref": "#/definitions/SubAgentAuthConfig",
+          "description": "Outbound credentials the bridge presents when calling this sub-agent. Forwarded verbatim into the bridge config.\n\nOmitting this field is equivalent to `{ mode: \"none\" }`."
+        },
+        "endpointUrlOverride": {
+          "description": "Optional override for the URL the bridge probes. Useful when the agent card declares an endpoint that differs from where the agent is actually reachable (NAT, port-forward, internal vs external).\n\nWhen set, this URL is passed to the bridge instead of  {@link  agentCardUrl } . The bridge still resolves a card from this URL — point it at a card URL or a base URL it can probe under `/.well-known/`. Must use the `http:` or `https:` protocol.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Stable identifier for this sub-agent. Becomes the prefix on generated MCP tool names (`{name}__{skillId}`). Required.\n\nAllowed characters: ASCII letters, digits, hyphens, and underscores (must match `/^[A-Za-z0-9_-]+$/`). Must be unique across all entries in the `subAgents.agents` array.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "agentCardUrl"
+      ],
+      "type": "object"
+    },
+    "SubAgentsConfig": {
+      "additionalProperties": false,
+      "description": "Top-level shape of the `subAgents` field merged into the agent's `BaseAgentConfig`.\n\nWhen this field is absent or `agents` is an empty array, the parent skips every sub-agent code path with no side effects (no bridge config written, no MCP entry injected).",
+      "properties": {
+        "agents": {
+          "description": "The list of remote A2A agents to expose as MCP tools.",
+          "items": {
+            "$ref": "#/definitions/SubAgentConfig"
+          },
+          "type": "array"
+        },
+        "options": {
+          "$ref": "#/definitions/SubAgentsOptions",
+          "description": "Optional bridge-wide knobs."
+        }
+      },
+      "required": [
+        "agents"
+      ],
+      "type": "object"
+    },
+    "SubAgentsOptions": {
+      "additionalProperties": false,
+      "description": "Optional knobs that apply to the bridge process as a whole, not to any single sub-agent.",
+      "properties": {
+        "probeTimeoutMs": {
+          "description": "Probe timeout in milliseconds for the startup reachability check the parent performs against each sub-agent. Defaults to `5000` when unset.",
+          "type": "number"
+        },
+        "responseMode": {
+          "description": "Skillmap response shaping mode passed through to the bridge config. Defaults to `\"artifact\"` when unset.",
+          "enum": [
+            "structured",
+            "compact",
+            "artifact",
+            "raw"
+          ],
+          "type": "string"
+        },
+        "syncBudgetMs": {
+          "description": "Sync budget in milliseconds passed to `a2a-mcp-skillmap` via the bridge config. Controls how long the bridge waits for an A2A agent to respond before switching to async task-handle mode.\n\nWhen the budget expires the bridge immediately returns a `taskId` to the MCP client; the A2A dispatch continues in the background. The LLM can then poll via the built-in `task_result` / `task_status` tools which actively re-query the remote agent before responding.\n\n- Set lower (e.g. `10000`) for interactive use where you want fast   task-handle responses.\n- Set to `0` to wait indefinitely (no async fallback).\n- Defaults to `30000` (30 s) when unset — skillmap's own default.",
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "TimeoutConfig": {
+      "additionalProperties": false,
+      "description": "Timeout settings.",
+      "properties": {
+        "prompt": {
+          "description": "Timeout for a single prompt in ms (default: 600_000 = 10 min)",
+          "type": "number"
+        }
+      },
+      "type": "object"
+    }
+  }
+}
