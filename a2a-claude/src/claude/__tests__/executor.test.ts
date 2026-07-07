@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ClaudeExecutor } from "../executor.js";
@@ -188,6 +188,39 @@ describe("ClaudeExecutor validation", () => {
     config.claude.systemPromptAppend = "b";
     const ex = new ClaudeExecutor(config, () => new FakeClaudeClient([happyTurn("s", "x")]));
     await expect(ex.initialize()).rejects.toThrow(/mutually exclusive/i);
+  });
+
+  it("rejects a workingDirectory that points at a file, not a directory", async () => {
+    const filePath = join(ws, "not-a-dir.txt");
+    writeFileSync(filePath, "hi");
+    config.claude.workingDirectory = filePath;
+    const ex = new ClaudeExecutor(config, () => new FakeClaudeClient([happyTurn("s", "x")]));
+    await expect(ex.initialize()).rejects.toThrow(/not a directory/);
+  });
+
+  it("only warns (does not throw) when ANTHROPIC_API_KEY is absent", async () => {
+    const saved = process.env["ANTHROPIC_API_KEY"];
+    delete process.env["ANTHROPIC_API_KEY"];
+    try {
+      const ex = new ClaudeExecutor(config, () => new FakeClaudeClient([happyTurn("s", "x")]));
+      await expect(ex.initialize()).resolves.toBeUndefined();
+    } finally {
+      if (saved === undefined) delete process.env["ANTHROPIC_API_KEY"];
+      else process.env["ANTHROPIC_API_KEY"] = saved;
+    }
+  });
+
+  it("logs a warning when settingSources is non-empty", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      config.claude.settingSources = ["project"];
+      const ex = new ClaudeExecutor(config, () => new FakeClaudeClient([happyTurn("s", "x")]));
+      await ex.initialize();
+
+      expect(warnSpy.mock.calls.some((call) => String(call[0]).includes("settingSources"))).toBe(true);
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 });
 
