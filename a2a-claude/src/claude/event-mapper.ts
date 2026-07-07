@@ -34,11 +34,18 @@ const FILE_TOOLS: Record<string, string> = {
 
 // ─── Sanitization Helpers ─────────────────────────────────────────────────────
 
+function redactSecrets(text: string): string {
+  // Negative lookbehind (rather than \b) so compound, underscore-joined names like
+  // DB_PASSWORD or API_KEY still match — "_" is a \w char and would otherwise block \b.
+  return text.replace(
+    /(?<![A-Za-z0-9])(api_?key|access_?token|private_?key|client_?secret|token|key|password|secret|credential|authorization)s?\s*[:=]\s*\S+/gi,
+    "$1=<redacted>",
+  );
+}
+
 export function sanitizeMessage(msg: unknown): string {
   if (typeof msg !== "string") return "An error occurred.";
-  return msg
-    .replace(/\b(api_?key|access_?token|private_?key|client_?secret|token|key|password|secret|credential|authorization)s?\s*[:=]\s*\S+/gi, "$1=<redacted>")
-    .substring(0, 2000);
+  return redactSecrets(msg).substring(0, 2000);
 }
 
 function sanitizeData(data: unknown): unknown {
@@ -53,12 +60,13 @@ function sanitizeData(data: unknown): unknown {
 }
 
 function truncateOutput(output: unknown): string {
-  const text =
+  const raw =
     typeof output === "string"
       ? output
       : output === undefined || output === null
         ? ""
         : JSON.stringify(sanitizeData(output));
+  const text = redactSecrets(raw);
   if (text.length > MAX_OUTPUT_LENGTH) {
     return text.substring(0, MAX_OUTPUT_LENGTH) + `\n... [truncated, ${text.length} total chars]`;
   }
@@ -174,7 +182,7 @@ export class EventMapper {
         this.emitter.emit("tool_call_start", {
           backend: "claude",
           toolKind: "shell",
-          command: typeof input.command === "string" ? input.command.substring(0, MAX_COMMAND_LENGTH) : "<command>",
+          command: typeof input.command === "string" ? redactSecrets(input.command).substring(0, MAX_COMMAND_LENGTH) : "<command>",
           itemId,
         });
       } else if (name.startsWith("mcp__")) {

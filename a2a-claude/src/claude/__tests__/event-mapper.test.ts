@@ -146,6 +146,28 @@ describe("EventMapper", () => {
     mapper.handleMessage({ type: "totally_new_message_kind" });
     expect(emitted).toEqual([]);
   });
+
+  it("redacts secrets embedded in Bash commands", () => {
+    const { mapper, emitted } = makeMapper();
+    mapper.handleMessage(assistantMsg([
+      { type: "tool_use", id: "t", name: "Bash", input: { command: "export API_KEY=sk-live-123 && run" } },
+    ]));
+    const cmd = emitted[0].data.command as string;
+    expect(cmd).not.toContain("sk-live-123");
+    expect(cmd).toContain("<redacted>");
+  });
+
+  it("redacts secrets embedded in tool_result output", () => {
+    const { mapper, emitted } = makeMapper();
+    mapper.handleMessage({
+      type: "user",
+      parent_tool_use_id: null,
+      message: { content: [{ type: "tool_result", tool_use_id: "t", content: "DB_PASSWORD=hunter2\nother=ok" }] },
+    });
+    const out = emitted[0].data.output as string;
+    expect(out).not.toContain("hunter2");
+    expect(out).toContain("<redacted>");
+  });
 });
 
 describe("sanitizeMessage", () => {
