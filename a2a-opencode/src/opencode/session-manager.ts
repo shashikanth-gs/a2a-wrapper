@@ -5,6 +5,7 @@
  * Extracted from executor to keep each module focused.
  */
 
+import fs from "node:fs";
 import type { OpenCodeClientWrapper } from "./client.js";
 import type { Session, PermissionRuleset } from "./types.js";
 import type { SessionConfig, FeatureFlags } from "../config/types.js";
@@ -56,12 +57,51 @@ export class SessionManager {
     this.sessionCfg = sessionCfg;
     this.autoApprove = features.autoApprovePermissions;
     this.directory = directory;
+    this.loadMap();
+  }
+
+  /**
+   * Loads the persisted contextId→sessionId map from `sessionMapFile`.
+   * If the file does not exist (ENOENT), starts with an empty map.
+   * If the file exists but contains invalid JSON, logs an error and starts empty.
+   * If `sessionMapFile` is not configured, does nothing.
+   */
+  private loadMap(): void {
+    const path = this.sessionCfg.sessionMapFile;
+    if (!path) return;
+    try {
+      const raw = fs.readFileSync(path, "utf-8");
+      const parsed = JSON.parse(raw) as Record<string, SessionEntry>;
+      for (const [ctx, entry] of Object.entries(parsed)) {
+        this.contextMap.set(ctx, entry);
+      }
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "ENOENT") return;
+      log.error("Failed to load session map — starting empty", { error: e });
+    }
+  }
+
+  /**
+   * Persists the current `contextMap` to `sessionMapFile` as JSON.
+   * If `sessionMapFile` is not configured, does nothing.
+   * Write failures are logged but never thrown.
+   */
+  private persistMap(): void {
+    const path = this.sessionCfg.sessionMapFile;
+    if (!path) return;
+    try {
+      fs.writeFileSync(path, JSON.stringify(Object.fromEntries(this.contextMap)), "utf-8");
+    } catch (e) {
+      log.error("Failed to persist session map", { error: e });
+    }
   }
 
   /** Start periodic session cleanup. */
   startCleanup(): void {
     if (this.cleanupTimer) return;
     this.cleanupTimer = setInterval(() => {
+      // When ttl <= 0 (disabled), skip cleanup entirely to avoid clearing all entries.
+      if (this.sessionCfg.ttl <= 0) return;
       const now = Date.now();
       let cleaned = 0;
       for (const [ctx, entry] of this.contextMap) {
@@ -70,7 +110,10 @@ export class SessionManager {
           cleaned++;
         }
       }
-      if (cleaned > 0) log.info("Cleaned expired sessions", { count: cleaned });
+      if (cleaned > 0) {
+        log.info("Cleaned expired sessions", { count: cleaned });
+        this.persistMap();
+      }
     }, this.sessionCfg.cleanupInterval);
     if (this.cleanupTimer.unref) this.cleanupTimer.unref();
   }
@@ -94,6 +137,7 @@ export class SessionManager {
           return entry.sessionId;
         } catch {
           this.contextMap.delete(contextId);
+          this.persistMap();
         }
       }
     }
@@ -109,6 +153,7 @@ export class SessionManager {
 
     if (this.sessionCfg.reuseByContext) {
       this.contextMap.set(contextId, { sessionId: session.id, lastUsed: Date.now() });
+      this.persistMap();
     }
 
     log.info("Session ready", { sessionId: session.id, contextId });
