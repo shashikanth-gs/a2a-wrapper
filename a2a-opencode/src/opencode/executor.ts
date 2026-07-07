@@ -372,20 +372,22 @@ export class OpenCodeExecutor implements AgentExecutor {
     });
 
     try {
-      // 1. Register task with the SDK's ResultManager, then emit submitted status.
+      // 1. Session — resolve first so we know whether this is a new session.
+      // publishTask must still be first event to the ResultManager; it is
+      // published immediately below before any status-update events.
+      const { sessionId, created } = await this.sessionManager!.getOrCreate(contextId);
+      this.sessionManager!.trackTask(taskId, sessionId, contextId);
+
+      // 2. Register task with the SDK's ResultManager, then emit submitted status.
       // The ResultManager requires a task event (kind: "task") before it will
       // accept status-update or artifact-update events for new tasks.
       if (!task) {
-        publishTask(bus, taskId, contextId);
+        publishTask(bus, taskId, contextId, created ? { sessionCreated: true } : undefined);
         publishStatus(bus, taskId, contextId, "submitted");
       }
 
-      // 2. Working
+      // 3. Working
       publishStatus(bus, taskId, contextId, "working", "Processing request...");
-
-      // 3. Session
-      const { sessionId, created } = await this.sessionManager!.getOrCreate(contextId);
-      this.sessionManager!.trackTask(taskId, sessionId, contextId);
 
       // 4. Build prompt (prepend system prompt on first message in session)
       let promptText = this.extractText(userMessage);

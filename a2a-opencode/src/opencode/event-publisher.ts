@@ -21,13 +21,17 @@ import { v4 as uuidv4 } from "uuid";
  * This MUST be published before any status-update or artifact-update events
  * for new tasks, otherwise the ResultManager will drop subsequent events
  * as "unknown task".
+ *
+ * @param metadata Optional metadata merged into the Task event.
+ *   Pass `{ sessionCreated: true }` when a new opencode session was started.
  */
 export function publishTask(
   bus: ExecutionEventBus,
   taskId: string,
   contextId: string,
+  metadata?: Record<string, unknown>,
 ): void {
-  const event: Task = {
+  const event: Task & { metadata?: Record<string, unknown> } = {
     kind: "task",
     id: taskId,
     contextId,
@@ -35,6 +39,7 @@ export function publishTask(
       state: "submitted",
       timestamp: new Date().toISOString(),
     },
+    ...(metadata !== undefined ? { metadata } : {}),
   };
   bus.publish(event as any);
 }
