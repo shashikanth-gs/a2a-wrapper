@@ -209,6 +209,15 @@ export class OpenCodeExecutor implements AgentExecutor {
     log.info("Executor initialized", { baseUrl: oc.baseUrl, directory: oc.projectDirectory || "(default)" });
   }
 
+  /**
+   * Delegate to SessionManager.sessionExists — used by the /session-status route.
+   * Returns false if SessionManager is not yet initialized.
+   */
+  async sessionExists(contextId: string): Promise<boolean> {
+    if (!this.sessionManager) return false;
+    return this.sessionManager.sessionExists(contextId);
+  }
+
   async shutdown(): Promise<void> {
     this.sessionManager?.shutdown();
     if (this.client) { this.client.cleanup(); this.client = null; }

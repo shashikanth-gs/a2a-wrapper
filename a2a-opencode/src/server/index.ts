@@ -146,6 +146,17 @@ export async function createA2AServer(config: Required<AgentConfig>): Promise<Se
     }
   });
 
+  // GET /session-status?contextId=<id> — probe whether a resumable session exists
+  app.get("/session-status", async (req, res) => {
+    const contextId = req.query.contextId as string | undefined;
+    if (!contextId) {
+      res.status(400).json({ error: "contextId query parameter is required" });
+      return;
+    }
+    const exists = await executor.sessionExists(contextId);
+    res.json({ exists });
+  });
+
   // POST /context/build — build or refresh the context file
   app.use("/context/build", express.json());
   app.post("/context/build", async (req, res) => {
@@ -180,6 +191,7 @@ export async function createA2AServer(config: Required<AgentConfig>): Promise<Se
 ║  REST API:      ${advertiseProto}://${advertiseHost}:${port}/a2a/rest
 ║  Context:       ${advertiseProto}://${advertiseHost}:${port}/context
 ║  Build Context: ${advertiseProto}://${advertiseHost}:${port}/context/build  [POST]
+║  Session Status:${advertiseProto}://${advertiseHost}:${port}/session-status?contextId=<id>
 ║  MCP Status:    ${advertiseProto}://${advertiseHost}:${port}/mcp/status
 ║  Health Check:  ${advertiseProto}://${advertiseHost}:${port}/health
 ╠══════════════════════════════════════════════════════════════╣
