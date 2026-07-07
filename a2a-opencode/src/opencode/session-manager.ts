@@ -160,6 +160,28 @@ export class SessionManager {
     return session.id;
   }
 
+  /**
+   * Check whether a resumable session exists for `contextId` without creating one.
+   * Returns `true` if a mapping exists and `sessionGet` succeeds (session is alive).
+   * Clears the stale entry (and persists) when `sessionGet` fails.
+   * Returns `false` immediately when `reuseByContext` is disabled.
+   */
+  async sessionExists(contextId: string): Promise<boolean> {
+    if (!this.sessionCfg.reuseByContext) return false;
+
+    const entry = this.contextMap.get(contextId);
+    if (!entry) return false;
+
+    try {
+      await this.client.sessionGet(entry.sessionId, this.directory || undefined);
+      return true;
+    } catch {
+      this.contextMap.delete(contextId);
+      this.persistMap();
+      return false;
+    }
+  }
+
   /** Track a task → session + context mapping (for cancel support). */
   trackTask(taskId: string, sessionId: string, contextId?: string): void {
     this.taskMap.set(taskId, sessionId);

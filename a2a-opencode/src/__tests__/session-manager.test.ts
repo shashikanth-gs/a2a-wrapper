@@ -278,3 +278,71 @@ describe("SessionManager — persistence", () => {
     vi.useRealTimers();
   });
 });
+
+describe("SessionManager — sessionExists", () => {
+  let readSpy: ReturnType<typeof vi.mocked<typeof fsModule.readFileSync>>;
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+    readSpy = vi.mocked(fsModule.readFileSync);
+    const enoent = Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+    readSpy.mockImplementation(() => { throw enoent; });
+  });
+
+  function makeManager(reuseByContext = true, opts?: {
+    sessionGetShouldThrow?: boolean;
+  }) {
+    const client = {
+      sessionCreate: vi.fn().mockResolvedValue({ id: "ses_new" }),
+      sessionGet: opts?.sessionGetShouldThrow
+        ? vi.fn().mockRejectedValue(new Error("not found"))
+        : vi.fn().mockResolvedValue({}),
+    };
+    const cfg = {
+      titlePrefix: "A2A Session",
+      reuseByContext,
+      ttl: 3_600_000,
+      cleanupInterval: 300_000,
+      sessionMapFile: undefined,
+    };
+    const manager = new SessionManager(client as any, cfg as any, DEFAULT_FEATURES, "");
+    return { manager, client };
+  }
+
+  it("sessionExists returns false when reuseByContext off", async () => {
+    const { manager } = makeManager(false);
+    const result = await manager.sessionExists("conv-any");
+    expect(result).toBe(false);
+  });
+
+  it("sessionExists true when alive", async () => {
+    const { manager, client } = makeManager(true);
+    // Pre-populate contextMap
+    (manager as any).contextMap.set("conv-123", { sessionId: "ses_abc", lastUsed: Date.now() });
+
+    const result = await manager.sessionExists("conv-123");
+    expect(result).toBe(true);
+    expect(client.sessionGet).toHaveBeenCalledWith("ses_abc", undefined);
+  });
+
+  it("sessionExists clears stale and returns false", async () => {
+    const writeSpy = vi.mocked(fsModule.writeFileSync);
+    const { manager, client } = makeManager(true, { sessionGetShouldThrow: true });
+    (manager as any).contextMap.set("conv-123", { sessionId: "ses_abc", lastUsed: Date.now() });
+
+    const result = await manager.sessionExists("conv-123");
+    expect(result).toBe(false);
+    expect(client.sessionGet).toHaveBeenCalledWith("ses_abc", undefined);
+    // entry cleared
+    expect((manager as any).contextMap.has("conv-123")).toBe(false);
+    // persistMap called (no sessionMapFile set → no write, but method still called safely)
+    expect(writeSpy).not.toHaveBeenCalled(); // no sessionMapFile
+  });
+
+  it("sessionExists false when no mapping", async () => {
+    const { manager, client } = makeManager(true);
+    const result = await manager.sessionExists("conv-999");
+    expect(result).toBe(false);
+    expect(client.sessionGet).not.toHaveBeenCalled();
+  });
+});
