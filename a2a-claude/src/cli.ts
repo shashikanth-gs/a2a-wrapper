@@ -8,8 +8,8 @@
  *
  * Usage:
  *   a2a-claude --config agents/example/config.json
- *   a2a-claude --config agents/my-agent/config.json --port 3020
- *   a2a-claude --workspace /path/to/repo --model o4-mini
+ *   a2a-claude --config agents/my-agent/config.json --port 3030
+ *   a2a-claude --workspace /path/to/repo --model claude-sonnet-5
  *
  * Run `a2a-claude --help` for the full flag reference.
  */
@@ -36,12 +36,12 @@ Usage: a2a-claude [options]
 Options:
   --agent-json <path>          Path to agent JSON config file  (alias: --config)
   --config <path>              Path to agent JSON config file  (alias: --agent-json)
-  --port <number>              A2A server port                 (default: 3020)
+  --port <number>              A2A server port                 (default: 3030)
   --hostname <addr>            Bind address                    (default: 0.0.0.0)
   --advertise-host <host>      Hostname for agent card URLs    (default: localhost)
   --workspace <path>           Workspace directory (Git repo)  (alias: --working-dir)
   --working-dir <path>         Workspace directory (Git repo)  (alias: --workspace)
-  --model <model>              Codex model                     (e.g. o4-mini, gpt-4o)
+  --model <model>              Claude model                    (e.g. claude-sonnet-5, claude-opus-4-8)
   --permission-mode <mode>     Permission mode                 (acceptEdits | dontAsk | plan | bypassPermissions)
   --agent-name <name>          Agent display name
   --agent-description <desc>   Agent description
@@ -61,7 +61,7 @@ Environment variables:
 Examples:
   a2a-claude --config agents/example/config.json
   ANTHROPIC_API_KEY=sk-... WORKSPACE_DIR=/repo a2a-claude --config agents/example/config.json
-  a2a-claude --workspace /repo --model o4-mini --port 3020
+  a2a-claude --workspace /repo --model claude-sonnet-5 --port 3030
 `);
 }
 
