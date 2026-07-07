@@ -1,12 +1,10 @@
 #!/usr/bin/env bash
 ###############################################################################
-# Example Agent — start / stop / status / logs
+# Read-Only Reviewer Agent — start / stop / status / logs
 #
-# Minimal workspace engineering agent backed by Claude Code.
-# Claude can read and write files inside the workspace directory.
-#
-# Copy this directory to create your own agent:
-#   cp -r agents/example agents/my-agent
+# Code review and repository analysis agent backed by Claude Code.
+# Claude Code is restricted to read-only access — it cannot modify any files.
+# Safe to point at any repository without risk of accidental changes.
 #
 # Usage:
 #   ./start.sh start        — Start the agent in the background
@@ -19,9 +17,8 @@
 # Required environment:
 #   ANTHROPIC_API_KEY   Your Anthropic API key
 #
-# The WORKSPACE_DIR defaults to the workspace/ subdirectory in this agent
-# folder. Override by setting the env variable before calling this script:
-#   WORKSPACE_DIR=/my/repo ./start.sh start
+# Point at any repository with WORKSPACE_DIR:
+#   WORKSPACE_DIR=/path/to/repo ./start.sh start
 ###############################################################################
 
 set -euo pipefail

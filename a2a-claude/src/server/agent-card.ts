@@ -13,7 +13,7 @@ export function buildAgentCard(config: Required<AgentConfig>): AgentCard {
   const { agentCard, server } = config;
   const proto = server.advertiseProtocol ?? "http";
   const host = server.advertiseHost ?? server.hostname ?? "localhost";
-  const port = server.port ?? 3020;
+  const port = server.port ?? 3030;
 
   const card = coreBuildAgentCard({ agentCard, server });
 
