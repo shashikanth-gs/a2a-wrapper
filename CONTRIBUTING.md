@@ -13,6 +13,7 @@ Thanks for your interest in contributing! This is a monorepo containing multiple
 a2a-wrapper/
 ├── packages/
 │   └── core/              # @a2a-wrapper/core — shared infrastructure
+├── a2a-claude/            # a2a-claude — Claude Code wrapper
 ├── a2a-copilot/           # a2a-copilot — GitHub Copilot SDK wrapper
 ├── a2a-opencode/          # a2a-opencode — OpenCode wrapper
 ├── turbo.json             # Turborepo task pipeline
@@ -21,6 +22,7 @@ a2a-wrapper/
 ```
 
 - `packages/core/` — shared library (`@a2a-wrapper/core`): logging, config loading, event publishing, server factory, session management, CLI scaffold
+- `a2a-claude/` — A2A wrapper for Claude Code
 - `a2a-copilot/` — A2A wrapper for GitHub Copilot SDK
 - `a2a-opencode/` — A2A wrapper for OpenCode
 

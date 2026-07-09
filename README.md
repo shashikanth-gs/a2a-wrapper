@@ -14,6 +14,7 @@ A monorepo of [A2A protocol](https://github.com/google-deepmind/a2a) wrappers th
 | [`@a2a-wrapper/core`](packages/core/) | [![npm](https://img.shields.io/npm/v/@a2a-wrapper/core.svg)](https://www.npmjs.com/package/@a2a-wrapper/core) | Shared infrastructure — logging, config loading, event publishing, server factory, session management, CLI scaffold |
 | [`a2a-copilot`](a2a-copilot/) | [![npm](https://img.shields.io/npm/v/a2a-copilot.svg)](https://www.npmjs.com/package/a2a-copilot) | A2A wrapper for GitHub Copilot SDK. Supports **Bring Your Own Model (BYOK)** — Ollama, OpenAI, Anthropic, Azure, vLLM, or any OpenAI-compatible endpoint |
 | [`a2a-opencode`](a2a-opencode/) | [![npm](https://img.shields.io/npm/v/a2a-opencode.svg)](https://www.npmjs.com/package/a2a-opencode) | A2A wrapper for OpenCode — multi-provider out of the box (Anthropic, OpenAI, GitHub Copilot, and more) |
+| [`a2a-claude`](a2a-claude/) | [![npm](https://img.shields.io/npm/v/a2a-claude.svg)](https://www.npmjs.com/package/a2a-claude) | A2A wrapper for Claude Code — fully spec-compliant agent powered by the official `@anthropic-ai/claude-agent-sdk` |
 | [`a2a-codex`](a2a-codex/) | [![npm](https://img.shields.io/npm/v/a2a-codex.svg)](https://www.npmjs.com/package/a2a-codex) | A2A wrapper for OpenAI Codex SDK — repository-scoped software engineering agent with sandboxing, MCP, and multi-agent delegation |
 
 ## Bring Your Own Model
@@ -28,18 +29,18 @@ Both wrappers are provider-flexible — you are not locked into a single vendor:
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                      @a2a-wrapper/core                           │
-│  Logger · Config · Events · Server · Session · CLI              │
-│  Sub-Agents · Memory · Schema                                   │
-└──────────────┬──────────────────────┬──────────────┬───────────┘
-               │                      │              │
-       ┌───────▼───────┐      ┌───────▼───────┐  ┌──▼──────────┐
-       │  a2a-copilot  │      │ a2a-opencode  │  │  a2a-codex  │
-       │  (Copilot SDK)│      │  (OpenCode)   │  │ (Codex SDK) │
-       └───────┬───────┘      └───────┬───────┘  └──────┬──────┘
-               │                      │                  │
-         GitHub Copilot          OpenCode Server   OpenAI Codex
+┌────────────────────────────────────────────────────────────────────────┐
+│                          @a2a-wrapper/core                             │
+│      Logger · Config · Events · Server · Session · CLI                 │
+│      Sub-Agents · Memory · Schema                                      │
+└──────┬───────────────┬─────────────────┬──────────────────┬────────────┘
+       │               │                 │                  │
+┌──────▼──────┐ ┌──────▼───────┐  ┌──────▼───────┐  ┌───────▼──────┐
+│ a2a-copilot │ │ a2a-opencode │  │  a2a-claude  │  │  a2a-codex   │
+│(Copilot SDK)│ │  (OpenCode)  │  │ (Claude SDK) │  │ (Codex SDK)  │
+└──────┬──────┘ └──────┬───────┘  └──────┬───────┘  └───────┬──────┘
+       │               │                 │                  │
+ GitHub Copilot   OpenCode Server   Claude Code       OpenAI Codex
 ```
 
 Each wrapper implements a single `A2AExecutor` interface and a thin config/CLI layer. Everything else — A2A protocol compliance, Express server wiring, agent card building, session TTL management — comes from `@a2a-wrapper/core`.
@@ -99,6 +100,11 @@ npm run dev -- --config agents/example/config.json
 
 # Or
 cd a2a-opencode
+npm run dev -- --config agents/example/config.json
+
+# Or
+export ANTHROPIC_API_KEY=sk-... WORKSPACE_DIR=/path/to/repo
+cd a2a-claude
 npm run dev -- --config agents/example/config.json
 
 # Or
