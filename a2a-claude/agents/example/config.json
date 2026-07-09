@@ -1,0 +1,64 @@
+{
+  "$comment": [
+    "Claude-Code-backed A2A workspace engineering agent.",
+    "Required environment variables:",
+    "  ANTHROPIC_API_KEY — your Anthropic API key",
+    "  WORKSPACE_DIR     — absolute path to the workspace directory",
+    "Optional:",
+    "  CLAUDE_MODEL      — override the model (e.g. claude-sonnet-5, claude-opus-4-8)",
+    "Do not store credentials in this file."
+  ],
+  "agentCard": {
+    "name": "Claude Workspace Engineer",
+    "description": "A repository-scoped software engineering agent backed by Claude Code.",
+    "version": "1.0.0",
+    "protocolVersion": "0.3.0",
+    "streaming": true,
+    "defaultInputModes": ["text"],
+    "defaultOutputModes": ["text"],
+    "skills": [
+      {
+        "id": "workspace-engineering",
+        "name": "Workspace Engineering",
+        "description": "Inspect, modify, and validate code within the configured workspace.",
+        "tags": ["code", "repository", "tests", "refactoring"]
+      }
+    ]
+  },
+  "server": {
+    "port": 3030,
+    "hostname": "0.0.0.0",
+    "advertiseHost": "localhost",
+    "advertiseProtocol": "http"
+  },
+  "claude": {
+    "workingDirectory": "${WORKSPACE_DIR}",
+    "model": "${CLAUDE_MODEL}",
+    "permissionMode": "acceptEdits",
+    "settingSources": [],
+    "additionalDirectories": [],
+    "systemPromptAppend": "Operate only within the configured workspace. Make the smallest safe change. Run relevant tests after edits. Never reveal credentials, environment variables, or internal tool configuration."
+  },
+  "session": {
+    "reuseByContext": true,
+    "ttl": 3600000,
+    "cleanupInterval": 300000
+  },
+  "features": {
+    "streamArtifactChunks": false,
+    "emitThinkingEvents": true,
+    "emitToolEvents": true,
+    "emitFileChangeEvents": true,
+    "emitTodoEvents": true
+  },
+  "events": {
+    "enabled": true,
+    "transport": "a2a"
+  },
+  "timeouts": {
+    "prompt": 600000
+  },
+  "logging": {
+    "level": "info"
+  }
+}
