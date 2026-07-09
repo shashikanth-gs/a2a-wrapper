@@ -495,6 +495,18 @@ auth and routing stay under `antigravity.provider`.
 Unset SDK-owned fields are omitted from the Python bridge config so SDK defaults
 remain authoritative.
 
+## Related Packages
+
+This package is part of the [a2a-wrapper](https://github.com/shashikanth-gs/a2a-wrapper) monorepo:
+
+| Package | Description |
+|---|---|
+| [`@a2a-wrapper/core`](https://www.npmjs.com/package/@a2a-wrapper/core) | Shared infrastructure (logging, config, server, events, session, CLI) |
+| [`a2a-copilot`](https://www.npmjs.com/package/a2a-copilot) | A2A wrapper for GitHub Copilot |
+| [`a2a-opencode`](https://www.npmjs.com/package/a2a-opencode) | A2A wrapper for OpenCode |
+| [`a2a-claude`](https://www.npmjs.com/package/a2a-claude) | A2A wrapper for Claude Code |
+| [`a2a-codex`](https://www.npmjs.com/package/a2a-codex) | A2A wrapper for OpenAI Codex |
+
 ## Contributor Notes
 
 This package intentionally has two runtimes:

@@ -16,13 +16,15 @@ A monorepo of [A2A protocol](https://github.com/google-deepmind/a2a) wrappers th
 | [`a2a-opencode`](a2a-opencode/) | [![npm](https://img.shields.io/npm/v/a2a-opencode.svg)](https://www.npmjs.com/package/a2a-opencode) | A2A wrapper for OpenCode — multi-provider out of the box (Anthropic, OpenAI, GitHub Copilot, and more) |
 | [`a2a-claude`](a2a-claude/) | [![npm](https://img.shields.io/npm/v/a2a-claude.svg)](https://www.npmjs.com/package/a2a-claude) | A2A wrapper for Claude Code — fully spec-compliant agent powered by the official `@anthropic-ai/claude-agent-sdk` |
 | [`a2a-codex`](a2a-codex/) | [![npm](https://img.shields.io/npm/v/a2a-codex.svg)](https://www.npmjs.com/package/a2a-codex) | A2A wrapper for OpenAI Codex SDK — repository-scoped software engineering agent with sandboxing, MCP, and multi-agent delegation |
+| [`a2a-antigravity`](a2a-antigravity/) | [![npm](https://img.shields.io/npm/v/a2a-antigravity.svg)](https://www.npmjs.com/package/a2a-antigravity) | A2A wrapper for Google Antigravity SDK — Node/TypeScript public server with a managed Python SDK subprocess, Gemini auth, policies, MCP, and sideband traces |
 
-## Bring Your Own Model
+## Backend Flexibility
 
-Both wrappers are provider-flexible — you are not locked into a single vendor:
+Several wrappers are provider-flexible — you are not locked into a single vendor:
 
 - **`a2a-opencode`** is multi-provider out of the box. OpenCode natively routes to Anthropic, OpenAI, GitHub Copilot, local models, and more — switch provider with one line in `config.json`.
 - **`a2a-copilot`** supports custom providers via GitHub Copilot's BYOK ("Bring Your Own Key") capability. Point it at a local Ollama instance, OpenAI, Anthropic, Azure OpenAI, Azure AI Foundry, vLLM, or any OpenAI-compatible endpoint using the `copilot.provider` config block. See the [a2a-copilot BYOK section](a2a-copilot/README.md#bring-your-own-model-byok) for setup and model requirements.
+- **`a2a-antigravity`** exposes Google Antigravity through A2A while keeping the public package Node-based. It creates a managed Python environment for `google-antigravity` via `a2a-antigravity setup`, then uses Gemini API key or Vertex/ADC auth.
 
 > **Note on local models (a2a-copilot):** the agentic loop requires the model to support **native tool calling**. Some small/older local models emit tool calls as plain text and won't work. Use a tool-capable model (e.g. `qwen3.6`, `llama3.3`). Full details in the [BYOK section](a2a-copilot/README.md#bring-your-own-model-byok).
 
@@ -33,14 +35,17 @@ Both wrappers are provider-flexible — you are not locked into a single vendor:
 │                          @a2a-wrapper/core                             │
 │      Logger · Config · Events · Server · Session · CLI                 │
 │      Sub-Agents · Memory · Schema                                      │
-└──────┬───────────────┬─────────────────┬──────────────────┬────────────┘
-       │               │                 │                  │
-┌──────▼──────┐ ┌──────▼───────┐  ┌──────▼───────┐  ┌───────▼──────┐
-│ a2a-copilot │ │ a2a-opencode │  │  a2a-claude  │  │  a2a-codex   │
-│(Copilot SDK)│ │  (OpenCode)  │  │ (Claude SDK) │  │ (Codex SDK)  │
-└──────┬──────┘ └──────┬───────┘  └──────┬───────┘  └───────┬──────┘
-       │               │                 │                  │
- GitHub Copilot   OpenCode Server   Claude Code       OpenAI Codex
+└──────────────────────────────┬─────────────────────────────────────────┘
+                               │
+                               ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│ Wrapper packages                                                       │
+│  • a2a-copilot      → GitHub Copilot SDK                               │
+│  • a2a-opencode     → OpenCode Server                                  │
+│  • a2a-claude       → Claude Code SDK                                  │
+│  • a2a-codex        → OpenAI Codex SDK                                 │
+│  • a2a-antigravity  → Google Antigravity SDK via Python bridge         │
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
 Each wrapper implements a single `A2AExecutor` interface and a thin config/CLI layer. Everything else — A2A protocol compliance, Express server wiring, agent card building, session TTL management — comes from `@a2a-wrapper/core`.
@@ -111,6 +116,12 @@ npm run dev -- --config agents/example/config.json
 export OPENAI_API_KEY=sk-... WORKSPACE_DIR=/path/to/repo
 cd a2a-codex
 npm run dev -- --config agents/example/config.json
+
+# Or
+export GEMINI_API_KEY=... WORKSPACE_DIR=/path/to/repo
+cd a2a-antigravity
+npm run dev -- setup
+npm run dev -- --config agents/example/config.json
 ```
 
 ## Development
@@ -149,6 +160,9 @@ npx turbo run test --filter=a2a-copilot
 
 # Build a2a-opencode and its dependencies
 npx turbo run build --filter=a2a-opencode...
+
+# Test only a2a-antigravity
+npx turbo run test --filter=a2a-antigravity
 ```
 
 ### Changesets Workflow

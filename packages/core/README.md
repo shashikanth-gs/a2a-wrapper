@@ -305,6 +305,7 @@ memory/skills/code-review/
 | Claude | `CLAUDE.md` | `.claude/skills/` |
 | OpenCode | `.opencode/instructions.md` | `.opencode/skills/` |
 | Codex | `.codex/instructions.md` | `.agents/skills/` |
+| Antigravity | `AGENTS.md` | `.antigravity/skills/` |
 
 #### Usage in an executor
 
@@ -317,7 +318,7 @@ if (config.memory && workspaceDir) {
     memoryConfig: config.memory,
     configDir: config.configDir ?? process.cwd(),
     workspaceDir,
-    paths: WELL_KNOWN_PATHS.copilot, // or .claude, .opencode, .codex
+    paths: WELL_KNOWN_PATHS.copilot, // or wrapper-specific BackendPaths such as Antigravity's
   });
 }
 ```

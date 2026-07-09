@@ -728,6 +728,9 @@ This package is part of the [a2a-wrapper](https://github.com/shashikanth-gs/a2a-
 |---|---|
 | [`@a2a-wrapper/core`](https://www.npmjs.com/package/@a2a-wrapper/core) | Shared infrastructure (logging, config, server, events, session, CLI) |
 | [`a2a-opencode`](https://www.npmjs.com/package/a2a-opencode) | A2A wrapper for OpenCode |
+| [`a2a-claude`](https://www.npmjs.com/package/a2a-claude) | A2A wrapper for Claude Code |
+| [`a2a-codex`](https://www.npmjs.com/package/a2a-codex) | A2A wrapper for OpenAI Codex |
+| [`a2a-antigravity`](https://www.npmjs.com/package/a2a-antigravity) | A2A wrapper for Google Antigravity |
 
 ## Contributing
 

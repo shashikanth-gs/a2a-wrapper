@@ -16,6 +16,8 @@ a2a-wrapper/
 ├── a2a-claude/            # a2a-claude — Claude Code wrapper
 ├── a2a-copilot/           # a2a-copilot — GitHub Copilot SDK wrapper
 ├── a2a-opencode/          # a2a-opencode — OpenCode wrapper
+├── a2a-codex/             # a2a-codex — OpenAI Codex SDK wrapper
+├── a2a-antigravity/       # a2a-antigravity — Google Antigravity SDK wrapper
 ├── turbo.json             # Turborepo task pipeline
 ├── .changeset/            # Changesets versioning config
 └── package.json           # Root workspace config
@@ -25,6 +27,8 @@ a2a-wrapper/
 - `a2a-claude/` — A2A wrapper for Claude Code
 - `a2a-copilot/` — A2A wrapper for GitHub Copilot SDK
 - `a2a-opencode/` — A2A wrapper for OpenCode
+- `a2a-codex/` — A2A wrapper for OpenAI Codex SDK
+- `a2a-antigravity/` — A2A wrapper for Google Antigravity SDK using a private Python subprocess
 
 All packages are managed via [npm workspaces](https://docs.npmjs.com/cli/using-npm/workspaces) and built with [Turborepo](https://turbo.build/).
 
@@ -74,6 +78,9 @@ npx turbo run test --filter=a2a-copilot
 
 # Build a2a-opencode and its dependencies
 npx turbo run build --filter=a2a-opencode...
+
+# Test only a2a-antigravity
+npx turbo run test --filter=a2a-antigravity
 ```
 
 Or work directly inside a package directory:
@@ -83,6 +90,9 @@ cd packages/core
 npm test
 
 cd a2a-copilot
+npm test
+
+cd a2a-antigravity
 npm test
 ```
 
