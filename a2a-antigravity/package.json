@@ -25,6 +25,7 @@
     "agents",
     "schemas",
     "requirements.txt",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "publishConfig": {
