@@ -6,7 +6,7 @@
   "types": "dist/index.d.ts",
   "type": "module",
   "bin": {
-    "a2a-antigravity": "./dist/cli.js"
+    "a2a-antigravity": "dist/cli.js"
   },
   "scripts": {
     "build": "tsc",
