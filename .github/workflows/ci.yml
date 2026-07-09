@@ -60,7 +60,9 @@ jobs:
         run: npm install
 
       - name: Build a2a-antigravity
-        run: npm run build -w a2a-antigravity
+        run: |
+          npm run build -w @a2a-wrapper/core
+          npm run build -w a2a-antigravity
 
       - name: Verify managed Python setup
         run: node a2a-antigravity/dist/cli.js setup --venv-dir "$RUNNER_TEMP/a2a-antigravity-venv"
