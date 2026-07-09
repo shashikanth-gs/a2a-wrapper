@@ -27,7 +27,7 @@ export interface ServerHandle {
 
 export async function createA2AServer(config: Required<AgentConfig>): Promise<ServerHandle> {
   const { server: srv } = config;
-  const port = srv.port ?? 3030;
+  const port = srv.port ?? 3040;
   const hostname = srv.hostname ?? "0.0.0.0";
   const advertiseHost = srv.advertiseHost ?? "localhost";
   const advertiseProto = srv.advertiseProtocol ?? "http";
@@ -100,7 +100,12 @@ export async function createA2AServer(config: Required<AgentConfig>): Promise<Se
     server: httpServer,
     executor,
     async shutdown() {
-      httpServer.close();
+      await new Promise<void>((resolve) => {
+        httpServer.close((err) => {
+          if (err) log.warn("HTTP server close returned an error", { error: err.message });
+          resolve();
+        });
+      });
       await executor.shutdown();
       log.info("Server shut down");
     },

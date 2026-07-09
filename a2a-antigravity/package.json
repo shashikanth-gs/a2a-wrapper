@@ -1,13 +1,12 @@
 {
   "name": "a2a-antigravity",
-  "version": "0.1.0",
-  "private": true,
+  "version": "0.1.1",
   "description": "A2A (Agent-to-Agent) protocol wrapper for Google Antigravity SDK. Exposes Antigravity through the shared HTTP/JSON-RPC/REST/SSE A2A surface using a private Python SDK bridge.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "type": "module",
   "bin": {
-    "a2a-antigravity": "./dist/cli.js"
+    "a2a-antigravity": "dist/cli.js"
   },
   "scripts": {
     "build": "tsc",
@@ -25,6 +24,7 @@
     "src/antigravity/python",
     "agents",
     "schemas",
+    "requirements.txt",
     "LICENSE"
   ],
   "publishConfig": {

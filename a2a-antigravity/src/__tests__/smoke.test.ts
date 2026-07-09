@@ -7,8 +7,8 @@ describe("DEFAULTS", () => {
     expect(DEFAULTS.agentCard.protocolVersion).toBe("0.3.0");
   });
 
-  it("defaults to port 3030", () => {
-    expect(DEFAULTS.server.port).toBe(3030);
+  it("defaults to port 3040", () => {
+    expect(DEFAULTS.server.port).toBe(3040);
   });
 
   it("uses SDK-default auth by default", () => {
