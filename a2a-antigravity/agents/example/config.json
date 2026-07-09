@@ -1,0 +1,37 @@
+{
+  "$schema": "../../schemas/agent-config.schema.json",
+  "agentCard": {
+    "name": "Antigravity Code Agent",
+    "description": "A repository-scoped coding agent backed by Google Antigravity.",
+    "version": "0.1.0",
+    "skills": [
+      {
+        "id": "software-engineering",
+        "name": "Software Engineering",
+        "description": "Analyze, edit, and explain code in a configured workspace.",
+        "tags": ["code", "antigravity", "gemini"]
+      }
+    ]
+  },
+  "server": {
+    "port": 3030,
+    "hostname": "0.0.0.0",
+    "advertiseHost": "localhost"
+  },
+  "antigravity": {
+    "workingDirectory": "${WORKSPACE_DIR}",
+    "provider": {
+      "authMode": "sdkDefault"
+    }
+  },
+  "features": {
+    "streamArtifactChunks": false,
+    "emitReasoning": true,
+    "emitToolEvents": true,
+    "trackUsage": true
+  },
+  "events": {
+    "enabled": true,
+    "transport": "a2a"
+  }
+}

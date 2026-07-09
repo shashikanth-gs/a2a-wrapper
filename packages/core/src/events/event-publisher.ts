@@ -114,6 +114,7 @@ export function publishStatus(
   state: TaskState,
   messageText?: string,
   final = false,
+  metadata?: Record<string, unknown>,
 ): void {
   const event: TaskStatusUpdateEvent = {
     kind: "status-update",
@@ -135,6 +136,7 @@ export function publishStatus(
         : {}),
     },
     final,
+    ...(metadata ? { metadata } : {}),
   };
   bus.publish(event);
 }

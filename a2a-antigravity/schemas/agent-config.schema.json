@@ -1,0 +1,700 @@
+{
+  "$ref": "#/definitions/AgentConfig",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "AgentCardConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "defaultInputModes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "defaultOutputModes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "description": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "protocolVersion": {
+          "type": "string"
+        },
+        "provider": {
+          "additionalProperties": false,
+          "properties": {
+            "organization": {
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "organization"
+          ],
+          "type": "object"
+        },
+        "pushNotifications": {
+          "type": "boolean"
+        },
+        "skills": {
+          "items": {
+            "$ref": "#/definitions/SkillConfig"
+          },
+          "type": "array"
+        },
+        "stateTransitionHistory": {
+          "deprecated": "Kept for backward compatibility. Ignored by the agent card builder.",
+          "type": "boolean"
+        },
+        "streaming": {
+          "type": "boolean"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "description"
+      ],
+      "type": "object"
+    },
+    "AgentConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "agentCard": {
+          "$ref": "#/definitions/AgentCardConfig"
+        },
+        "antigravity": {
+          "$ref": "#/definitions/AntigravityConfig"
+        },
+        "configDir": {
+          "description": "Directory containing the loaded config file; set by CLI/loader.",
+          "type": "string"
+        },
+        "events": {
+          "$ref": "#/definitions/EventsConfig"
+        },
+        "features": {
+          "$ref": "#/definitions/FeatureFlags"
+        },
+        "logging": {
+          "$ref": "#/definitions/LoggingConfig"
+        },
+        "mcp": {
+          "additionalProperties": {
+            "$ref": "#/definitions/McpServerConfig"
+          },
+          "type": "object"
+        },
+        "memory": {
+          "$ref": "#/definitions/MemoryConfig"
+        },
+        "server": {
+          "$ref": "#/definitions/ServerConfig"
+        },
+        "session": {
+          "$ref": "#/definitions/SessionConfig"
+        },
+        "subAgents": {
+          "$ref": "#/definitions/SubAgentsConfig"
+        },
+        "timeouts": {
+          "$ref": "#/definitions/TimeoutConfig"
+        }
+      },
+      "required": [
+        "agentCard"
+      ],
+      "type": "object"
+    },
+    "AntigravityCapabilitiesConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "compactionThreshold": {
+          "description": "SDK compaction threshold. Omitted by default.",
+          "type": "number"
+        },
+        "disabledTools": {
+          "description": "Built-in tools to hide. Mutually exclusive with enabledTools.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "enableSubagents": {
+          "description": "Whether Antigravity subagent support is enabled. SDK default is used when omitted.",
+          "type": "boolean"
+        },
+        "enabledTools": {
+          "description": "Built-in tools to expose. Mutually exclusive with disabledTools.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "AntigravityConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "appDataDir": {
+          "description": "SDK app data directory. Must be absolute when set. Supports `${ENV_VAR}`.",
+          "type": "string"
+        },
+        "bridgePath": {
+          "description": "Override path to the private bridge.py. Mostly for tests/dev.",
+          "type": "string"
+        },
+        "capabilities": {
+          "$ref": "#/definitions/AntigravityCapabilitiesConfig"
+        },
+        "conversationId": {
+          "description": "Existing SDK conversation id to resume. Omitted by default.",
+          "type": "string"
+        },
+        "model": {
+          "description": "Text model name. Omitted by default so the SDK can choose its default.",
+          "type": "string"
+        },
+        "policies": {
+          "$ref": "#/definitions/AntigravityPolicyConfig"
+        },
+        "provider": {
+          "$ref": "#/definitions/AntigravityProviderConfig"
+        },
+        "pythonPath": {
+          "description": "Python executable used for the private bridge. Default: python3.",
+          "type": "string"
+        },
+        "responseSchema": {
+          "anyOf": [
+            {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "description": "JSON schema object or path string for structured output."
+        },
+        "saveDir": {
+          "description": "Persistent SDK save directory. Omitted by default. Supports `${ENV_VAR}`.",
+          "type": "string"
+        },
+        "skillsPaths": {
+          "description": "Skill directory paths to pass to Antigravity. Supports `${ENV_VAR}`.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "systemInstructions": {
+          "description": "Appended system instructions. Omitted by default.",
+          "type": "string"
+        },
+        "workingDirectory": {
+          "description": "Convenience primary workspace. When set and `workspaces` is omitted, it is passed to the SDK as the single workspace. Supports `${ENV_VAR}`.",
+          "type": "string"
+        },
+        "workspaces": {
+          "description": "Workspace allowlist passed to LocalAgentConfig.workspaces. Supports `${ENV_VAR}`.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "AntigravityPolicyConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "description": "SDK policy posture.\n\n- \"sdkDefault\": omit policies and use LocalAgentConfig defaults.\n- \"allowAll\": pass policy.allow_all().\n- \"denyAll\": pass policy.deny_all().\n- \"custom\": pass explicit allow/deny rules.",
+          "enum": [
+            "sdkDefault",
+            "allowAll",
+            "denyAll",
+            "custom"
+          ],
+          "type": "string"
+        },
+        "rules": {
+          "items": {
+            "$ref": "#/definitions/AntigravityPolicyRuleConfig"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "AntigravityPolicyRuleConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "decision": {
+          "enum": [
+            "allow",
+            "deny"
+          ],
+          "type": "string"
+        },
+        "tool": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "decision",
+        "tool"
+      ],
+      "type": "object"
+    },
+    "AntigravityProviderConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "apiKey": {
+          "description": "Gemini API key. Prefer `${GEMINI_API_KEY}` or env-only SDK defaults.",
+          "type": "string"
+        },
+        "authMode": {
+          "description": "Model access mode.\n\n- \"sdkDefault\": omit auth/routing fields and let the SDK/env decide.\n- \"apiKey\": Gemini Developer API / AI Studio key via apiKey or GEMINI_API_KEY.\n- \"adc\": Vertex / Gemini Enterprise Agent Platform using ADC.",
+          "enum": [
+            "sdkDefault",
+            "apiKey",
+            "adc"
+          ],
+          "type": "string"
+        },
+        "location": {
+          "description": "Vertex / Gemini Enterprise Agent Platform location for authMode \"adc\".",
+          "type": "string"
+        },
+        "project": {
+          "description": "Vertex / Gemini Enterprise Agent Platform project for authMode \"adc\".",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "EventsConfig": {
+      "additionalProperties": false,
+      "description": "Event transport configuration for sideband observability events.\n\nControls how trace events (MCP tool calls, agent reasoning, lifecycle) are delivered. Only the two built-in transports are configurable via JSON config — for custom transports (Kafka, Redis, DB, etc.), use the programmatic API and pass a transport function to `createA2AServer()`.",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "description": "Enable event emission.",
+          "type": "boolean"
+        },
+        "httpHeaders": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Custom HTTP headers sent with every event POST. Useful for authentication tokens: ```json { \"Authorization\": \"Bearer ${CORTEX_TOKEN}\" } ```",
+          "type": "object"
+        },
+        "httpTimeout": {
+          "default": "10_000",
+          "description": "HTTP request timeout in milliseconds for the `\"http\"` transport.",
+          "type": "number"
+        },
+        "httpUrl": {
+          "description": "HTTP endpoint URL for the `\"http\"` transport. Required when `transport` is `\"http\"`.",
+          "type": "string"
+        },
+        "transport": {
+          "default": "a2a",
+          "description": "Built-in transport type.\n\n- `\"a2a\"` — publish as sideband trace artifacts on the A2A   ExecutionEventBus (default, zero dependencies).\n- `\"http\"` — POST events as JSON to  {@link  httpUrl } .\n\nFor custom transports, leave this unset and provide a transport function via the programmatic `createA2AServer()` API.",
+          "enum": [
+            "a2a",
+            "http"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "FeatureFlags": {
+      "additionalProperties": false,
+      "properties": {
+        "emitReasoning": {
+          "type": "boolean"
+        },
+        "emitToolEvents": {
+          "type": "boolean"
+        },
+        "streamArtifactChunks": {
+          "type": "boolean"
+        },
+        "trackUsage": {
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "LoggingConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "level": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "McpHttpServerConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "disabledTools": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "enabledTools": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "sseReadTimeoutSeconds": {
+          "type": "number"
+        },
+        "terminateOnClose": {
+          "type": "boolean"
+        },
+        "timeoutSeconds": {
+          "type": "number"
+        },
+        "type": {
+          "const": "http",
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "url"
+      ],
+      "type": "object"
+    },
+    "McpServerConfig": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/McpStdioServerConfig"
+        },
+        {
+          "$ref": "#/definitions/McpHttpServerConfig"
+        },
+        {
+          "additionalProperties": {},
+          "properties": {
+            "type": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "McpStdioServerConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "args": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "command": {
+          "type": "string"
+        },
+        "disabledTools": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "enabledTools": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "env": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "timeoutSeconds": {
+          "type": "number"
+        },
+        "type": {
+          "const": "stdio",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "command"
+      ],
+      "type": "object"
+    },
+    "MemoryConfig": {
+      "additionalProperties": false,
+      "description": "Optional memory configuration section in agent config.json.\n\nDeclares instructions and skills to materialize into the agent's workspace at startup. Both fields are optional — operators can declare instructions only, skills only, or both.\n\nPaths are resolved relative to the directory containing config.json (Config_Directory) unless they are absolute.",
+      "properties": {
+        "instructions": {
+          "description": "Path to a markdown instructions file. Resolved relative to Config_Directory when relative, used as-is when absolute.",
+          "type": "string"
+        },
+        "skills": {
+          "description": "Paths to skill directories, each containing a SKILL.md file. Resolved relative to Config_Directory when relative, used as-is when absolute.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "ServerConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "advertiseHost": {
+          "type": "string"
+        },
+        "advertiseProtocol": {
+          "enum": [
+            "http",
+            "https"
+          ],
+          "type": "string"
+        },
+        "hostname": {
+          "type": "string"
+        },
+        "port": {
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "SessionConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "cleanupInterval": {
+          "type": "number"
+        },
+        "reuseByContext": {
+          "type": "boolean"
+        },
+        "titlePrefix": {
+          "type": "string"
+        },
+        "ttl": {
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "SkillConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "examples": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "description"
+      ],
+      "type": "object"
+    },
+    "SubAgentAuthConfig": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "const": "none",
+              "type": "string"
+            }
+          },
+          "required": [
+            "mode"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "const": "bearer",
+              "type": "string"
+            },
+            "token": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "mode",
+            "token"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "headerName": {
+              "type": "string"
+            },
+            "mode": {
+              "const": "api_key",
+              "type": "string"
+            },
+            "token": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "mode",
+            "token"
+          ],
+          "type": "object"
+        }
+      ],
+      "description": "Outbound credentials the bridge presents when calling a remote A2A sub-agent. Forwarded verbatim into the bridge config consumed by `a2a-mcp-skillmap`.\n\n`mode: \"none\"` is equivalent to omitting the `auth` field entirely and produces no auth block in the generated bridge config.\n\nFor `mode: \"api_key\"`, the optional `headerName` defaults to whatever `a2a-mcp-skillmap` uses (typically `X-API-Key`).\n\nTokens may reference environment variables via `${VAR_NAME}` syntax; the substitution happens during validation and missing variables cause the auth block to be omitted with a warning."
+    },
+    "SubAgentConfig": {
+      "additionalProperties": false,
+      "description": "One remote A2A agent the parent will expose as MCP tools via the `a2a-mcp-skillmap` bridge.",
+      "properties": {
+        "agentCardUrl": {
+          "description": "URL of the sub-agent's A2A agent card. Required.\n\nTypically `https://<host>/.well-known/agent-card.json`, but any URL the bridge can probe is valid. Must use the `http:` or `https:` protocol.",
+          "type": "string"
+        },
+        "auth": {
+          "$ref": "#/definitions/SubAgentAuthConfig",
+          "description": "Outbound credentials the bridge presents when calling this sub-agent. Forwarded verbatim into the bridge config.\n\nOmitting this field is equivalent to `{ mode: \"none\" }`."
+        },
+        "endpointUrlOverride": {
+          "description": "Optional override for the URL the bridge probes. Useful when the agent card declares an endpoint that differs from where the agent is actually reachable (NAT, port-forward, internal vs external).\n\nWhen set, this URL is passed to the bridge instead of  {@link  agentCardUrl } . The bridge still resolves a card from this URL — point it at a card URL or a base URL it can probe under `/.well-known/`. Must use the `http:` or `https:` protocol.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Stable identifier for this sub-agent. Becomes the prefix on generated MCP tool names (`{name}__{skillId}`). Required.\n\nAllowed characters: ASCII letters, digits, hyphens, and underscores (must match `/^[A-Za-z0-9_-]+$/`). Must be unique across all entries in the `subAgents.agents` array.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "agentCardUrl"
+      ],
+      "type": "object"
+    },
+    "SubAgentsConfig": {
+      "additionalProperties": false,
+      "description": "Top-level shape of the `subAgents` field merged into the agent's `BaseAgentConfig`.\n\nWhen this field is absent or `agents` is an empty array, the parent skips every sub-agent code path with no side effects (no bridge config written, no MCP entry injected).",
+      "properties": {
+        "agents": {
+          "description": "The list of remote A2A agents to expose as MCP tools.",
+          "items": {
+            "$ref": "#/definitions/SubAgentConfig"
+          },
+          "type": "array"
+        },
+        "options": {
+          "$ref": "#/definitions/SubAgentsOptions",
+          "description": "Optional bridge-wide knobs."
+        }
+      },
+      "required": [
+        "agents"
+      ],
+      "type": "object"
+    },
+    "SubAgentsOptions": {
+      "additionalProperties": false,
+      "description": "Optional knobs that apply to the bridge process as a whole, not to any single sub-agent.",
+      "properties": {
+        "probeTimeoutMs": {
+          "description": "Probe timeout in milliseconds for the startup reachability check the parent performs against each sub-agent. Defaults to `5000` when unset.",
+          "type": "number"
+        },
+        "responseMode": {
+          "description": "Skillmap response shaping mode passed through to the bridge config. Defaults to `\"artifact\"` when unset.",
+          "enum": [
+            "structured",
+            "compact",
+            "artifact",
+            "raw"
+          ],
+          "type": "string"
+        },
+        "syncBudgetMs": {
+          "description": "Sync budget in milliseconds passed to `a2a-mcp-skillmap` via the bridge config. Controls how long the bridge waits for an A2A agent to respond before switching to async task-handle mode.\n\nWhen the budget expires the bridge immediately returns a `taskId` to the MCP client; the A2A dispatch continues in the background. The LLM can then poll via the built-in `task_result` / `task_status` tools which actively re-query the remote agent before responding.\n\n- Set lower (e.g. `10000`) for interactive use where you want fast   task-handle responses.\n- Set to `0` to wait indefinitely (no async fallback).\n- Defaults to `30000` (30 s) when unset — skillmap's own default.",
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "TimeoutConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "bridgeStartup": {
+          "type": "number"
+        },
+        "prompt": {
+          "type": "number"
+        }
+      },
+      "type": "object"
+    }
+  }
+}
