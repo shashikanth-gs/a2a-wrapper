@@ -1,6 +1,6 @@
 {
   "name": "a2a-claude",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A2A (Agent-to-Agent) protocol wrapper for Claude Code via the Claude Agent SDK. Drop a JSON config file in, get a fully-spec-compliant A2A server out. Supports permission modes, MCP tools, streaming sideband events, and multi-agent delegation.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
