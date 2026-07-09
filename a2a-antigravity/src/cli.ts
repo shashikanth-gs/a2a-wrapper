@@ -25,7 +25,7 @@ Usage: a2a-antigravity [options]
 Options:
   --agent-json <path>          Path to agent JSON config file  (alias: --config)
   --config <path>              Path to agent JSON config file  (alias: --agent-json)
-  --port <number>              A2A server port                 (default: 3030)
+  --port <number>              A2A server port                 (default: 3040)
   --hostname <addr>            Bind address                    (default: 0.0.0.0)
   --advertise-host <host>      Hostname for agent card URLs    (default: localhost)
   --workspace <path>           Primary Antigravity workspace   (alias: --working-dir)

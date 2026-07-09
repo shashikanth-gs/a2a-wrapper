@@ -12,7 +12,7 @@ export const DEFAULTS: Required<AgentConfig> = {
     name: "Antigravity A2A Agent",
     description: "An A2A agent backed by the Google Antigravity SDK.",
     protocolVersion: "0.3.0",
-    version: "0.1.0",
+    version: "0.1.1",
     streaming: true,
     defaultInputModes: ["text"],
     defaultOutputModes: ["text"],
@@ -20,7 +20,7 @@ export const DEFAULTS: Required<AgentConfig> = {
     pushNotifications: false,
   },
   server: {
-    port: 3030,
+    port: 3040,
     hostname: "0.0.0.0",
     advertiseHost: "localhost",
     advertiseProtocol: "http",

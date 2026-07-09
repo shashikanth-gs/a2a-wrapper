@@ -27,7 +27,7 @@ export interface ServerHandle {
 
 export async function createA2AServer(config: Required<AgentConfig>): Promise<ServerHandle> {
   const { server: srv } = config;
-  const port = srv.port ?? 3030;
+  const port = srv.port ?? 3040;
   const hostname = srv.hostname ?? "0.0.0.0";
   const advertiseHost = srv.advertiseHost ?? "localhost";
   const advertiseProto = srv.advertiseProtocol ?? "http";

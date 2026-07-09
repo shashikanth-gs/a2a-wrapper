@@ -3,7 +3,7 @@
   "agentCard": {
     "name": "Antigravity Code Agent",
     "description": "A repository-scoped coding agent backed by Google Antigravity.",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "skills": [
       {
         "id": "software-engineering",
@@ -14,7 +14,7 @@
     ]
   },
   "server": {
-    "port": 3030,
+    "port": 3040,
     "hostname": "0.0.0.0",
     "advertiseHost": "localhost"
   },

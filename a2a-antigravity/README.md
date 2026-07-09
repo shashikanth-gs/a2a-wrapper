@@ -95,7 +95,7 @@ GEMINI_API_KEY=... WORKSPACE_DIR=/path/to/repo npx a2a-antigravity --config agen
 ```
 
 The agent card is available at
-`http://localhost:3030/.well-known/agent-card.json`.
+`http://localhost:3040/.well-known/agent-card.json`.
 
 ## Tested With
 
@@ -237,7 +237,7 @@ a2a-antigravity [options]
        a2a-antigravity setup [options]
 
   --config, --agent-json <path>  JSON agent config file
-  --port <number>                A2A server port                 (default: 3030)
+  --port <number>                A2A server port                 (default: 3040)
   --hostname <addr>              Bind address                    (default: 0.0.0.0)
   --advertise-host <host>        Hostname for agent card URLs    (default: localhost)
   --workspace <path>             Primary Antigravity workspace
@@ -461,7 +461,7 @@ was observed with `gemini-3.1-flash-lite` for the command test.
 Example JSON-RPC request for checking the command path:
 
 ```bash
-curl -s -X POST http://localhost:3030/a2a/jsonrpc \
+curl -s -X POST http://localhost:3040/a2a/jsonrpc \
   -H 'content-type: application/json' \
   -d '{
     "jsonrpc": "2.0",
