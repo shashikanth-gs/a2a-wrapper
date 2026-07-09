@@ -100,7 +100,12 @@ export async function createA2AServer(config: Required<AgentConfig>): Promise<Se
     server: httpServer,
     executor,
     async shutdown() {
-      httpServer.close();
+      await new Promise<void>((resolve) => {
+        httpServer.close((err) => {
+          if (err) log.warn("HTTP server close returned an error", { error: err.message });
+          resolve();
+        });
+      });
       await executor.shutdown();
       log.info("Server shut down");
     },

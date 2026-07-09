@@ -2,14 +2,14 @@
   "$schema": "../../schemas/agent-config.schema.json",
   "agentCard": {
     "name": "Antigravity Code Agent",
-    "description": "A repository-scoped coding agent backed by Google Antigravity.",
+    "description": "A repository-scoped coding agent backed by Google Antigravity with shell command execution enabled.",
     "version": "0.1.0",
     "skills": [
       {
         "id": "software-engineering",
         "name": "Software Engineering",
-        "description": "Analyze, edit, and explain code in a configured workspace.",
-        "tags": ["code", "antigravity", "gemini"]
+        "description": "Analyze, edit, explain code, and run local shell commands in a configured workspace.",
+        "tags": ["code", "antigravity", "gemini", "shell"]
       }
     ]
   },
@@ -24,6 +24,9 @@
     "provider": {
       "authMode": "apiKey",
       "apiKey": "${GEMINI_API_KEY}"
+    },
+    "policies": {
+      "mode": "allowAll"
     }
   },
   "features": {

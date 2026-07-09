@@ -38,8 +38,11 @@ beforeAll(() => {
 });
 
 describe("AgentConfig JSON schema", () => {
-  it("accepts the example config", () => {
-    const cfg = stripSchema(loadJson("agents/example/config.json"));
+  it.each([
+    "agents/example/config.json",
+    "agents/example/config.run-command.json",
+  ])("accepts %s", (relativePath) => {
+    const cfg = stripSchema(loadJson(relativePath));
     const ok = validate(cfg);
     expect(validate.errors, JSON.stringify(validate.errors, null, 2)).toBeNull();
     expect(ok).toBe(true);

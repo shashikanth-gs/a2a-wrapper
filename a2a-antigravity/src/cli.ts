@@ -10,6 +10,7 @@ import { Logger } from "@a2a-wrapper/core";
 import { resolveConfig } from "./config/loader.js";
 import type { AgentConfig, AntigravityConfig } from "./config/types.js";
 import { createA2AServer } from "./server/index.js";
+import { PythonSetupError, setupPythonEnvironment } from "./antigravity/python-setup.js";
 import { logger } from "./utils/logger.js";
 
 const require = createRequire(import.meta.url);
@@ -19,6 +20,7 @@ const log = logger.child("cli");
 function printUsage(): void {
   console.log(`
 Usage: a2a-antigravity [options]
+       a2a-antigravity setup [options]
 
 Options:
   --agent-json <path>          Path to agent JSON config file  (alias: --config)
@@ -42,6 +44,11 @@ Options:
   --help                       Show this help message
   --version                    Show version
 
+Setup options:
+  --python <path>              Python 3.10+ executable used to create the managed venv
+  --venv-dir <path>            Override managed venv directory
+  --force                      Recreate the managed venv before installing requirements
+
 Environment variables:
   GEMINI_API_KEY               Gemini Developer API key used by the SDK.
   WORKSPACE_DIR                Workspace directory.
@@ -50,13 +57,41 @@ Environment variables:
   GOOGLE_CLOUD_PROJECT         Vertex project for authMode adc.
   GOOGLE_CLOUD_LOCATION        Vertex location for authMode adc.
   ANTIGRAVITY_PYTHON           Python executable for the bridge.
+  A2A_ANTIGRAVITY_HOME         Base directory for managed Python environment.
+  A2A_ANTIGRAVITY_VENV         Exact managed Python venv directory.
   LOG_LEVEL                    Log level override.
 
 Examples:
+  a2a-antigravity setup
+  a2a-antigravity setup --python /opt/homebrew/bin/python3.14
   a2a-antigravity --config agents/example/config.json
   GEMINI_API_KEY=... a2a-antigravity --workspace /repo
   a2a-antigravity --auth-mode adc --project my-gcp-project --location us-central1
 `);
+}
+
+function parseSetupArgs(): { python?: string; venvDir?: string; force?: boolean } {
+  const { values } = parseArgs({
+    args: process.argv.slice(3),
+    options: {
+      python: { type: "string" },
+      "venv-dir": { type: "string" },
+      force: { type: "boolean" },
+      help: { type: "boolean", short: "h" },
+    },
+    strict: true,
+  });
+
+  if (values.help) {
+    printUsage();
+    process.exit(0);
+  }
+
+  return {
+    python: values.python as string | undefined,
+    venvDir: values["venv-dir"] as string | undefined,
+    force: values.force as boolean | undefined,
+  };
 }
 
 function parseCliArgs(): { configPath?: string; overrides: Partial<AgentConfig> } {
@@ -149,7 +184,21 @@ function parseCliArgs(): { configPath?: string; overrides: Partial<AgentConfig> 
 }
 
 async function main(): Promise<void> {
+  if (process.argv[2] === "setup") {
+    try {
+      const options = parseSetupArgs();
+      await setupPythonEnvironment(options);
+    } catch (err) {
+      printSetupError(err);
+      process.exit(1);
+    }
+    return;
+  }
+
   const { configPath, overrides } = parseCliArgs();
+  if (overrides.antigravity?.pythonPath) {
+    process.env["A2A_ANTIGRAVITY_EXPLICIT_PYTHON"] = "1";
+  }
   const config = resolveConfig(configPath, overrides);
   config.configDir = configPath ? dirname(resolve(configPath)) : process.cwd();
 
@@ -163,18 +212,59 @@ async function main(): Promise<void> {
   });
 
   const handle = await createA2AServer(config);
+  let shuttingDown = false;
 
-  const shutdown = async (signal: string): Promise<void> => {
+  const shutdown = async (signal: string, exitCode = 0): Promise<void> => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     log.info(`${signal} received, shutting down...`);
-    await handle.shutdown();
-    process.exit(0);
+    try {
+      await handle.shutdown();
+    } catch (err) {
+      log.error("Shutdown failed", { error: (err as Error).message, stack: (err as Error).stack });
+      process.exit(1);
+    }
+    process.exit(exitCode);
   };
 
   process.on("SIGINT", () => void shutdown("SIGINT"));
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
+  process.on("SIGHUP", () => void shutdown("SIGHUP"));
+  process.on("uncaughtException", (err) => {
+    log.error("Uncaught exception", { error: err.message, stack: err.stack });
+    void shutdown("uncaughtException", 1);
+  });
+  process.on("unhandledRejection", (reason) => {
+    const err = reason instanceof Error ? reason : new Error(String(reason));
+    log.error("Unhandled rejection", { error: err.message, stack: err.stack });
+    void shutdown("unhandledRejection", 1);
+  });
 }
 
 main().catch((err) => {
   log.error("Fatal error", { error: (err as Error).message, stack: (err as Error).stack });
   process.exit(1);
 });
+
+function printSetupError(err: unknown): void {
+  const message = err instanceof Error ? err.message : String(err);
+  console.error("\nSetup failed.");
+  console.error(`Reason: ${message}`);
+
+  const remediation = err instanceof PythonSetupError ? err.remediation : [];
+  if (remediation.length) {
+    console.error("\nNext steps:");
+    for (const item of remediation) {
+      console.error(`  - ${item}`);
+    }
+  } else {
+    console.error("\nNext steps:");
+    console.error("  - Run `a2a-antigravity setup --help` for setup options.");
+    console.error("  - Use `ANTIGRAVITY_PYTHON=/path/to/python` if you manage Python yourself.");
+  }
+
+  if (process.env["LOG_LEVEL"] === "debug" && err instanceof Error && err.stack) {
+    console.error("\nDebug stack:");
+    console.error(err.stack);
+  }
+}

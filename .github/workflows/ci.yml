@@ -36,3 +36,33 @@ jobs:
 
       - name: Build, typecheck, and test
         run: npx turbo run build typecheck test
+
+  antigravity-python-smoke:
+    name: Antigravity Python Setup Smoke
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build a2a-antigravity
+        run: npm run build -w a2a-antigravity
+
+      - name: Verify managed Python setup
+        run: node a2a-antigravity/dist/cli.js setup --venv-dir "$RUNNER_TEMP/a2a-antigravity-venv"
+
+      - name: Verify npm package contents
+        run: npm pack -w a2a-antigravity --dry-run
