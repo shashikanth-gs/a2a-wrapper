@@ -85,6 +85,10 @@ The LLM sees `coding__<skillId>` and `research__<skillId>` tools. When `subAgent
 **Try it:** [`examples/a2a-subagents-scenario/`](examples/a2a-subagents-scenario/) — a self-contained runnable example with two fake sub-agents, a parent config, and a 26-assertion end-to-end test. No API keys required.
 
 ```bash
+# First time (or after changing packages/core): build @a2a-wrapper/core.
+# Its dist/ output is git-ignored and is NOT produced by `npm install`.
+npx turbo run build
+
 cd examples/a2a-subagents-scenario
 ./start-all.sh
 ```
@@ -98,6 +102,10 @@ cd a2a-wrapper
 
 # Install all dependencies
 npm install
+
+# Build all packages so @a2a-wrapper/core is compiled to dist/
+# (dist/ is git-ignored and is NOT produced by `npm install`)
+npx turbo run build
 
 # Run a specific wrapper
 cd a2a-copilot

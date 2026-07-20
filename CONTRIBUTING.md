@@ -41,9 +41,13 @@ cd a2a-wrapper
 
 # Install dependencies for all packages (from the repo root)
 npm install
+
+# Build all packages so @a2a-wrapper/core is compiled to dist/
+# (dist/ is git-ignored and is NOT produced by `npm install`)
+npx turbo run build
 ```
 
-A single `npm install` at the root resolves dependencies for every package and hoists shared ones.
+A single `npm install` at the root resolves dependencies for every package and hoists shared ones. Note that `npm install` does **not** compile anything — `@a2a-wrapper/core` is consumed from its built `dist/` output, so run `npx turbo run build` before running any package or example.
 
 ## Development Commands
 
