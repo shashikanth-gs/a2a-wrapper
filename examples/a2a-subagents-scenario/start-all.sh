@@ -16,10 +16,21 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+CORE_DIST="${REPO_ROOT}/packages/core/dist/index.js"
 CODING_LOG="/tmp/a2a-coding-agent.log"
 RESEARCH_LOG="/tmp/a2a-research-agent.log"
 CODING_PID_FILE="/tmp/a2a-coding-agent.pid"
 RESEARCH_PID_FILE="/tmp/a2a-research-agent.pid"
+
+# Ensure @a2a-wrapper/core is compiled. The scenario test imports it from
+# packages/core/dist/, which is git-ignored and NOT produced by `npm install`.
+ensure_core_built() {
+  if [ ! -f "${CORE_DIST}" ]; then
+    echo "@a2a-wrapper/core is not built yet — building it now..."
+    ( cd "${REPO_ROOT}" && npx turbo run build --filter=@a2a-wrapper/core )
+  fi
+}
 
 start_agents() {
   echo "Starting coding-agent on :4101..."
@@ -60,6 +71,7 @@ stop_agents() {
 }
 
 run_test() {
+  ensure_core_built
   echo ""
   node "${SCRIPT_DIR}/test/run-scenario.mjs"
 }

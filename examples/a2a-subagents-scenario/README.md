@@ -57,13 +57,21 @@ and handles the A2A ↔ MCP translation transparently.
   (subsequent runs use the npx cache)
 - This example must be run from inside the **a2a-wrapper monorepo** so it can
   import `@a2a-wrapper/core` via the workspace symlink
+- **`@a2a-wrapper/core` must be built first** — the example imports it from
+  `packages/core/dist/`, which is git-ignored and **not** produced by
+  `npm install`. Build the workspace once from the repo root with
+  `npx turbo run build` (or `npm run build`) before running this example
 
 ---
 
 ## Quick start
 
 ```bash
-# From the repo root:
+# From the repo root — install deps and build @a2a-wrapper/core the first time
+# (its dist/ output is git-ignored and is NOT produced by `npm install`):
+npm install
+npx turbo run build
+
 cd examples/a2a-subagents-scenario
 
 # Start both sub-agents, run the test, then stop the agents:
@@ -290,10 +298,19 @@ The test waits 6 seconds for the bridge to start. On a slow connection or
 cold npx cache this may not be enough. Increase the wait in
 `test/run-scenario.mjs` (search for `setTimeout(r, 6000)`).
 
+**`ERR_MODULE_NOT_FOUND` for `@a2a-wrapper/core/dist/index.js`**
+`@a2a-wrapper/core` hasn't been compiled yet — its `dist/` output is
+git-ignored and is **not** produced by `npm install`. Build the workspace
+from the repo root, then re-run:
+```bash
+npx turbo run build      # or: npm run build
+./start-all.sh
+```
+
 **`bootstrapSubAgents is not a function`**
 Make sure you're running from inside the monorepo where `@a2a-wrapper/core`
 is available via the workspace symlink. Run `npm install` at the repo root
-if needed.
+if needed (and `npx turbo run build` to compile it).
 
 **Probe fails with `ECONNREFUSED`**
 One of the sub-agents isn't running. Start it first:
