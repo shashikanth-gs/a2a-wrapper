@@ -21,6 +21,65 @@ GitHub Copilot is a production-grade agent. It already handles multi-step planni
 - Docker-ready with corporate proxy CA support
 - TypeScript source with full type declarations
 
+<details>
+<summary><strong>Table of Contents</strong></summary>
+
+- [Why not just embed the Copilot SDK directly?](#why-not-just-embed-the-copilot-sdk-directly)
+- [Works with agent frameworks](#works-with-agent-frameworks)
+- [Quick Start](#quick-start)
+- [Architecture](#architecture)
+- [Installation](#installation)
+- [Usage](#usage)
+  - [CLI](#cli)
+  - [Programmatic API](#programmatic-api)
+- [Configuration](#configuration)
+  - [JSON Config File](#json-config-file)
+  - [Environment Variables](#environment-variables)
+- [Bring Your Own Model (BYOK)](#bring-your-own-model-byok)
+  - [Configuration](#configuration-1)
+  - [Provider fields](#provider-fields)
+  - [Provider quick reference](#provider-quick-reference)
+  - [⚠️ Model requirements (read this before using local models)](#️-model-requirements-read-this-before-using-local-models)
+- [Bundled Agent Examples](#bundled-agent-examples)
+  - [Example Agent (minimal)](#example-agent-minimal)
+  - [Filesystem Assistant](#filesystem-assistant)
+  - [Ollama Agent (local / BYOK)](#ollama-agent-local--byok)
+  - [Creating Your Own Agent](#creating-your-own-agent)
+- [MCP Tool Servers](#mcp-tool-servers)
+  - [HTTP / SSE server](#http--sse-server)
+  - [Authenticated remote servers (custom headers)](#authenticated-remote-servers-custom-headers)
+  - [stdio server (child process)](#stdio-server-child-process)
+- [Memory Persistence](#memory-persistence)
+  - [Config](#config)
+  - [Instructions](#instructions)
+  - [Skills](#skills)
+  - [Where files are written](#where-files-are-written)
+  - [`agentCard.skills` vs `memory.skills`](#agentcardskills-vs-memoryskills)
+  - [Example](#example)
+- [Calling Other A2A Agents](#calling-other-a2a-agents)
+- [Event Transport (Observability)](#event-transport-observability)
+  - [Default (A2A sideband)](#default-a2a-sideband)
+  - [HTTP collector](#http-collector)
+  - [Custom transport (programmatic)](#custom-transport-programmatic)
+- [LLM Usage and Cost Telemetry](#llm-usage-and-cost-telemetry)
+  - [Enabling](#enabling)
+  - [Tier 1 — Session summary (always-on)](#tier-1--session-summary-always-on)
+  - [Tier 2 — Per-call trace artifacts (`trackUsage: true`)](#tier-2--per-call-trace-artifacts-trackusage-true)
+  - [Tier 3 — Context-window snapshots (`trackUsage: true`)](#tier-3--context-window-snapshots-trackusage-true)
+  - [Field reference — `UsageTelemetryData`](#field-reference--usagetelemetrydata)
+- [Docker](#docker)
+  - [Corporate Proxy (Netskope / Zscaler)](#corporate-proxy-netskope--zscaler)
+- [A2A Protocol](#a2a-protocol)
+  - [Protocol Versions](#protocol-versions)
+- [External Copilot CLI](#external-copilot-cli)
+- [Known Issues](#known-issues)
+  - [Node 22 ESM compatibility](#node-22-esm-compatibility)
+- [Related Packages](#related-packages)
+- [Contributing](#contributing)
+- [License](#license)
+
+</details>
+
 ## Why not just embed the Copilot SDK directly?
 
 Direct SDK embedding works — but it tightly couples your application to Copilot's session model and integration pattern. Swapping the AI backend means rewriting integration code. Adding a second agent means writing a second bespoke integration.

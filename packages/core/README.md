@@ -7,6 +7,32 @@
 
 Shared infrastructure core for [A2A protocol](https://a2a-protocol.org) wrapper projects. Provides logging, configuration loading, event publishing, agent card building, server bootstrapping, session management, and CLI scaffolding — so each wrapper only needs to implement its backend-specific executor. All A2A protocol/spec-version-specific logic lives here and nowhere else in this monorepo — see [Protocol Versions](#protocol-versions).
 
+<details>
+<summary><strong>Table of Contents</strong></summary>
+
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Protocol Versions](#protocol-versions)
+- [API Reference](#api-reference)
+  - [Utils](#utils)
+  - [Config](#config)
+  - [Events](#events)
+  - [Event Transport](#event-transport)
+  - [Server](#server)
+  - [Session](#session)
+  - [Executor](#executor)
+  - [CLI](#cli)
+  - [Memory Persistence](#memory-persistence)
+  - [Sub-Agents](#sub-agents)
+  - [A2A SDK Re-exports](#a2a-sdk-re-exports)
+- [Contributing](#contributing)
+  - [Prerequisites](#prerequisites)
+  - [Development](#development)
+  - [Code Standards](#code-standards)
+- [License](#license)
+
+</details>
+
 ## Installation
 
 ```bash

@@ -23,6 +23,52 @@
 - TypeScript source with full type declarations
 - Postman collection included for API exploration
 
+<details>
+<summary><strong>Table of Contents</strong></summary>
+
+- [Why not just integrate the LLM provider API directly?](#why-not-just-integrate-the-llm-provider-api-directly)
+- [Works with agent frameworks](#works-with-agent-frameworks)
+- [Quick Start](#quick-start)
+- [Tested With](#tested-with)
+- [Architecture](#architecture)
+- [Installation](#installation)
+- [Usage](#usage)
+  - [CLI](#cli)
+  - [Programmatic API](#programmatic-api)
+- [Configuration](#configuration)
+  - [JSON Config File](#json-config-file)
+  - [Environment Variables](#environment-variables)
+- [Bundled Agent Examples](#bundled-agent-examples)
+  - [Example Agent (minimal)](#example-agent-minimal)
+  - [Creating Your Own Agent](#creating-your-own-agent)
+- [MCP Tool Servers](#mcp-tool-servers)
+  - [Local server (stdio child process)](#local-server-stdio-child-process)
+  - [Remote server (HTTP / SSE)](#remote-server-http--sse)
+  - [Authenticated remote servers (custom headers)](#authenticated-remote-servers-custom-headers)
+  - [Remote server with OAuth](#remote-server-with-oauth)
+- [Memory Persistence](#memory-persistence)
+  - [Config](#config)
+  - [Instructions](#instructions)
+  - [Skills](#skills)
+  - [Where files are written](#where-files-are-written)
+  - [`agentCard.skills` vs `memory.skills`](#agentcardskills-vs-memoryskills)
+- [Calling Other A2A Agents](#calling-other-a2a-agents)
+- [Event Transport (Observability)](#event-transport-observability)
+  - [Default (A2A sideband)](#default-a2a-sideband)
+  - [HTTP collector](#http-collector)
+  - [Custom transport (programmatic)](#custom-transport-programmatic)
+- [Docker](#docker)
+  - [Corporate Proxy (Netskope / Zscaler)](#corporate-proxy-netskope--zscaler)
+- [A2A Protocol](#a2a-protocol)
+  - [Protocol Versions](#protocol-versions)
+- [API Reference (Postman)](#api-reference-postman)
+- [Context Building](#context-building)
+- [Related Packages](#related-packages)
+- [Contributing](#contributing)
+- [License](#license)
+
+</details>
+
 ## Why not just integrate the LLM provider API directly?
 
 Direct provider integrations work — but they create vendor lock-in at the integration layer. Switching from Claude to GPT-4.1 means rewriting SDK calls. Adding a second agent type means a second bespoke integration.

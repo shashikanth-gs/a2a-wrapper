@@ -4,6 +4,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js >=18](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](https://nodejs.org)
 
+<img src="docs/assets/hero.svg" alt="a2a-wrapper: Claude Code, OpenAI Codex, GitHub Copilot, OpenCode, and Google Antigravity each wrapped into a standalone a2a-* server on shared @a2a-wrapper/core, exposed to any A2A orchestrator over one protocol" width="100%">
+
 A monorepo of [A2A protocol](https://a2a-protocol.org) wrappers that turn production AI backends into standalone, interoperable agents. Drop a JSON config file in, get a fully spec-compliant A2A server out.
 
 > **Speaks A2A v1.0 natively, backward compatible with v0.3.x clients.** Every wrapper here negotiates protocol version per request — v1.0-aware orchestrators get the native wire format, and anything still on v0.3.x keeps working with zero config changes. See [Protocol Versions](packages/core/README.md#protocol-versions) for how it works.
