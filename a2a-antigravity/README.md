@@ -26,7 +26,7 @@ code.
 > horizontal rail to Google Antigravity.
 
 **Features:**
-- Full [A2A v0.3.0](https://github.com/google-deepmind/a2a) protocol — Agent Card, JSON-RPC, REST, and SSE-compatible behavior through `@a2a-js/sdk`
+- Native [A2A v1.0](https://a2a-protocol.org) protocol, backward compatible with v0.3.x clients — Agent Card, JSON-RPC, REST, and SSE-compatible behavior through `@a2a-js/sdk`
 - Powered by the Google Antigravity Python SDK through a private Python bridge
 - Explicit `a2a-antigravity setup` command for managed Python virtualenv creation
 - Gemini API key and Vertex/ADC auth modes exposed through JSON/env/CLI config
@@ -103,8 +103,8 @@ The agent card is available at
 |---|---|
 | Google Antigravity Python SDK | **0.1.5** |
 | Gemini model | **gemini-3.1-flash-lite** |
-| `@a2a-js/sdk` | **0.3.13** |
-| A2A protocol | **0.3.0** |
+| `@a2a-js/sdk` | **1.0.0** |
+| A2A protocol | **v1.0 (native) + v0.3.x (backward compatible)** |
 | Node.js | **>=18** |
 | Python | **>=3.10** |
 

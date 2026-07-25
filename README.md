@@ -1,9 +1,12 @@
 # a2a-wrapper
 
+[![CI](https://github.com/shashikanth-gs/a2a-wrapper/actions/workflows/ci.yml/badge.svg)](https://github.com/shashikanth-gs/a2a-wrapper/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js >=18](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](https://nodejs.org)
 
-A monorepo of [A2A protocol](https://github.com/google-deepmind/a2a) wrappers that turn production AI backends into standalone, interoperable agents. Drop a JSON config file in, get a fully spec-compliant A2A server out.
+A monorepo of [A2A protocol](https://a2a-protocol.org) wrappers that turn production AI backends into standalone, interoperable agents. Drop a JSON config file in, get a fully spec-compliant A2A server out.
+
+> **Speaks A2A v1.0 natively, backward compatible with v0.3.x clients.** Every wrapper here negotiates protocol version per request — v1.0-aware orchestrators get the native wire format, and anything still on v0.3.x keeps working with zero config changes. See [Protocol Versions](packages/core/README.md#protocol-versions) for how it works.
 
 > **The pattern:** MCP is the vertical rail — how agents access tools. A2A is the horizontal rail — how agents talk to each other. This repo adds the horizontal rail to multiple AI backends.
 
@@ -17,6 +20,18 @@ A monorepo of [A2A protocol](https://github.com/google-deepmind/a2a) wrappers th
 | [`a2a-claude`](a2a-claude/) | [![npm](https://img.shields.io/npm/v/a2a-claude.svg)](https://www.npmjs.com/package/a2a-claude) | A2A wrapper for Claude Code — fully spec-compliant agent powered by the official `@anthropic-ai/claude-agent-sdk` |
 | [`a2a-codex`](a2a-codex/) | [![npm](https://img.shields.io/npm/v/a2a-codex.svg)](https://www.npmjs.com/package/a2a-codex) | A2A wrapper for OpenAI Codex SDK — repository-scoped software engineering agent with sandboxing, MCP, and multi-agent delegation |
 | [`a2a-antigravity`](a2a-antigravity/) | [![npm](https://img.shields.io/npm/v/a2a-antigravity.svg)](https://www.npmjs.com/package/a2a-antigravity) | A2A wrapper for Google Antigravity SDK — Node/TypeScript public server with a managed Python SDK subprocess, Gemini auth, policies, MCP, and sideband traces |
+
+### Feature Comparison
+
+All five wrappers share the same core: A2A v1.0 native + v0.3.x backward-compatible protocol support, sub-agent delegation, MCP tool integration, and JSON config with env/CLI overrides. Where they differ:
+
+| | Provider flexibility | Streaming | Sandboxing / Docker |
+|---|---|---|---|
+| **a2a-copilot** | BYOK — Ollama, OpenAI, Anthropic, Azure, vLLM, any OpenAI-compatible endpoint | SSE | Docker-ready |
+| **a2a-opencode** | Multi-provider native — Anthropic, OpenAI, GitHub Copilot, and more, switch in one config line | SSE with auto-reconnect + polling fallback | Docker-ready |
+| **a2a-claude** | Claude models via `@anthropic-ai/claude-agent-sdk` | Streaming | Docker-ready; permission-mode guardrails (headless-safe by default) |
+| **a2a-codex** | OpenAI Codex models via `@openai/codex-sdk` | Streaming | Docker-ready; `read-only` / `workspace-write` / `danger-full-access` sandbox modes |
+| **a2a-antigravity** | Gemini models via the Google Antigravity Python SDK | SSE-compatible | Node/Python bridge — no published Docker image yet |
 
 ## Backend Flexibility
 
@@ -233,10 +248,14 @@ Adding a new A2A wrapper (e.g. `a2a-claude`) requires no changes to the root con
 
 See the [core package README](packages/core/README.md) for the full API guide.
 
+## Roadmap
+
+- **OpenTelemetry observability** — optional distributed tracing/metrics for task lifecycle and HTTP requests, via `@opentelemetry/api` (no-op by default, zero cost unless a host app registers a real SDK/exporter). Not yet implemented.
+
 ## Contributing
 
 Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) first.
 
 ## License
 
-[MIT](LICENSE) © Shashi Kanth
+[MIT](LICENSE) © a2a-wrapper contributors

@@ -1,6 +1,11 @@
 # @a2a-wrapper/core
 
-Shared infrastructure core for [A2A protocol](https://github.com/google/A2A) wrapper projects. Provides logging, configuration loading, event publishing, agent card building, server bootstrapping, session management, and CLI scaffolding — so each wrapper only needs to implement its backend-specific executor.
+[![npm version](https://img.shields.io/npm/v/@a2a-wrapper/core.svg)](https://www.npmjs.com/package/@a2a-wrapper/core)
+[![CI](https://github.com/shashikanth-gs/a2a-wrapper/actions/workflows/ci.yml/badge.svg)](https://github.com/shashikanth-gs/a2a-wrapper/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](../../LICENSE)
+[![Node.js >=18](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](https://nodejs.org)
+
+Shared infrastructure core for [A2A protocol](https://a2a-protocol.org) wrapper projects. Provides logging, configuration loading, event publishing, agent card building, server bootstrapping, session management, and CLI scaffolding — so each wrapper only needs to implement its backend-specific executor. All A2A protocol/spec-version-specific logic lives here and nowhere else in this monorepo — see [Protocol Versions](#protocol-versions).
 
 ## Installation
 
@@ -62,6 +67,28 @@ Run it:
 
 ```bash
 node dist/cli.js --port 3000 --log-level debug --api-url http://localhost:8080
+```
+
+## Protocol Versions
+
+`createA2AServer()` speaks **A2A v1.0 natively** and is **fully backward compatible with v0.3.x clients out of the box** — there is nothing to configure. This is built on `@a2a-js/sdk@^1.0.0`'s own `compat/v0_3` translation layer, not a hand-rolled shim.
+
+**How negotiation works**, per request:
+- `buildAgentCard()` produces the native v1.0 `AgentCard` shape — `supportedInterfaces[]` (not the old `url`/`additionalInterfaces`/`protocolVersion` fields), with a mirrored v0.3-`protocolVersion` interface entry per transport binding (via the SDK's `duplicateInterfacesForLegacy`).
+- `GET /.well-known/agent-card.json` reads the caller's `A2A-Version` request header: `1.0` returns the native v1.0 card; `0.3` — or no header at all, for clients that predate the header entirely — returns a fully v0.3-shaped legacy card (`url`, `additionalInterfaces`, `protocolVersion: "0.3.0"`), so old clients keep working unmodified.
+- `POST /a2a/jsonrpc` and `POST /a2a/rest` auto-detect v0.3-shaped method names/payloads (`message/send`, `message/stream`, ...) and transparently translate them to v1.0 and back — no separate v0.3 endpoint required.
+
+**Signed Agent Cards** (A2A v1.0, JWS per RFC 7515) are supported as an opt-in extra — pass `ServerOptions.agentCardSigning` (or set `AgentCardConfig.signing` in your resolved config, reading the private key from an env-var-held JWK) and `AgentCard.signatures` gets populated automatically. Unsigned cards (the default) simply omit `signatures`.
+
+```typescript
+import { createA2AServer } from "@a2a-wrapper/core";
+
+// protocolVersion here is only the informational A2A-Version response
+// header value — it does not gate which wire format is actually served;
+// that's negotiated per-request as described above.
+const handle = await createA2AServer(config, executorFactory, {
+  protocolVersion: "1.0", // default
+});
 ```
 
 ## API Reference

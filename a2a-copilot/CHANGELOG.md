@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Native A2A v1.0 protocol support, fully backward compatible with v0.3.x clients — negotiated automatically per request via the `A2A-Version` header, no config changes needed. Upgraded to `@a2a-js/sdk@^1.0.0`.
+
+### Changed
+
+- `createA2AServer()` is now a thin delegate to `@a2a-wrapper/core`'s server factory instead of duplicating Express/SDK wiring. The local `copilot/event-publisher.ts` (a duplicate of core's protocol-event construction) was removed — `publishStatus`/`publishFinalArtifact`/etc. are now imported directly from `@a2a-wrapper/core`. No change to the public `createA2AServer(config)` API.
+
 ## 1.7.0
 
 ### Minor Changes

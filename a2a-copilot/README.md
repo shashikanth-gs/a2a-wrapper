@@ -12,7 +12,7 @@ GitHub Copilot is a production-grade agent. It already handles multi-step planni
 > **The pattern:** MCP is the vertical rail — how agents access tools. A2A is the horizontal rail — how agents talk to each other. This library adds the horizontal rail to GitHub Copilot.
 
 **Features:**
-- Full [A2A v0.3.0](https://github.com/google-deepmind/a2a) protocol — Agent Card, JSON-RPC, REST, SSE streaming
+- Native [A2A v1.0](https://a2a-protocol.org) protocol, backward compatible with v0.3.x clients — Agent Card, JSON-RPC, REST, SSE streaming
 - Powered by GitHub Copilot (GPT-4.1, Claude Sonnet 4.5, and more)
 - **Bring Your Own Model (BYOK)** — point at Ollama, OpenAI, Anthropic, Azure, vLLM, or any OpenAI-compatible endpoint. See [Bring Your Own Model (BYOK)](#bring-your-own-model-byok).
 - MCP tool server support — HTTP and stdio transports
@@ -158,6 +158,12 @@ Config is resolved in priority order: **defaults ← JSON file ← env vars ← 
 ### JSON Config File
 
 Create a `config.json` (see `agents/example/config.json` for the fully annotated template):
+
+> `agentCard.protocolVersion` below is optional and kept only for backward
+> compatibility with older config files — the server negotiates A2A v1.0 vs.
+> v0.3.x automatically per request and no longer reads this field. See
+> [Protocol Versions](../packages/core/README.md#protocol-versions) for how
+> negotiation works.
 
 ```json
 {
@@ -668,18 +674,20 @@ docker run -p 3000:3000 \
 
 ## A2A Protocol
 
-Implements **A2A v0.3.0**:
+### Protocol Versions
+
+Speaks **A2A v1.0 natively** and is **fully backward compatible with v0.3.x clients** — no configuration needed. The server negotiates per request: send an `A2A-Version: 1.0` header (or omit it, for v1.0-aware clients that default forward) to get the native v1.0 wire format, or send `A2A-Version: 0.3` (or no header at all, matching older clients that predate the header) to get the legacy v0.3-shaped Agent Card and JSON-RPC/REST behavior. Both are served from the same endpoints below — see [Protocol Versions](../packages/core/README.md#protocol-versions) in `@a2a-wrapper/core`'s README for the full negotiation details, including optional Signed Agent Card (JWS) support.
 
 | Endpoint | Description |
 |---|---|
 | `GET /.well-known/agent-card.json` | Agent identity and capabilities |
-| `POST /a2a/jsonrpc` | JSON-RPC: `message/send`, `message/sendSubscribe` |
+| `POST /a2a/jsonrpc` | JSON-RPC: `message/send`, `message/stream` (v0.3) / `SendMessage`, `SendStreamingMessage` (v1.0) |
 | `POST /a2a/rest` | REST equivalent |
 | `GET /health` | Health check |
 | `POST /context/build` | Trigger context discovery |
 | `GET /context` | Read the built context file |
 
-Example JSON-RPC request (`message/send`):
+Example JSON-RPC request (`message/send`, v0.3-shaped — still accepted and automatically translated):
 
 ```json
 {

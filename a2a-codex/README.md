@@ -12,7 +12,7 @@ OpenAI Codex is a production-grade software engineering agent. It handles reposi
 > **The pattern:** MCP is the vertical rail — how agents access tools. A2A is the horizontal rail — how agents talk to each other. This library adds the horizontal rail to OpenAI Codex.
 
 **Features:**
-- Full [A2A v0.3.0](https://github.com/google-deepmind/a2a) protocol — Agent Card, JSON-RPC, REST, streaming
+- Native [A2A v1.0](https://a2a-protocol.org) protocol, backward compatible with v0.3.x clients — Agent Card, JSON-RPC, REST, streaming
 - Powered by `@openai/codex-sdk` — `o4-mini`, `o3`, `gpt-4o`, and any Codex-compatible model
 - Repository sandboxing — `read-only`, `workspace-write`, `danger-full-access` modes
 - MCP tool support — stdio and Streamable HTTP transports
@@ -104,6 +104,12 @@ All settings live in a single JSON config file. Priority order: **built-in defau
 ```
 
 ### Full config reference
+
+> `agentCard.protocolVersion` below is optional and kept only for backward
+> compatibility with older config files — the server negotiates A2A v1.0 vs.
+> v0.3.x automatically per request and no longer reads this field. See
+> [Protocol Versions](../packages/core/README.md#protocol-versions) for how
+> negotiation works.
 
 ```json
 {
