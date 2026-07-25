@@ -9,7 +9,6 @@
  * the final answer as an artifact.
  */
 
-import type { Message as A2AMessage } from "@a2a-js/sdk";
 import type { AgentExecutor, RequestContext, ExecutionEventBus } from "@a2a-js/sdk/server";
 import { v4 as uuidv4 } from "uuid";
 import { readFile } from "node:fs/promises";
@@ -27,8 +26,7 @@ import {
   publishStreamingChunk,
   publishLastChunkMarker,
   publishTask,
-} from "./event-publisher.js";
-import {
+  extractUserText,
   resolveTransport,
   AgentEventEmitter,
   materializeMemory,
@@ -388,7 +386,7 @@ export class OpenCodeExecutor implements AgentExecutor {
       this.sessionManager!.trackTask(taskId, sessionId, contextId);
 
       // 4. Build prompt (prepend system prompt on first message in session)
-      let promptText = this.extractText(userMessage);
+      let promptText = extractUserText(userMessage);
       if (this.config.opencode.systemPrompt && !this.promptedSessions.has(sessionId)) {
         const mode = this.config.opencode.systemPromptMode ?? "append";
         let injectedPrompt = this.config.opencode.systemPrompt;
@@ -712,13 +710,6 @@ export class OpenCodeExecutor implements AgentExecutor {
       enabled: true,
       timeout: 30_000,
     };
-  }
-
-  private extractText(message: A2AMessage): string {
-    return message.parts
-      .filter((p) => (p as unknown as Record<string, unknown>).kind === "text" || "text" in (p as unknown as Record<string, unknown>))
-      .map((p) => (p as unknown as { kind?: string; text: string }).text)
-      .join("\n");
   }
 
   /**

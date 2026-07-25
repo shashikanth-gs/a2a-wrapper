@@ -1,18 +1,10 @@
 /**
  * Prompt Builder
  *
- * Extracts the user text from an A2A RequestContext message.
- * Joins all text parts with newlines.
+ * Re-exports the shared `extractUserText` helper from `@a2a-wrapper/core`
+ * (see `packages/core/src/events/part-utils.ts`) so this wrapper's
+ * import paths stay stable. Inbound `Part` parsing is an A2A protocol
+ * concern and lives in core, not here.
  */
 
-import type { Message as A2AMessage } from "@a2a-js/sdk";
-
-export function extractUserText(message: A2AMessage): string {
-  return message.parts
-    .filter((p) => {
-      const part = p as unknown as Record<string, unknown>;
-      return part.kind === "text" || "text" in part;
-    })
-    .map((p) => (p as unknown as { text: string }).text)
-    .join("\n");
-}
+export { extractUserText } from "@a2a-wrapper/core";

@@ -26,6 +26,6 @@ export {
   publishFinalArtifact,
   publishStreamingChunk,
   publishLastChunkMarker,
-} from "./event-publisher.js";
+} from "@a2a-wrapper/core";
 
 export type * from "./types.js";

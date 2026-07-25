@@ -23,8 +23,7 @@ import {
   publishLastChunkMarker,
   publishTask,
   publishTraceArtifact,
-} from "./event-publisher.js";
-import {
+  extractUserText,
   resolveTransport,
   AgentEventEmitter,
   materializeMemory,
@@ -351,7 +350,7 @@ export class CopilotExecutor implements AgentExecutor {
       this.sessionManager!.trackTask(taskId, sessionId, contextId);
 
       // 4. Build prompt
-      let promptText = this.extractText(userMessage);
+      let promptText = extractUserText(userMessage);
 
       log.info("Sending prompt", { taskId, sessionId, len: promptText.length });
 
@@ -744,13 +743,6 @@ export class CopilotExecutor implements AgentExecutor {
       env: descriptor.env,
       enabled: true,
     };
-  }
-
-  private extractText(message: A2AMessage): string {
-    return message.parts
-      .filter((p) => (p as unknown as Record<string, unknown>).kind === "text" || "text" in (p as unknown as Record<string, unknown>))
-      .map((p) => (p as unknown as { kind?: string; text: string }).text)
-      .join("\n");
   }
 
   /**

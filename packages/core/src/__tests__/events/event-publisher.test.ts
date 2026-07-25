@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import * as fc from "fast-check";
+import { TaskState } from "@a2a-js/sdk";
 import {
+  publishTask,
   publishStatus,
   publishFinalArtifact,
   publishStreamingChunk,
@@ -14,6 +16,13 @@ import {
  *
  * Validates Requirements 8.1, 8.2, 8.3, 8.4, 8.5, 8.6 via Property 13
  * and Requirement 8.7 via Property 14.
+ *
+ * A2A v1.0 note: `ExecutionEventBus.publish()` now takes a `{kind, data}`
+ * envelope (see event-publisher.ts's module doc) — every assertion below
+ * reads `event.data.*`, not `event.*` directly. `Part`s use the proto-oneof
+ * `content.$case`/`content.value` shape instead of the old `kind`/`text`
+ * fields, and `TaskStatus.state` is the numeric `TaskState` enum instead of
+ * a lowercase-hyphen string.
  */
 
 /** Simple mock for ExecutionEventBus that captures published events. */
@@ -25,11 +34,28 @@ function createMockBus() {
   };
 }
 
+/** Reads the text value of a part, or undefined if it isn't a text part. */
+function partText(part: any): string | undefined {
+  return part.content?.$case === "text" ? part.content.value : undefined;
+}
+
+/** Reads the data value of a part, or undefined if it isn't a data part. */
+function partData(part: any): unknown {
+  return part.content?.$case === "data" ? part.content.value : undefined;
+}
+
 /** Arbitrary for non-empty identifier strings. */
 const arbId = fc.stringMatching(/^[a-zA-Z0-9_-]+$/).filter((s) => s.length > 0 && s.length <= 30);
 
-/** Arbitrary for TaskState string literals. */
-const arbState = fc.constantFrom("working", "completed", "failed", "canceled", "submitted", "input-required");
+/** Arbitrary for legacy lowercase-hyphen task state strings + their expected TaskState enum value. */
+const arbState = fc.constantFrom(
+  { legacy: "working", enum: TaskState.TASK_STATE_WORKING },
+  { legacy: "completed", enum: TaskState.TASK_STATE_COMPLETED },
+  { legacy: "failed", enum: TaskState.TASK_STATE_FAILED },
+  { legacy: "canceled", enum: TaskState.TASK_STATE_CANCELED },
+  { legacy: "submitted", enum: TaskState.TASK_STATE_SUBMITTED },
+  { legacy: "input-required", enum: TaskState.TASK_STATE_INPUT_REQUIRED },
+);
 
 /** Arbitrary for non-empty text strings. */
 const arbText = fc.string({ minLength: 1, maxLength: 200 });
@@ -50,38 +76,59 @@ const arbData = fc.dictionary(
   { minKeys: 1, maxKeys: 5 },
 );
 
+describe("publishTask", () => {
+  it("publishes a task envelope with state submitted", () => {
+    fc.assert(
+      fc.property(arbId, arbId, (taskId, contextId) => {
+        const bus = createMockBus();
+        publishTask(bus as any, taskId, contextId);
+
+        expect(bus.events).toHaveLength(1);
+        const event = bus.events[0];
+        expect(event.kind).toBe("task");
+        expect(event.data.id).toBe(taskId);
+        expect(event.data.contextId).toBe(contextId);
+        expect(event.data.status.state).toBe(TaskState.TASK_STATE_SUBMITTED);
+      }),
+      { numRuns: 100 },
+    );
+  });
+});
+
 // Feature: shared-core-package, Property 13: Event publisher structure correctness
 // Validates: Requirements 8.1, 8.2, 8.3, 8.4, 8.5, 8.6
 describe("Property 13: Event publisher structure correctness", () => {
-  it("publishStatus produces correct status-update event structure", () => {
+  it("publishStatus produces correct statusUpdate event structure", () => {
     fc.assert(
       fc.property(arbId, arbId, arbState, arbOptionalText, (taskId, contextId, state, messageText) => {
         const bus = createMockBus();
-        publishStatus(bus as any, taskId, contextId, state as any, messageText);
+        publishStatus(bus as any, taskId, contextId, state.legacy as any, messageText);
 
         expect(bus.events).toHaveLength(1);
         const event = bus.events[0];
 
-        // Correct kind, taskId, contextId
-        expect(event.kind).toBe("status-update");
-        expect(event.taskId).toBe(taskId);
-        expect(event.contextId).toBe(contextId);
+        // Correct envelope kind, taskId, contextId
+        expect(event.kind).toBe("statusUpdate");
+        expect(event.data.taskId).toBe(taskId);
+        expect(event.data.contextId).toBe(contextId);
 
-        // Correct state
-        expect(event.status.state).toBe(state);
+        // Correct state (as the v1.0 TaskState enum)
+        expect(event.data.status.state).toBe(state.enum);
 
         // Valid ISO timestamp
-        expect(event.status.timestamp).toMatch(isoTimestampRegex);
+        expect(event.data.status.timestamp).toMatch(isoTimestampRegex);
+
+        // No `final` field on the wire (removed in v1.0)
+        expect(event.data).not.toHaveProperty("final");
 
         // Agent message present only when messageText is provided
         if (messageText !== undefined) {
-          expect(event.status.message).toBeDefined();
-          expect(event.status.message.role).toBe("agent");
-          expect(event.status.message.parts).toHaveLength(1);
-          expect(event.status.message.parts[0].kind).toBe("text");
-          expect(event.status.message.parts[0].text).toBe(messageText);
+          expect(event.data.status.message).toBeDefined();
+          expect(event.data.status.message.role).toBe(2); // Role.ROLE_AGENT
+          expect(event.data.status.message.parts).toHaveLength(1);
+          expect(partText(event.data.status.message.parts[0])).toBe(messageText);
         } else {
-          expect(event.status.message).toBeUndefined();
+          expect(event.data.status.message).toBeUndefined();
         }
       }),
       { numRuns: 100 },
@@ -97,13 +144,12 @@ describe("Property 13: Event publisher structure correctness", () => {
         expect(bus.events).toHaveLength(1);
         const event = bus.events[0];
 
-        expect(event.kind).toBe("artifact-update");
-        expect(event.taskId).toBe(taskId);
-        expect(event.contextId).toBe(contextId);
-        expect(event.append).toBe(false);
-        expect(event.lastChunk).toBe(true);
-        expect(event.artifact.parts[0].kind).toBe("text");
-        expect(event.artifact.parts[0].text).toBe(text);
+        expect(event.kind).toBe("artifactUpdate");
+        expect(event.data.taskId).toBe(taskId);
+        expect(event.data.contextId).toBe(contextId);
+        expect(event.data.append).toBe(false);
+        expect(event.data.lastChunk).toBe(true);
+        expect(partText(event.data.artifact.parts[0])).toBe(text);
       }),
       { numRuns: 100 },
     );
@@ -118,14 +164,13 @@ describe("Property 13: Event publisher structure correctness", () => {
         expect(bus.events).toHaveLength(1);
         const event = bus.events[0];
 
-        expect(event.kind).toBe("artifact-update");
-        expect(event.taskId).toBe(taskId);
-        expect(event.contextId).toBe(contextId);
-        expect(event.append).toBe(true);
-        expect(event.lastChunk).toBe(false);
-        expect(event.artifact.artifactId).toBe(artifactId);
-        expect(event.artifact.parts[0].kind).toBe("text");
-        expect(event.artifact.parts[0].text).toBe(chunkText);
+        expect(event.kind).toBe("artifactUpdate");
+        expect(event.data.taskId).toBe(taskId);
+        expect(event.data.contextId).toBe(contextId);
+        expect(event.data.append).toBe(true);
+        expect(event.data.lastChunk).toBe(false);
+        expect(event.data.artifact.artifactId).toBe(artifactId);
+        expect(partText(event.data.artifact.parts[0])).toBe(chunkText);
       }),
       { numRuns: 100 },
     );
@@ -140,20 +185,19 @@ describe("Property 13: Event publisher structure correctness", () => {
         expect(bus.events).toHaveLength(1);
         const event = bus.events[0];
 
-        expect(event.kind).toBe("artifact-update");
-        expect(event.taskId).toBe(taskId);
-        expect(event.contextId).toBe(contextId);
-        expect(event.append).toBe(true);
-        expect(event.lastChunk).toBe(true);
-        expect(event.artifact.artifactId).toBe(artifactId);
-        expect(event.artifact.parts[0].kind).toBe("text");
-        expect(event.artifact.parts[0].text).toBe(fullText);
+        expect(event.kind).toBe("artifactUpdate");
+        expect(event.data.taskId).toBe(taskId);
+        expect(event.data.contextId).toBe(contextId);
+        expect(event.data.append).toBe(true);
+        expect(event.data.lastChunk).toBe(true);
+        expect(event.data.artifact.artifactId).toBe(artifactId);
+        expect(partText(event.data.artifact.parts[0])).toBe(fullText);
       }),
       { numRuns: 100 },
     );
   });
 
-  it("publishTraceArtifact produces event with DataPart containing the data", () => {
+  it("publishTraceArtifact produces event with a data part containing the data", () => {
     fc.assert(
       fc.property(arbId, arbId, arbTraceKey, arbData, (taskId, contextId, traceKey, data) => {
         const bus = createMockBus();
@@ -162,20 +206,19 @@ describe("Property 13: Event publisher structure correctness", () => {
         expect(bus.events).toHaveLength(1);
         const event = bus.events[0];
 
-        expect(event.kind).toBe("artifact-update");
-        expect(event.taskId).toBe(taskId);
-        expect(event.contextId).toBe(contextId);
-        expect(event.append).toBe(false);
-        expect(event.lastChunk).toBe(true);
-        expect(event.artifact.name).toBe(traceKey);
-        expect(event.artifact.parts[0].kind).toBe("data");
-        expect(event.artifact.parts[0].data).toEqual(data);
+        expect(event.kind).toBe("artifactUpdate");
+        expect(event.data.taskId).toBe(taskId);
+        expect(event.data.contextId).toBe(contextId);
+        expect(event.data.append).toBe(false);
+        expect(event.data.lastChunk).toBe(true);
+        expect(event.data.artifact.name).toBe(traceKey);
+        expect(partData(event.data.artifact.parts[0])).toEqual(data);
       }),
       { numRuns: 100 },
     );
   });
 
-  it("publishThoughtArtifact produces event with TextPart containing the text", () => {
+  it("publishThoughtArtifact produces event with a text part containing the text", () => {
     fc.assert(
       fc.property(arbId, arbId, arbTraceKey, arbText, (taskId, contextId, traceKey, text) => {
         const bus = createMockBus();
@@ -184,14 +227,13 @@ describe("Property 13: Event publisher structure correctness", () => {
         expect(bus.events).toHaveLength(1);
         const event = bus.events[0];
 
-        expect(event.kind).toBe("artifact-update");
-        expect(event.taskId).toBe(taskId);
-        expect(event.contextId).toBe(contextId);
-        expect(event.append).toBe(false);
-        expect(event.lastChunk).toBe(true);
-        expect(event.artifact.name).toBe(traceKey);
-        expect(event.artifact.parts[0].kind).toBe("text");
-        expect(event.artifact.parts[0].text).toBe(text);
+        expect(event.kind).toBe("artifactUpdate");
+        expect(event.data.taskId).toBe(taskId);
+        expect(event.data.contextId).toBe(contextId);
+        expect(event.data.append).toBe(false);
+        expect(event.data.lastChunk).toBe(true);
+        expect(event.data.artifact.name).toBe(traceKey);
+        expect(partText(event.data.artifact.parts[0])).toBe(text);
       }),
       { numRuns: 100 },
     );
@@ -216,7 +258,7 @@ describe("Property 14: Artifact ID uniqueness", () => {
 
           expect(bus.events).toHaveLength(n);
 
-          const artifactIds = bus.events.map((e: any) => e.artifact.artifactId);
+          const artifactIds = bus.events.map((e: any) => e.data.artifact.artifactId);
           const uniqueIds = new Set(artifactIds);
           expect(uniqueIds.size).toBe(n);
         },

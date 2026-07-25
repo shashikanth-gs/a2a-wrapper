@@ -15,7 +15,7 @@ export {
   publishFinalArtifact,
   publishStreamingChunk,
   publishLastChunkMarker,
-} from "./copilot/event-publisher.js";
+} from "@a2a-wrapper/core";
 
 export { resolveConfig, loadConfigFile, loadEnvOverrides } from "./config/loader.js";
 export type {

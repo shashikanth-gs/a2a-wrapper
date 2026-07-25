@@ -4,6 +4,7 @@ import request from "supertest";
 import { createA2AServer } from "../../server/factory.js";
 import type { ServerHandle } from "../../server/factory.js";
 import type { BaseAgentConfig } from "../../config/types.js";
+import { publishTask, publishStatus } from "../../events/event-publisher.js";
 
 /**
  * Property-based tests for the A2A Server Factory module.
@@ -102,6 +103,18 @@ describe("Property 15: A2A-Version header reflects configured protocol version",
       { numRuns: 15 },
     );
   });
+
+  it("defaults to A2A-Version: 1.0 when not configured", async () => {
+    const config = makeConfig();
+    const handle = await createA2AServer(config, mockExecutorFactory);
+    try {
+      const res = await request(handle.app).get("/health");
+      expect(res.headers["a2a-version"]).toBe("1.0");
+    } finally {
+      await waitForClose(handle);
+      await handle.executor.shutdown();
+    }
+  });
 });
 
 // Feature: shared-core-package, Property 16: Dynamic agent card URL rewriting
@@ -115,7 +128,48 @@ describe("Property 16: Dynamic agent card URL rewriting", () => {
     )
     .map(([name, port]) => `${name}:${port}`);
 
-  it("agent card URLs use request Host and x-forwarded-proto, not static config", async () => {
+  it("v1.0 agent card (A2A-Version: 1.0) uses request Host/x-forwarded-proto in supportedInterfaces, not static config", async () => {
+    await fc.assert(
+      fc.asyncProperty(arbProto, arbHost, async (proto, host) => {
+        const config = makeConfig();
+        const handle = await createA2AServer(config, mockExecutorFactory);
+
+        try {
+          const res = await request(handle.app)
+            .get("/.well-known/agent-card.json")
+            .set("Host", host)
+            .set("x-forwarded-proto", proto)
+            .set("A2A-Version", "1.0");
+
+          expect(res.status).toBe(200);
+
+          const body = res.body;
+          const expectedBase = `${proto}://${host}`;
+          const expectedJsonRpc = `${expectedBase}/a2a/jsonrpc`;
+          const expectedRest = `${expectedBase}/a2a/rest`;
+
+          expect(body.url).toBeUndefined();
+          expect(body.additionalInterfaces).toBeUndefined();
+          expect(Array.isArray(body.supportedInterfaces)).toBe(true);
+
+          const jsonrpcEntry = body.supportedInterfaces.find(
+            (i: any) => i.protocolBinding === "JSONRPC" && i.protocolVersion === "1.0",
+          );
+          const restEntry = body.supportedInterfaces.find(
+            (i: any) => i.protocolBinding === "HTTP+JSON" && i.protocolVersion === "1.0",
+          );
+          expect(jsonrpcEntry.url).toBe(expectedJsonRpc);
+          expect(restEntry.url).toBe(expectedRest);
+        } finally {
+          await waitForClose(handle);
+          await handle.executor.shutdown();
+        }
+      }),
+      { numRuns: 15 },
+    );
+  });
+
+  it("legacy v0.3 agent card (no A2A-Version header) still uses request Host/x-forwarded-proto in url/additionalInterfaces", async () => {
     await fc.assert(
       fc.asyncProperty(arbProto, arbHost, async (proto, host) => {
         const config = makeConfig();
@@ -134,6 +188,9 @@ describe("Property 16: Dynamic agent card URL rewriting", () => {
           const expectedJsonRpc = `${expectedBase}/a2a/jsonrpc`;
           const expectedRest = `${expectedBase}/a2a/rest`;
 
+          // Backward compatibility: callers that never adopted the
+          // A2A-Version header (default "0.3") still get the legacy shape.
+          expect(body.protocolVersion).toBe("0.3.0");
           expect(body.url).toBe(expectedJsonRpc);
 
           const jsonrpcEntry = body.additionalInterfaces.find(
@@ -151,5 +208,52 @@ describe("Property 16: Dynamic agent card URL rewriting", () => {
       }),
       { numRuns: 15 },
     );
+  });
+});
+
+/** Executor that immediately completes every task with a text response. */
+const completingExecutorFactory = () => ({
+  initialize: async () => {},
+  shutdown: async () => {},
+  execute: async (requestContext: any, bus: any) => {
+    const taskId = requestContext.taskId ?? "generated-task-id";
+    const contextId = requestContext.contextId ?? "generated-context-id";
+    publishTask(bus, taskId, contextId);
+    publishStatus(bus, taskId, contextId, "completed", "done", true);
+    bus.finished();
+  },
+});
+
+// New: backward compatibility through the SDK's legacyCompat JSON-RPC layer
+describe("A2A v0.3 backward compatibility via legacyCompat", () => {
+  it("accepts a v0.3-shaped message/send JSON-RPC request", async () => {
+    const config = makeConfig();
+    const handle = await createA2AServer(config, completingExecutorFactory);
+
+    try {
+      const res = await request(handle.app)
+        .post("/a2a/jsonrpc")
+        .set("Content-Type", "application/json")
+        .send({
+          jsonrpc: "2.0",
+          id: "1",
+          method: "message/send",
+          params: {
+            message: {
+              kind: "message",
+              messageId: "m1",
+              role: "user",
+              parts: [{ kind: "text", text: "hello" }],
+            },
+          },
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.jsonrpc).toBe("2.0");
+      expect(res.body.error).toBeUndefined();
+    } finally {
+      await waitForClose(handle);
+      await handle.executor.shutdown();
+    }
   });
 });

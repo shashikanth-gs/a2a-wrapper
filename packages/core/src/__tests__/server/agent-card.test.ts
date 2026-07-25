@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import * as fc from "fast-check";
-import { buildAgentCard } from "../../server/agent-card.js";
+import { buildAgentCard, buildLegacyAgentCard } from "../../server/agent-card.js";
 
 /**
  * Property-based tests for the Agent Card Builder module.
@@ -21,7 +21,7 @@ const arbDesc = fc.string({ minLength: 1 });
 // Feature: shared-core-package, Property 10: Agent card construction from config
 // Validates: Requirements 7.1, 7.2, 7.3
 describe("Property 10: Agent card construction from config", () => {
-  it("url, additionalInterfaces, name, description, and capabilities match input config", () => {
+  it("supportedInterfaces, name, description, and capabilities match input config", () => {
     fc.assert(
       fc.property(
         arbProtocol,
@@ -41,18 +41,29 @@ describe("Property 10: Agent card construction from config", () => {
           const expectedJsonRpcUrl = `${expectedBase}/a2a/jsonrpc`;
           const expectedRestUrl = `${expectedBase}/a2a/rest`;
 
-          // url equals {advertiseProtocol}://{advertiseHost}:{port}/a2a/jsonrpc
-          expect(card.url).toBe(expectedJsonRpcUrl);
+          // supportedInterfaces contains v1.0 JSONRPC and HTTP+JSON entries
+          // with correct URLs, plus mirrored v0.3 entries per binding.
+          const interfaces = card.supportedInterfaces;
+          expect(interfaces.length).toBeGreaterThanOrEqual(4);
 
-          // additionalInterfaces contains JSONRPC and REST entries with correct URLs
-          expect(card.additionalInterfaces).toBeDefined();
-          const interfaces = card.additionalInterfaces!;
-          const jsonrpcEntry = interfaces.find((i: any) => i.transport === "JSONRPC");
-          const restEntry = interfaces.find((i: any) => i.transport === "REST");
-          expect(jsonrpcEntry).toBeDefined();
-          expect(restEntry).toBeDefined();
-          expect(jsonrpcEntry!.url).toBe(expectedJsonRpcUrl);
-          expect(restEntry!.url).toBe(expectedRestUrl);
+          const v1JsonRpc = interfaces.find(
+            (i) => i.protocolBinding === "JSONRPC" && i.protocolVersion === "1.0",
+          );
+          const v1Rest = interfaces.find(
+            (i) => i.protocolBinding === "HTTP+JSON" && i.protocolVersion === "1.0",
+          );
+          const legacyJsonRpc = interfaces.find(
+            (i) => i.protocolBinding === "JSONRPC" && i.protocolVersion === "0.3",
+          );
+          const legacyRest = interfaces.find(
+            (i) => i.protocolBinding === "HTTP+JSON" && i.protocolVersion === "0.3",
+          );
+          expect(v1JsonRpc).toBeDefined();
+          expect(v1Rest).toBeDefined();
+          expect(legacyJsonRpc).toBeDefined();
+          expect(legacyRest).toBeDefined();
+          expect(v1JsonRpc!.url).toBe(expectedJsonRpcUrl);
+          expect(v1Rest!.url).toBe(expectedRestUrl);
 
           // name and description match input
           expect(card.name).toBe(name);
@@ -68,11 +79,10 @@ describe("Property 10: Agent card construction from config", () => {
   });
 });
 
-
 // Feature: shared-core-package, Property 11: stateTransitionHistory invariant
 // Validates: Requirements 7.4
-describe("Property 11: stateTransitionHistory invariant", () => {
-  it("capabilities.stateTransitionHistory is always false regardless of input", () => {
+describe("Property 11: stateTransitionHistory removed from v1.0 capabilities", () => {
+  it("capabilities never has a stateTransitionHistory key, regardless of input", () => {
     fc.assert(
       fc.property(
         arbProtocol,
@@ -87,11 +97,18 @@ describe("Property 11: stateTransitionHistory invariant", () => {
             server: { advertiseProtocol: protocol, advertiseHost: host, port },
           });
 
-          expect(card.capabilities!.stateTransitionHistory).toBe(false);
+          // The field was removed entirely from AgentCapabilities in A2A
+          // v1.0 — not merely defaulted to false.
+          expect(card.capabilities).not.toHaveProperty("stateTransitionHistory");
         },
       ),
       { numRuns: 100 },
     );
+  });
+
+  it("the legacy v0.3 card still advertises stateTransitionHistory: false", () => {
+    const card = buildLegacyAgentCard({ name: "a", description: "b" }, "http://x/a2a/jsonrpc", "http://x/a2a/rest");
+    expect(card.capabilities.stateTransitionHistory).toBe(false);
   });
 });
 
@@ -109,7 +126,7 @@ describe("Property 12: Skill mapping preserves data", () => {
 
   const arbSkills = fc.array(arbSkill, { minLength: 0, maxLength: 10 });
 
-  it("skills array preserves id, name, description, tags; examples present iff non-empty in input", () => {
+  it("skills array preserves id, name, description, tags, examples", () => {
     fc.assert(
       fc.property(
         arbProtocol,
@@ -139,16 +156,45 @@ describe("Property 12: Skill mapping preserves data", () => {
             // Preserves tags (defaults to [] when undefined)
             expect(output.tags).toEqual(input.tags ?? []);
 
-            // examples present iff non-empty in input
-            if (input.examples && input.examples.length > 0) {
-              expect(output.examples).toEqual(input.examples);
-            } else {
-              expect(output.examples).toBeUndefined();
-            }
+            // examples always present (v1.0 AgentSkill requires the field), defaults to []
+            expect(output.examples).toEqual(input.examples ?? []);
           }
         },
       ),
       { numRuns: 100 },
     );
+  });
+});
+
+// New: v1.0 AgentCard shape assertions
+describe("A2A v1.0 AgentCard shape", () => {
+  it("sets required-but-empty fields and omits stateTransitionHistory", () => {
+    const card = buildAgentCard({
+      agentCard: { name: "Agent", description: "Desc" },
+      server: { advertiseProtocol: "http", advertiseHost: "localhost", port: 3000 },
+    });
+
+    expect(card.securitySchemes).toEqual({});
+    expect(card.securityRequirements).toEqual([]);
+    expect(card.signatures).toEqual([]);
+    expect(card.capabilities!.extendedAgentCard).toBe(false);
+    expect(card.capabilities).not.toHaveProperty("stateTransitionHistory");
+    expect(card).not.toHaveProperty("url");
+    expect(card).not.toHaveProperty("additionalInterfaces");
+    expect(card).not.toHaveProperty("protocolVersion");
+  });
+
+  it("omits provider when not configured, maps it when configured", () => {
+    const withoutProvider = buildAgentCard({
+      agentCard: { name: "Agent", description: "Desc" },
+      server: { port: 3000 },
+    });
+    expect(withoutProvider.provider).toBeUndefined();
+
+    const withProvider = buildAgentCard({
+      agentCard: { name: "Agent", description: "Desc", provider: { organization: "Acme" } },
+      server: { port: 3000 },
+    });
+    expect(withProvider.provider).toEqual({ organization: "Acme", url: "" });
   });
 });

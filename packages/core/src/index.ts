@@ -53,6 +53,8 @@ export {
   publishThoughtArtifact,
 } from "./events/event-publisher.js";
 
+export { extractUserText } from "./events/part-utils.js";
+
 // ─── Event Transport ────────────────────────────────────────────────────────
 
 export {
@@ -79,6 +81,7 @@ export {
   createA2AServer,
   type ServerOptions,
   type ServerHandle,
+  type AgentCardSigningOptions,
 } from "./server/factory.js";
 
 // ─── Session ────────────────────────────────────────────────────────────────
@@ -162,10 +165,17 @@ export { LlmUsageAccumulator } from "./events/usage.js";
 // ────────────────────────────────────────────────────────────────────────────
 
 /** @see {@link https://github.com/a2a-js/a2a-js | @a2a-js/sdk} */
-export type { AgentCard } from "@a2a-js/sdk";
+export type { AgentCard, Message, Part } from "@a2a-js/sdk";
+
+/**
+ * `TaskState` is a real numeric enum in A2A v1.0 (was a string-literal type
+ * in v0.3), so it must be re-exported as a value, not just a type.
+ * @see {@link https://github.com/a2a-js/a2a-js | @a2a-js/sdk}
+ */
+export { TaskState } from "@a2a-js/sdk";
 
 /** @see {@link https://github.com/a2a-js/a2a-js | @a2a-js/sdk} */
-export type { TaskState, TaskStatusUpdateEvent, TaskArtifactUpdateEvent } from "@a2a-js/sdk";
+export type { TaskStatusUpdateEvent, TaskArtifactUpdateEvent } from "@a2a-js/sdk";
 
 /** @see {@link https://github.com/a2a-js/a2a-js | @a2a-js/sdk/server} */
 export type { ExecutionEventBus, RequestContext } from "@a2a-js/sdk/server";

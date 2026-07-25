@@ -32,7 +32,7 @@
  */
 
 import { v4 as uuidv4 } from "uuid";
-import type { TaskArtifactUpdateEvent } from "@a2a-js/sdk";
+import { TaskArtifactUpdateEvent } from "@a2a-js/sdk";
 import type { ExecutionEventBus } from "@a2a-js/sdk/server";
 import type { EventsConfig } from "../config/types.js";
 import { TRACE_EXTENSION_URI } from "../server/agent-card.js";
@@ -131,8 +131,10 @@ export class A2ATransport implements EventTransport {
     if (state) data.state = state;
     Object.assign(data, event.data);
 
-    const artifactEvent: TaskArtifactUpdateEvent = {
-      kind: "artifact-update",
+    // A2A v1.0: ExecutionEventBus.publish() takes a {kind, data} envelope
+    // (was the raw event object itself in v0.3) — see event-publisher.ts's
+    // module doc for details.
+    const artifactEvent: TaskArtifactUpdateEvent = TaskArtifactUpdateEvent.fromJSON({
       taskId: this.taskId,
       contextId: this.contextId,
       append: false,
@@ -147,14 +149,13 @@ export class A2ATransport implements EventTransport {
         },
         parts: [
           {
-            kind: "data",
             data,
             metadata: { mimeType: "application/json" },
-          } as any,
+          },
         ],
       },
-    };
-    this.bus.publish(artifactEvent);
+    });
+    this.bus.publish({ kind: "artifactUpdate", data: artifactEvent });
   }
 }
 

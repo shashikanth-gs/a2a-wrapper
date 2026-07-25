@@ -83,6 +83,11 @@ export interface AgentCardConfig {
 
   /**
    * A2A protocol version this agent supports.
+   *
+   * @deprecated Superseded by A2A v1.0's per-interface `protocolVersion`
+   * (see `AgentCard.supportedInterfaces[]`, built by `buildAgentCard`).
+   * Kept for backward compatibility with existing config files only —
+   * the agent card builder no longer reads this value.
    * @default "0.3.0"
    */
   protocolVersion?: string;
@@ -142,6 +147,25 @@ export interface AgentCardConfig {
     organization: string;
     /** Optional URL for the provider's website or documentation. */
     url?: string;
+  };
+
+  /**
+   * Optional Signed Agent Card support (A2A v1.0, JWS per RFC 7515).
+   * Off by default. When enabled, the private key is read from the
+   * environment variable named by `privateKeyJwkEnvVar`, whose value must
+   * be a JSON-serialized JWK — never store key material in the config file
+   * itself. Uses the same `${ENV_VAR}` substitution convention already used
+   * elsewhere in this config (e.g. `EventsConfig.httpHeaders`).
+   */
+  signing?: {
+    /** @default false */
+    enabled?: boolean;
+    /** Name of the env var holding the signing private key as a JSON JWK. */
+    privateKeyJwkEnvVar: string;
+    /** Key ID (`kid`) to embed in the JWS protected header. */
+    keyId: string;
+    /** JWS algorithm (e.g. `"RS256"`, `"ES256"`). */
+    algorithm: string;
   };
 }
 

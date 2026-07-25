@@ -3,7 +3,6 @@
  */
 
 import { existsSync, statSync } from "node:fs";
-import type { Message as A2AMessage } from "@a2a-js/sdk";
 import type { AgentExecutor, ExecutionEventBus, RequestContext } from "@a2a-js/sdk/server";
 import { v4 as uuidv4 } from "uuid";
 
@@ -16,6 +15,7 @@ import { ANTIGRAVITY_BACKEND_PATHS } from "./backend-paths.js";
 import {
   AgentEventEmitter,
   bootstrapSubAgents,
+  extractUserText,
   LlmUsageAccumulator,
   materializeMemory,
   publishFinalArtifact,
@@ -326,14 +326,4 @@ export class AntigravityExecutor implements AgentExecutor {
   private toAntigravityMcpEntry(descriptor: SynthesizedMcpDescriptor): McpStdioServerConfig {
     return toAntigravityMcpEntry(descriptor);
   }
-}
-
-function extractUserText(message: A2AMessage): string {
-  return message.parts
-    .filter((part) => {
-      const p = part as unknown as Record<string, unknown>;
-      return p.kind === "text" || "text" in p;
-    })
-    .map((part) => (part as unknown as { text: string }).text)
-    .join("\n");
 }
