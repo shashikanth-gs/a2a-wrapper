@@ -120,7 +120,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - A2A v0.3.0 protocol implementation over Express HTTP server
 - Agent Card served at `/.well-known/agent-card.json`
-- JSON-RPC endpoint at `/a2a/jsonrpc` — `tasks/send`, `tasks/sendSubscribe`, `tasks/get`, `tasks/cancel`
+- JSON-RPC endpoint at `/a2a/jsonrpc` — `message/send`, `message/stream`, `tasks/get`, `tasks/cancel`
 - REST endpoint at `/a2a/rest`
 - GitHub Copilot SDK backend (`@github/copilot-sdk`) for LLM inference
 - Real-time SSE streaming of status updates and artifact chunks

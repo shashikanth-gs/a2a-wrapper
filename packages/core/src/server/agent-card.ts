@@ -131,13 +131,24 @@ export function buildAgentCardForUrls(
   // mirrored v0.3-protocolVersion entry per binding so that `legacyCompat`
   // JSON-RPC/REST handlers (see server/factory.ts) have a legacy interface
   // to point v0.3 clients at.
-  const supportedInterfaces: AgentInterface[] = duplicateInterfacesForLegacy(
+  const interfacesWithV03: AgentInterface[] = duplicateInterfacesForLegacy(
     [
       { url: jsonRpcUrl, protocolBinding: "JSONRPC", tenant: "", protocolVersion: "1.0" },
       { url: restUrl, protocolBinding: "HTTP+JSON", tenant: "", protocolVersion: "1.0" },
     ],
     ["JSONRPC", "HTTP+JSON"],
   );
+
+  // The v0.3 ecosystem used both "0.3" (the SDK's canonical value) and
+  // "0.3.0" (the value historically advertised by this project). SDK
+  // request validation is an exact string match, so advertise both aliases
+  // to keep clients using either form compatible.
+  const supportedInterfaces: AgentInterface[] = [
+    ...interfacesWithV03,
+    ...interfacesWithV03
+      .filter((intf) => intf.protocolVersion === "0.3")
+      .map((intf) => ({ ...intf, protocolVersion: "0.3.0" })),
+  ];
 
   return {
     name: agentCard.name,

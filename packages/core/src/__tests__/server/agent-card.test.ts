@@ -42,9 +42,9 @@ describe("Property 10: Agent card construction from config", () => {
           const expectedRestUrl = `${expectedBase}/a2a/rest`;
 
           // supportedInterfaces contains v1.0 JSONRPC and HTTP+JSON entries
-          // with correct URLs, plus mirrored v0.3 entries per binding.
+          // with correct URLs, plus both legacy aliases per binding.
           const interfaces = card.supportedInterfaces;
-          expect(interfaces.length).toBeGreaterThanOrEqual(4);
+          expect(interfaces.length).toBeGreaterThanOrEqual(6);
 
           const v1JsonRpc = interfaces.find(
             (i) => i.protocolBinding === "JSONRPC" && i.protocolVersion === "1.0",
@@ -58,10 +58,18 @@ describe("Property 10: Agent card construction from config", () => {
           const legacyRest = interfaces.find(
             (i) => i.protocolBinding === "HTTP+JSON" && i.protocolVersion === "0.3",
           );
+          const legacyPatchJsonRpc = interfaces.find(
+            (i) => i.protocolBinding === "JSONRPC" && i.protocolVersion === "0.3.0",
+          );
+          const legacyPatchRest = interfaces.find(
+            (i) => i.protocolBinding === "HTTP+JSON" && i.protocolVersion === "0.3.0",
+          );
           expect(v1JsonRpc).toBeDefined();
           expect(v1Rest).toBeDefined();
           expect(legacyJsonRpc).toBeDefined();
           expect(legacyRest).toBeDefined();
+          expect(legacyPatchJsonRpc).toBeDefined();
+          expect(legacyPatchRest).toBeDefined();
           expect(v1JsonRpc!.url).toBe(expectedJsonRpcUrl);
           expect(v1Rest!.url).toBe(expectedRestUrl);
 

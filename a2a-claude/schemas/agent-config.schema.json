@@ -4,42 +4,52 @@
   "definitions": {
     "AgentCardConfig": {
       "additionalProperties": false,
-      "description": "Agent identity and capabilities advertised via the A2A Agent Card.",
+      "description": "Agent identity and capabilities advertised via the A2A Agent Card.\n\nThis interface captures all fields that appear in the public-facing agent card served at `/.well-known/agent-card.json`. Orchestrators and callers use this metadata to discover the agent's name, supported modes, streaming capability, and available skills.",
       "properties": {
         "defaultInputModes": {
-          "description": "Supported input modes (default: [\"text\"])",
+          "default": [
+            "text"
+          ],
+          "description": "Supported input content modes.",
           "items": {
             "type": "string"
           },
           "type": "array"
         },
         "defaultOutputModes": {
-          "description": "Supported output modes (default: [\"text\"])",
+          "default": [
+            "text"
+          ],
+          "description": "Supported output content modes.",
           "items": {
             "type": "string"
           },
           "type": "array"
         },
         "description": {
-          "description": "Agent description (shown to orchestrators / callers)",
+          "description": "Agent description shown to orchestrators and callers. Should concisely explain the agent's purpose and domain expertise.",
           "type": "string"
         },
         "name": {
-          "description": "Human-readable agent name",
+          "description": "Human-readable agent name. Displayed in orchestrator UIs and agent discovery listings.",
           "type": "string"
         },
         "protocolVersion": {
-          "description": "Protocol version (default: \"0.3.0\")",
+          "default": "0.3.0",
+          "deprecated": "Superseded by A2A v1.0's per-interface `protocolVersion`\n(see `AgentCard.supportedInterfaces[]`, built by `buildAgentCard`).\nKept for backward compatibility with existing config files only —\nthe agent card builder no longer reads this value.",
+          "description": "A2A protocol version this agent supports.",
           "type": "string"
         },
         "provider": {
           "additionalProperties": false,
-          "description": "Agent provider info",
+          "description": "Agent provider information. Identifies the organization responsible for this agent deployment.",
           "properties": {
             "organization": {
+              "description": "Organization name.",
               "type": "string"
             },
             "url": {
+              "description": "Optional URL for the provider's website or documentation.",
               "type": "string"
             }
           },
@@ -49,27 +59,59 @@
           "type": "object"
         },
         "pushNotifications": {
-          "description": "Enable push notifications (default: false)",
+          "default": false,
+          "description": "Whether the agent supports push notifications.",
           "type": "boolean"
         },
+        "signing": {
+          "additionalProperties": false,
+          "description": "Optional Signed Agent Card support (A2A v1.0, JWS per RFC 7515). Off by default. When enabled, the private key is read from the environment variable named by `privateKeyJwkEnvVar`, whose value must be a JSON-serialized JWK — never store key material in the config file itself.",
+          "properties": {
+            "algorithm": {
+              "description": "JWS algorithm (e.g. `\"RS256\"`, `\"ES256\"`).",
+              "type": "string"
+            },
+            "enabled": {
+              "default": false,
+              "type": "boolean"
+            },
+            "keyId": {
+              "description": "Key ID (`kid`) to embed in the JWS protected header.",
+              "type": "string"
+            },
+            "privateKeyJwkEnvVar": {
+              "description": "Name of the env var holding the signing private key as a JSON JWK.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "privateKeyJwkEnvVar",
+            "keyId",
+            "algorithm"
+          ],
+          "type": "object"
+        },
         "skills": {
-          "description": "Skills this agent exposes",
+          "description": "Skills this agent exposes to callers. Each skill represents a discrete capability advertised in the agent card.",
           "items": {
             "$ref": "#/definitions/SkillConfig"
           },
           "type": "array"
         },
         "stateTransitionHistory": {
-          "deprecated": "This capability is not implemented in the A2A v1.0 spec and\nwas removed. Kept for backward compatibility only — value is ignored.\nDefault: false.",
+          "default": false,
+          "deprecated": "This capability is not implemented in the A2A v1.0 spec and\nwas removed. Kept for backward compatibility only — value is ignored.\nThe agent card builder always sets this to `false`.",
           "description": "Enable state transition history capability advertisement.",
           "type": "boolean"
         },
         "streaming": {
-          "description": "Enable streaming capability (default: true)",
+          "default": true,
+          "description": "Whether the agent supports streaming responses.",
           "type": "boolean"
         },
         "version": {
-          "description": "Agent software version (default: \"1.0.0\")",
+          "default": "1.0.0",
+          "description": "Agent software version string.",
           "type": "string"
         }
       },
@@ -81,83 +123,159 @@
     },
     "AgentConfig": {
       "additionalProperties": false,
-      "description": "Complete agent configuration for a2a-claude.\n\nThis is what a JSON config file (e.g. `agents/example/config.json`) maps to. All fields except `agentCard` are optional — sensible secure defaults are applied for everything.",
+      "description": "Complete agent configuration.\n\nThis is what a JSON config file (e.g. `agents/example/config.json`) maps to. All fields except `agentCard` are optional — sensible secure defaults are applied.",
       "properties": {
         "agentCard": {
-          "$ref": "#/definitions/AgentCardConfig",
-          "description": "Agent card identity & capabilities"
+          "$ref": "#/definitions/AgentCardConfig"
         },
         "claude": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "workingDirectory": { "type": "string" },
-            "model": { "type": "string" },
-            "fallbackModel": { "type": "string" },
-            "permissionMode": { "enum": ["acceptEdits", "dontAsk", "plan", "bypassPermissions"] },
-            "allowedTools": { "type": "array", "items": { "type": "string" } },
-            "disallowedTools": { "type": "array", "items": { "type": "string" } },
-            "systemPromptAppend": { "type": "string" },
-            "customSystemPrompt": { "type": "string" },
-            "settingSources": { "type": "array", "items": { "enum": ["user", "project", "local"] } },
-            "maxTurns": { "type": "integer", "minimum": 1 },
-            "maxBudgetUsd": { "type": "number", "exclusiveMinimum": 0 },
-            "additionalDirectories": { "type": "array", "items": { "type": "string" } },
-            "sandbox": { "type": "object" },
-            "executablePathOverride": { "type": "string" },
-            "dangerouslyAllowBypassPermissions": { "type": "boolean" },
-            "contextFile": { "type": "string" },
-            "contextPrompt": { "type": "string" }
-          }
+          "$ref": "#/definitions/ClaudeConfig",
+          "description": "Claude Agent SDK settings."
         },
-        "server": {
-          "$ref": "#/definitions/ServerConfig",
-          "description": "Network / server settings"
+        "configDir": {
+          "description": "Populated automatically by the CLI loader. Do not set manually.",
+          "type": "string"
         },
-        "session": {
-          "$ref": "#/definitions/SessionConfig",
-          "description": "Session management"
+        "events": {
+          "$ref": "#/definitions/EventsConfig"
         },
         "features": {
-          "$ref": "#/definitions/FeatureFlags",
-          "description": "Feature flags"
-        },
-        "timeouts": {
-          "$ref": "#/definitions/TimeoutConfig",
-          "description": "Timeout settings"
+          "$ref": "#/definitions/FeatureFlags"
         },
         "logging": {
-          "$ref": "#/definitions/LoggingConfig",
-          "description": "Logging settings"
+          "$ref": "#/definitions/LoggingConfig"
         },
         "mcp": {
           "additionalProperties": {
             "$ref": "#/definitions/McpServerConfig"
           },
-          "description": "MCP servers to register with Claude at startup. Keys are server names; values are stdio or http server configs. The key \"a2a-subagents\" is reserved for the sub-agent bridge.",
+          "description": "MCP servers. The key \"a2a-subagents\" is reserved for the sub-agent bridge.",
           "type": "object"
         },
-        "events": {
-          "$ref": "#/definitions/EventsConfig",
-          "description": "Event transport configuration for sideband observability events."
-        },
         "memory": {
-          "$ref": "#/definitions/MemoryConfig",
-          "description": "Optional memory configuration for persisting instructions and skills. When present, the materializer writes these to backend-specific paths in the workspace directory during executor initialization."
+          "$ref": "#/definitions/MemoryConfig"
+        },
+        "server": {
+          "$ref": "#/definitions/ServerConfig"
+        },
+        "session": {
+          "$ref": "#/definitions/SessionConfig"
         },
         "subAgents": {
-          "$ref": "#/definitions/SubAgentsConfig",
-          "description": "Optional sub-agents to expose as MCP tools via the `a2a-mcp-skillmap` bridge. When present, the parent agent spawns skillmap as a stdio MCP server and registers it under the reserved `a2a-subagents` key in the resolved  {@link  mcp }  map. Sub-agents declared here become callable as ordinary MCP tools by the Claude runtime.\n\nWhen this field is absent or `agents` is empty, the parent skips every sub-agent code path with no side effects."
+          "$ref": "#/definitions/SubAgentsConfig"
         },
-        "configDir": {
-          "description": "Directory containing the agent's config.json file. Populated automatically by the CLI scaffold when a config file path is provided. Used by the materializer for resolving relative paths in memory config.",
-          "type": "string"
+        "timeouts": {
+          "$ref": "#/definitions/TimeoutConfig"
         }
       },
       "required": [
         "agentCard"
       ],
       "type": "object"
+    },
+    "ClaudeConfig": {
+      "additionalProperties": false,
+      "description": "Claude Agent SDK connection and execution settings. Fields map 1:1 onto",
+      "properties": {
+        "additionalDirectories": {
+          "description": "Additional directories Claude can access. Supports ${ENV_VAR} per entry.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "allowedTools": {
+          "description": "Tools auto-allowed without prompting.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "contextFile": {
+          "default": "context.md",
+          "description": "Filename for the pre-built domain context file within workingDirectory.",
+          "type": "string"
+        },
+        "contextPrompt": {
+          "description": "Default prompt used when buildContext() is called without an explicit prompt.",
+          "type": "string"
+        },
+        "customSystemPrompt": {
+          "description": "Full system prompt replacement. Mutually exclusive with systemPromptAppend.",
+          "type": "string"
+        },
+        "dangerouslyAllowBypassPermissions": {
+          "description": "Must be true when permissionMode is \"bypassPermissions\".",
+          "type": "boolean"
+        },
+        "disallowedTools": {
+          "description": "Tools removed from the model's context entirely.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "executablePathOverride": {
+          "description": "Override the path to the Claude Code executable.",
+          "type": "string"
+        },
+        "fallbackModel": {
+          "description": "Fallback model when the primary is overloaded/unavailable.",
+          "type": "string"
+        },
+        "maxBudgetUsd": {
+          "description": "Max budget in USD per query.",
+          "type": "number"
+        },
+        "maxTurns": {
+          "description": "Max conversation turns per query (runaway protection).",
+          "type": "number"
+        },
+        "model": {
+          "description": "Model (e.g. \"claude-sonnet-5\"). Supports ${CLAUDE_MODEL}. SDK default when omitted.",
+          "type": "string"
+        },
+        "permissionMode": {
+          "$ref": "#/definitions/ClaudePermissionMode",
+          "default": "acceptEdits",
+          "description": "Permission mode. \"default\" and \"auto\" are rejected — they require an interactive approver / classifier, incompatible with headless A2A."
+        },
+        "sandbox": {
+          "additionalProperties": {},
+          "description": "Opaque SDK sandbox settings passthrough (OS-level command sandboxing).",
+          "type": "object"
+        },
+        "settingSources": {
+          "description": "Filesystem settings sources to load. Default [] = full isolation from host ~/.claude and project settings. Include \"project\" to load CLAUDE.md.",
+          "items": {
+            "enum": [
+              "user",
+              "project",
+              "local"
+            ],
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "systemPromptAppend": {
+          "description": "Appended to the claude_code preset system prompt (developerInstructions analog).",
+          "type": "string"
+        },
+        "workingDirectory": {
+          "description": "Absolute path to the workspace Claude operates on. Required at runtime. Supports ${ENV_VAR}.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "ClaudePermissionMode": {
+      "enum": [
+        "acceptEdits",
+        "dontAsk",
+        "plan",
+        "bypassPermissions"
+      ],
+      "type": "string"
     },
     "EventsConfig": {
       "additionalProperties": false,
@@ -198,26 +316,25 @@
     },
     "FeatureFlags": {
       "additionalProperties": false,
-      "description": "Feature toggles for runtime behavior.",
       "properties": {
-        "streamArtifactChunks": {
-          "description": "Stream artifact chunks individually (A2A spec-correct) vs buffer and send single artifact (inspector-compatible). Default: false (buffered).",
+        "emitFileChangeEvents": {
+          "description": "Publish file change metadata as sideband events. Default: true.",
           "type": "boolean"
         },
         "emitThinkingEvents": {
-          "description": "Publish thinking summaries as sideband events (default: true).",
-          "type": "boolean"
-        },
-        "emitToolEvents": {
-          "description": "Publish tool_call_start/end sideband events (default: true).",
-          "type": "boolean"
-        },
-        "emitFileChangeEvents": {
-          "description": "Publish file change metadata as decision sideband events (default: true).",
+          "description": "Publish thinking summaries as sideband events. Default: true.",
           "type": "boolean"
         },
         "emitTodoEvents": {
-          "description": "Publish todo-list updates as decision sideband events (default: true).",
+          "description": "Publish todo-list updates as sideband events. Default: true.",
+          "type": "boolean"
+        },
+        "emitToolEvents": {
+          "description": "Publish tool_call_start/end sideband events. Default: true.",
+          "type": "boolean"
+        },
+        "streamArtifactChunks": {
+          "description": "Stream artifact chunks (A2A spec-correct) vs single buffered artifact. Default: false.",
           "type": "boolean"
         }
       },
@@ -225,10 +342,8 @@
     },
     "LoggingConfig": {
       "additionalProperties": false,
-      "description": "Logging settings.",
       "properties": {
         "level": {
-          "description": "Log level: \"debug\" | \"info\" | \"warn\" | \"error\" (default: \"info\")",
           "type": "string"
         }
       },
@@ -236,21 +351,18 @@
     },
     "McpHttpServerConfig": {
       "additionalProperties": false,
-      "description": "Configuration for an MCP server connected via HTTP (streamable).",
       "properties": {
         "enabled": {
-          "description": "Enable on startup (default: true)",
           "type": "boolean"
         },
         "headers": {
           "additionalProperties": {
             "type": "string"
           },
-          "description": "Optional HTTP headers sent with every request to this server. Use for auth tokens, API keys, etc. Values support `${ENV_VAR}` (or `$ENV_VAR`) substitution so secrets stay out of config.json — e.g. `{ \"Authorization\": \"Bearer ${LINEAR_API_KEY}\" }`.",
+          "description": "HTTP headers sent with every request. Values support ${ENV_VAR} substitution. Use for bearer tokens: { \"Authorization\": \"Bearer ${TOKEN}\" }",
           "type": "object"
         },
         "toolTimeoutSec": {
-          "description": "Per-tool call timeout in seconds.",
           "type": "number"
         },
         "type": {
@@ -258,7 +370,7 @@
           "type": "string"
         },
         "url": {
-          "description": "URL of the remote MCP server (e.g. http://127.0.0.1:8002/mcp)",
+          "description": "URL of the Streamable HTTP MCP server.",
           "type": "string"
         }
       },
@@ -271,27 +383,37 @@
     "McpServerConfig": {
       "anyOf": [
         {
+          "$ref": "#/definitions/McpStdioServerConfig"
+        },
+        {
           "$ref": "#/definitions/McpHttpServerConfig"
         },
         {
-          "$ref": "#/definitions/McpStdioServerConfig"
+          "additionalProperties": {},
+          "properties": {
+            "type": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
         }
-      ],
-      "description": "MCP server configuration. Only stdio and http (Streamable HTTP) transports are supported. SSE-only servers are not supported — use http or stdio instead."
+      ]
     },
     "McpStdioServerConfig": {
       "additionalProperties": false,
-      "description": "Configuration for a stdio-based MCP server.",
       "properties": {
         "args": {
-          "description": "Arguments to pass to the command. Values support `${ENV_VAR}` (or `$ENV_VAR`) substitution.",
+          "description": "Arguments. Values support ${ENV_VAR} substitution.",
           "items": {
             "type": "string"
           },
           "type": "array"
         },
         "command": {
-          "description": "Command to launch the MCP server",
+          "description": "Command to launch the MCP server.",
           "type": "string"
         },
         "disabledTools": {
@@ -302,7 +424,6 @@
           "type": "array"
         },
         "enabled": {
-          "description": "Enable on startup (default: true)",
           "type": "boolean"
         },
         "enabledTools": {
@@ -316,7 +437,7 @@
           "additionalProperties": {
             "type": "string"
           },
-          "description": "Environment variables for the spawned process. Values support `${ENV_VAR}` (or `$ENV_VAR`) substitution so secrets stay out of config.json — e.g. `{ \"API_KEY\": \"${MY_API_KEY}\" }`.",
+          "description": "Environment variables for the spawned process. Values support ${ENV_VAR} substitution.",
           "type": "object"
         },
         "startupTimeoutSec": {
@@ -358,14 +479,13 @@
     },
     "ServerConfig": {
       "additionalProperties": false,
-      "description": "Network and server settings.",
       "properties": {
         "advertiseHost": {
           "description": "Hostname advertised in agent card URLs (default: \"localhost\"). Set to machine IP or \"host.containers.internal\" for Docker.",
           "type": "string"
         },
         "advertiseProtocol": {
-          "description": "Protocol used in advertised URLs (default: \"http\"). Set to \"https\" when the agent is deployed behind TLS or a TLS-terminating reverse proxy. The A2A spec requires HTTPS for production deployments.",
+          "description": "Protocol used in advertised URLs (default: \"http\"). Set to \"https\" when deployed behind TLS or a TLS-terminating reverse proxy.",
           "enum": [
             "http",
             "https"
@@ -373,11 +493,9 @@
           "type": "string"
         },
         "hostname": {
-          "description": "Bind address (default: \"0.0.0.0\")",
           "type": "string"
         },
         "port": {
-          "description": "A2A server port (default: 3030)",
           "type": "number"
         }
       },
@@ -385,7 +503,6 @@
     },
     "SessionConfig": {
       "additionalProperties": false,
-      "description": "Session lifecycle management.",
       "properties": {
         "cleanupInterval": {
           "description": "Session cleanup interval in ms (default: 300_000 = 5 min)",
@@ -396,7 +513,6 @@
           "type": "boolean"
         },
         "titlePrefix": {
-          "description": "Session title prefix (default: \"A2A Session\")",
           "type": "string"
         },
         "ttl": {
@@ -408,24 +524,29 @@
     },
     "SkillConfig": {
       "additionalProperties": false,
-      "description": "A single skill exposed on the agent card.",
+      "description": "A single skill exposed on the agent card.\n\nSkills describe discrete capabilities the agent advertises to orchestrators and callers via the A2A Agent Card. Each skill has a unique identifier, human-readable metadata, and optional usage examples.",
       "properties": {
         "description": {
+          "description": "Detailed description of what this skill does. Helps orchestrators decide whether to route a task to this agent.",
           "type": "string"
         },
         "examples": {
+          "description": "Optional example prompts demonstrating how to invoke this skill. Included in the agent card only when non-empty.",
           "items": {
             "type": "string"
           },
           "type": "array"
         },
         "id": {
+          "description": "Unique identifier for this skill. Used as the stable key when referencing the skill programmatically.",
           "type": "string"
         },
         "name": {
+          "description": "Human-readable display name for the skill. Shown in agent card UIs and orchestrator dashboards.",
           "type": "string"
         },
         "tags": {
+          "description": "Optional tags for categorization and discovery. Orchestrators may use tags to filter or group agents by capability.",
           "items": {
             "type": "string"
           },
@@ -569,7 +690,6 @@
     },
     "TimeoutConfig": {
       "additionalProperties": false,
-      "description": "Timeout settings.",
       "properties": {
         "prompt": {
           "description": "Timeout for a single prompt in ms (default: 600_000 = 10 min)",

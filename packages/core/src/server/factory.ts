@@ -391,7 +391,16 @@ export async function createA2AServer<T extends BuildAgentCardInput>(
     // `AgentCard.toJSON(AgentCard.fromJSON(card))` — without this
     // normalization step the two would sign/verify different byte payloads
     // whenever the hand-built card isn't already in that exact shape.
-    let card: AgentCard = AgentCard.toJSON(AgentCard.fromJSON(buildAgentCardForUrls(config.agentCard, jsonRpcUrl, restUrl))) as AgentCard;
+    // Unsigned cards retain per-request URL rewriting for local development
+    // and proxy discovery. A signed card must never incorporate requester-
+    // controlled Host / X-Forwarded-Proto values: doing so would let any
+    // caller obtain a valid signature over attacker-selected endpoints.
+    // Signed cards therefore use only the trusted advertiseHost/protocol
+    // values from resolved server configuration.
+    const cardToNormalize = agentCardSignatureGenerator
+      ? agentCard
+      : buildAgentCardForUrls(config.agentCard, jsonRpcUrl, restUrl);
+    let card: AgentCard = AgentCard.toJSON(AgentCard.fromJSON(cardToNormalize)) as AgentCard;
     if (agentCardSignatureGenerator) {
       card = await agentCardSignatureGenerator(card);
     }

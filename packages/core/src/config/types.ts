@@ -154,8 +154,7 @@ export interface AgentCardConfig {
    * Off by default. When enabled, the private key is read from the
    * environment variable named by `privateKeyJwkEnvVar`, whose value must
    * be a JSON-serialized JWK — never store key material in the config file
-   * itself. Uses the same `${ENV_VAR}` substitution convention already used
-   * elsewhere in this config (e.g. `EventsConfig.httpHeaders`).
+   * itself.
    */
   signing?: {
     /** @default false */

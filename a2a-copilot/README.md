@@ -3,7 +3,7 @@
 [![npm version](https://img.shields.io/npm/v/a2a-copilot.svg)](https://www.npmjs.com/package/a2a-copilot)
 [![CI](https://github.com/shashikanth-gs/a2a-wrapper/actions/workflows/ci.yml/badge.svg)](https://github.com/shashikanth-gs/a2a-wrapper/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Node.js >=18](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](https://nodejs.org)
+[![Node.js >=20](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org)
 
 GitHub Copilot is a production-grade agent. It already handles multi-step planning, MCP tool execution, context management, and streaming — everything you'd spend months rebuilding from scratch.
 
@@ -133,7 +133,7 @@ A2A Client (Orchestrator / Inspector / curl)
   ▼
 Express Server  (a2a-copilot)
   │  ├─ /.well-known/agent-card.json  → Agent Card
-  │  ├─ /a2a/jsonrpc                  → JSON-RPC  (message/send, message/sendSubscribe, …)
+  │  ├─ /a2a/jsonrpc                  → JSON-RPC  (message/send, message/stream, …)
   │  ├─ /a2a/rest                     → REST handler
   │  ├─ /context                      → Read context.md
   │  ├─ /context/build                → Trigger context discovery
@@ -735,13 +735,14 @@ docker run -p 3000:3000 \
 
 ### Protocol Versions
 
-Speaks **A2A v1.0 natively** and is **fully backward compatible with v0.3.x clients** — no configuration needed. The server negotiates per request: send an `A2A-Version: 1.0` header (or omit it, for v1.0-aware clients that default forward) to get the native v1.0 wire format, or send `A2A-Version: 0.3` (or no header at all, matching older clients that predate the header) to get the legacy v0.3-shaped Agent Card and JSON-RPC/REST behavior. Both are served from the same endpoints below — see [Protocol Versions](../packages/core/README.md#protocol-versions) in `@a2a-wrapper/core`'s README for the full negotiation details, including optional Signed Agent Card (JWS) support.
+Speaks **A2A v1.0 natively** and is **fully backward compatible with v0.3.x clients** — no configuration needed. Send `A2A-Version: 1.0` to discover the native v1.0 Agent Card. Send `A2A-Version: 0.3` or `0.3.0`—or omit the header for older clients—to receive the legacy card. JSON-RPC/REST handlers additionally auto-detect native and legacy method shapes. Both versions use the same endpoints below; see [Protocol Versions](../packages/core/README.md#protocol-versions) for the complete negotiation rules and optional Signed Agent Card support.
 
 | Endpoint | Description |
 |---|---|
 | `GET /.well-known/agent-card.json` | Agent identity and capabilities |
 | `POST /a2a/jsonrpc` | JSON-RPC: `message/send`, `message/stream` (v0.3) / `SendMessage`, `SendStreamingMessage` (v1.0) |
-| `POST /a2a/rest` | REST equivalent |
+| `POST /a2a/rest/message:send` | v1 HTTP+JSON message send |
+| `POST /a2a/rest/v1/message:send` | v0.3 HTTP+JSON message send |
 | `GET /health` | Health check |
 | `POST /context/build` | Trigger context discovery |
 | `GET /context` | Read the built context file |
@@ -783,7 +784,7 @@ a2a-copilot --config agents/example/config.json --cli-url localhost:4321
 
 The `vscode-jsonrpc` package (a transitive dependency of `@github/copilot-sdk`) lacks an `exports` map in its `package.json`. Node 22's stricter ESM resolver rejects the `vscode-jsonrpc/node` subpath import, causing a startup crash.
 
-A `postinstall` script is included that automatically patches `vscode-jsonrpc/package.json` to add the missing `exports` field. The patch runs on every `npm install` and is idempotent — it is a no-op on Node 18/20 or when the field already exists.
+A `postinstall` script is included that automatically patches `vscode-jsonrpc/package.json` to add the missing `exports` field. The patch runs on every `npm install` and is idempotent — it is a no-op when the field already exists.
 
 If you see `ERR_MODULE_NOT_FOUND` referencing `vscode-jsonrpc/node`, run `npm install` again to re-apply the patch.
 

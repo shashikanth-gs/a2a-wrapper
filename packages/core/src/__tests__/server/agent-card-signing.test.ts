@@ -60,6 +60,39 @@ afterEach(async () => {
 });
 
 describe("Signed Agent Card", () => {
+  it("enables signing from the core-owned AgentCardConfig", async () => {
+    const { publicKey, privateKey } = await jose.generateKeyPair("ES256", { extractable: true });
+    const privateJwk = await jose.exportJWK(privateKey);
+    const envVar = "A2A_TEST_AGENT_CARD_SIGNING_JWK";
+    process.env[envVar] = JSON.stringify(privateJwk);
+
+    try {
+      const config = makeConfig();
+      config.agentCard.signing = {
+        enabled: true,
+        privateKeyJwkEnvVar: envVar,
+        keyId: "config-key",
+        algorithm: "ES256",
+      };
+      const handle = await createA2AServer(config, mockExecutorFactory);
+      activeHandle = handle;
+
+      const res = await request(handle.app)
+        .get("/.well-known/agent-card.json")
+        .set("A2A-Version", "1.0");
+
+      expect(res.status).toBe(200);
+      expect(res.body.signatures).toHaveLength(1);
+      const verifier = verifyAgentCardSignature(async (kid) => {
+        expect(kid).toBe("config-key");
+        return publicKey;
+      });
+      await expect(verifier(res.body)).resolves.toBeUndefined();
+    } finally {
+      delete process.env[envVar];
+    }
+  });
+
   it("signs the v1.0 card and the signature verifies against the public key", async () => {
     const { publicKey, privateKey } = await jose.generateKeyPair("ES256", { extractable: true });
     const privateJwk = await jose.exportJWK(privateKey);
@@ -86,6 +119,40 @@ describe("Signed Agent Card", () => {
       return publicKey;
     });
 
+    await expect(verifier(res.body)).resolves.toBeUndefined();
+  });
+
+  it("signs only configured endpoint URLs, never requester-controlled headers", async () => {
+    const { publicKey, privateKey } = await jose.generateKeyPair("ES256", { extractable: true });
+    const privateJwk = await jose.exportJWK(privateKey);
+
+    const config = makeConfig();
+    config.server.advertiseHost = "trusted.example";
+    config.server.advertiseProtocol = "https";
+    const handle = await createA2AServer(config, mockExecutorFactory, {
+      agentCardSigning: {
+        privateKey: privateJwk,
+        protectedHeader: { alg: "ES256", kid: "trusted-key", typ: "JWT" },
+      },
+    });
+    activeHandle = handle;
+
+    const res = await request(handle.app)
+      .get("/.well-known/agent-card.json")
+      .set("A2A-Version", "1.0")
+      .set("Host", "attacker.example")
+      .set("X-Forwarded-Proto", "http");
+
+    expect(res.status).toBe(200);
+    expect(res.body.supportedInterfaces).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ url: `https://trusted.example:${config.server.port}/a2a/jsonrpc` }),
+        expect.objectContaining({ url: `https://trusted.example:${config.server.port}/a2a/rest` }),
+      ]),
+    );
+    expect(JSON.stringify(res.body)).not.toContain("attacker.example");
+
+    const verifier = verifyAgentCardSignature(async () => publicKey);
     await expect(verifier(res.body)).resolves.toBeUndefined();
   });
 

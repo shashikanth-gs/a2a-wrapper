@@ -226,34 +226,41 @@ const completingExecutorFactory = () => ({
 
 // New: backward compatibility through the SDK's legacyCompat JSON-RPC layer
 describe("A2A v0.3 backward compatibility via legacyCompat", () => {
-  it("accepts a v0.3-shaped message/send JSON-RPC request", async () => {
-    const config = makeConfig();
-    const handle = await createA2AServer(config, completingExecutorFactory);
+  const legacyRequest = {
+    jsonrpc: "2.0",
+    id: "1",
+    method: "message/send",
+    params: {
+      message: {
+        kind: "message",
+        messageId: "m1",
+        role: "user",
+        parts: [{ kind: "text", text: "hello" }],
+      },
+    },
+  };
 
-    try {
-      const res = await request(handle.app)
-        .post("/a2a/jsonrpc")
-        .set("Content-Type", "application/json")
-        .send({
-          jsonrpc: "2.0",
-          id: "1",
-          method: "message/send",
-          params: {
-            message: {
-              kind: "message",
-              messageId: "m1",
-              role: "user",
-              parts: [{ kind: "text", text: "hello" }],
-            },
-          },
-        });
+  it.each([undefined, "0.3", "0.3.0"])(
+    "accepts a v0.3-shaped request with A2A-Version %s",
+    async (version) => {
+      const config = makeConfig();
+      const handle = await createA2AServer(config, completingExecutorFactory);
 
-      expect(res.status).toBe(200);
-      expect(res.body.jsonrpc).toBe("2.0");
-      expect(res.body.error).toBeUndefined();
-    } finally {
-      await waitForClose(handle);
-      await handle.executor.shutdown();
-    }
-  });
+      try {
+        let pending = request(handle.app)
+          .post("/a2a/jsonrpc")
+          .set("Content-Type", "application/json")
+          .send(legacyRequest);
+        if (version) pending = pending.set("A2A-Version", version);
+        const res = await pending;
+
+        expect(res.status).toBe(200);
+        expect(res.body.jsonrpc).toBe("2.0");
+        expect(res.body.error).toBeUndefined();
+      } finally {
+        await waitForClose(handle);
+        await handle.executor.shutdown();
+      }
+    },
+  );
 });
