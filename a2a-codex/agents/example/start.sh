@@ -16,8 +16,9 @@
 #   ./start.sh logs         — Tail the agent log
 #   ./start.sh foreground   — Run in the foreground (useful for debugging)
 #
-# Required environment:
+# Authentication (choose one):
 #   OPENAI_API_KEY   Your OpenAI API key
+#   codex login      ChatGPT subscription credentials; also set CODEX_MODEL
 #
 # The WORKSPACE_DIR defaults to the workspace/ subdirectory in this agent
 # folder. Override by setting the env variable before calling this script:

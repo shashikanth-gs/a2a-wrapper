@@ -32,18 +32,68 @@
  * | `trace.thought` | Agent reasoning / chain of thought | TextPart |
  * | `trace.delegation` | Sub-agent call (child task link) | DataPart |
  *
+ * ### A2A v1.0 note
+ *
+ * Every exported function below keeps the exact same public signature it had
+ * under A2A v0.3 (including the legacy lowercase-hyphen `state` strings and
+ * the `final` flag on {@link publishStatus}) so that no wrapper call site
+ * needs to change. All v1.0 wire-shape adaptation — the proto-oneof `Part`
+ * shape, `SCREAMING_SNAKE_CASE` `TaskState` enum, and the removal of `kind`
+ * discriminators and the `final` field from the wire objects — happens
+ * internally, via the SDK's generated `fromJSON` builders.
+ *
  * @packageDocumentation
  */
 
-import type {
-  Task,
-  TaskStatusUpdateEvent,
-  TaskArtifactUpdateEvent,
-  TaskState,
-} from "@a2a-js/sdk";
+import { Task, TaskStatusUpdateEvent, TaskArtifactUpdateEvent, TaskState } from "@a2a-js/sdk";
 import type { ExecutionEventBus } from "@a2a-js/sdk/server";
 import { v4 as uuidv4 } from "uuid";
 import { TRACE_EXTENSION_URI } from "../server/agent-card.js";
+
+/**
+ * `ExecutionEventBus.publish()` takes a `{kind, data}` envelope in A2A
+ * v1.0 (was the raw event object itself in v0.3) — the SDK's internal
+ * `ResultManager`/streaming logic switches on this envelope's `kind`, not
+ * on any field of the inner object. Every `publish*` helper below wraps
+ * its constructed event accordingly.
+ */
+function publishTaskEvent(bus: ExecutionEventBus, data: Task): void {
+  bus.publish({ kind: "task", data });
+}
+function publishStatusEvent(bus: ExecutionEventBus, data: TaskStatusUpdateEvent): void {
+  bus.publish({ kind: "statusUpdate", data });
+}
+function publishArtifactEvent(bus: ExecutionEventBus, data: TaskArtifactUpdateEvent): void {
+  bus.publish({ kind: "artifactUpdate", data });
+}
+
+/**
+ * Legacy (A2A v0.3) lowercase-hyphen task state strings, preserved as the
+ * public parameter type of {@link publishStatus} for source compatibility.
+ */
+export type LegacyTaskState =
+  | "submitted"
+  | "working"
+  | "input-required"
+  | "completed"
+  | "canceled"
+  | "failed"
+  | "rejected"
+  | "auth-required"
+  | "unknown";
+
+/** Maps legacy lowercase-hyphen state strings to the A2A v1.0 {@link TaskState} enum. */
+const STATE_MAP: Record<LegacyTaskState, TaskState> = {
+  submitted: TaskState.TASK_STATE_SUBMITTED,
+  working: TaskState.TASK_STATE_WORKING,
+  "input-required": TaskState.TASK_STATE_INPUT_REQUIRED,
+  completed: TaskState.TASK_STATE_COMPLETED,
+  canceled: TaskState.TASK_STATE_CANCELED,
+  failed: TaskState.TASK_STATE_FAILED,
+  rejected: TaskState.TASK_STATE_REJECTED,
+  "auth-required": TaskState.TASK_STATE_AUTH_REQUIRED,
+  unknown: TaskState.TASK_STATE_UNSPECIFIED,
+};
 
 // ─── Task Registration ───────────────────────────────────────────────────────
 
@@ -64,16 +114,15 @@ export function publishTask(
   taskId: string,
   contextId: string,
 ): void {
-  const event: Task = {
-    kind: "task",
+  const event = Task.fromJSON({
     id: taskId,
     contextId,
     status: {
-      state: "submitted",
+      state: STATE_MAP.submitted,
       timestamp: new Date().toISOString(),
     },
-  };
-  bus.publish(event as any);
+  });
+  publishTaskEvent(bus, event);
 }
 
 // ─── Status Updates ─────────────────────────────────────────────────────────
@@ -83,17 +132,20 @@ export function publishTask(
  *
  * Constructs a {@link TaskStatusUpdateEvent} containing the new task state,
  * an ISO 8601 timestamp, and — when `messageText` is provided — an agent
- * message with a unique `messageId` (UUID v4) and a single `TextPart`.
+ * message with a unique `messageId` (UUID v4) and a single text part.
  *
  * @param bus         - The {@link ExecutionEventBus} for the current task execution.
  * @param taskId      - The A2A task identifier.
  * @param contextId   - The A2A context identifier for the conversation.
- * @param state       - The new {@link TaskState} to transition to
+ * @param state       - The new task state to transition to
  *                      (e.g. `"working"`, `"completed"`, `"failed"`).
  * @param messageText - Optional human-readable message to attach as an agent
  *                      message. When omitted, no message is included.
  * @param final       - Whether this is the final status event for the task.
- *                      Defaults to `false`.
+ *                      Defaults to `false`. A2A v1.0 has no `final` field on
+ *                      the wire event (terminality is inferred from `state`
+ *                      alone) — this parameter is kept for source
+ *                      compatibility and simply isn't placed on the wire object.
  *
  * @example
  * ```ts
@@ -105,40 +157,38 @@ export function publishTask(
  * ```
  *
  * @see {@link TaskStatusUpdateEvent}
- * @see {@link TaskState}
  */
 export function publishStatus(
   bus: ExecutionEventBus,
   taskId: string,
   contextId: string,
-  state: TaskState,
+  state: LegacyTaskState,
   messageText?: string,
   final = false,
   metadata?: Record<string, unknown>,
 ): void {
-  const event: TaskStatusUpdateEvent = {
-    kind: "status-update",
+  void final; // no wire equivalent in A2A v1.0 — terminality is inferred from `state`
+  const event = TaskStatusUpdateEvent.fromJSON({
     taskId,
     contextId,
     status: {
-      state,
+      state: STATE_MAP[state],
       timestamp: new Date().toISOString(),
       ...(messageText
         ? {
             message: {
-              kind: "message",
               messageId: uuidv4(),
-              role: "agent",
-              parts: [{ kind: "text", text: messageText }],
+              role: "ROLE_AGENT",
+              parts: [{ text: messageText }],
               contextId,
+              taskId,
             },
           }
         : {}),
     },
-    final,
     ...(metadata ? { metadata } : {}),
-  };
-  bus.publish(event);
+  });
+  publishStatusEvent(bus, event);
 }
 
 // ─── Artifact Updates ───────────────────────────────────────────────────────
@@ -147,7 +197,7 @@ export function publishStatus(
  * Publish a single, complete artifact in buffered (non-appending) mode.
  *
  * Constructs a {@link TaskArtifactUpdateEvent} with `append: false` and
- * `lastChunk: true`, wrapping the provided text in a `TextPart`. The artifact
+ * `lastChunk: true`, wrapping the provided text in a text part. The artifact
  * receives a unique ID prefixed with `response-` followed by a UUID v4.
  *
  * This is the preferred method for publishing a complete response when
@@ -172,8 +222,7 @@ export function publishFinalArtifact(
   contextId: string,
   text: string,
 ): void {
-  const event: TaskArtifactUpdateEvent = {
-    kind: "artifact-update",
+  const event = TaskArtifactUpdateEvent.fromJSON({
     taskId,
     contextId,
     append: false,
@@ -181,10 +230,10 @@ export function publishFinalArtifact(
     artifact: {
       artifactId: `response-${uuidv4()}`,
       name: "response",
-      parts: [{ kind: "text", text }],
+      parts: [{ text }],
     },
-  };
-  bus.publish(event);
+  });
+  publishArtifactEvent(bus, event);
 }
 
 /**
@@ -222,8 +271,7 @@ export function publishStreamingChunk(
   artifactId: string,
   chunkText: string,
 ): void {
-  const event: TaskArtifactUpdateEvent = {
-    kind: "artifact-update",
+  const event = TaskArtifactUpdateEvent.fromJSON({
     taskId,
     contextId,
     append: true,
@@ -231,10 +279,10 @@ export function publishStreamingChunk(
     artifact: {
       artifactId,
       name: "response",
-      parts: [{ kind: "text", text: chunkText }],
+      parts: [{ text: chunkText }],
     },
-  };
-  bus.publish(event);
+  });
+  publishArtifactEvent(bus, event);
 }
 
 /**
@@ -267,8 +315,7 @@ export function publishLastChunkMarker(
   artifactId: string,
   fullText: string,
 ): void {
-  const event: TaskArtifactUpdateEvent = {
-    kind: "artifact-update",
+  const event = TaskArtifactUpdateEvent.fromJSON({
     taskId,
     contextId,
     append: true,
@@ -276,10 +323,10 @@ export function publishLastChunkMarker(
     artifact: {
       artifactId,
       name: "response",
-      parts: [{ kind: "text", text: fullText }],
+      parts: [{ text: fullText }],
     },
-  };
-  bus.publish(event);
+  });
+  publishArtifactEvent(bus, event);
 }
 
 // ─── Sideband Trace Artifacts ───────────────────────────────────────────────
@@ -290,13 +337,13 @@ export function publishLastChunkMarker(
 // artifacts are forwarded to the model.
 //
 // Key conventions:
-//   trace.mcp        — MCP tool call (request + response)         → DataPart
-//   trace.thought    — Agent reasoning / chain of thought          → TextPart
-//   trace.delegation — Sub-agent call (child task link)            → DataPart
+//   trace.mcp        — MCP tool call (request + response)         → data part
+//   trace.thought    — Agent reasoning / chain of thought          → text part
+//   trace.delegation — Sub-agent call (child task link)            → data part
 // ────────────────────────────────────────────────────────────────────────────
 
 /**
- * Publish a structured trace artifact using a `DataPart`.
+ * Publish a structured trace artifact using a data part.
  *
  * Trace artifacts are sideband observability data — the orchestrator stores
  * them as evidence but does **not** forward them to the LLM. Common trace
@@ -311,7 +358,7 @@ export function publishLastChunkMarker(
  * @param contextId - The A2A context identifier for the conversation.
  * @param traceKey  - The artifact `name` — should start with `"trace."`
  *                    (e.g. `"trace.mcp"`, `"trace.delegation"`).
- * @param data      - Structured JSON payload stored in a `DataPart`.
+ * @param data      - Structured JSON payload stored in a data part.
  *
  * @example
  * ```ts
@@ -332,8 +379,7 @@ export function publishTraceArtifact(
   traceKey: string,
   data: Record<string, unknown>,
 ): void {
-  const event: TaskArtifactUpdateEvent = {
-    kind: "artifact-update",
+  const event = TaskArtifactUpdateEvent.fromJSON({
     taskId,
     contextId,
     append: false,
@@ -348,18 +394,17 @@ export function publishTraceArtifact(
       },
       parts: [
         {
-          kind: "data",
           data,
           metadata: { mimeType: "application/json" },
-        } as any,
+        },
       ],
     },
-  };
-  bus.publish(event);
+  });
+  publishArtifactEvent(bus, event);
 }
 
 /**
- * Publish a text trace artifact using a `TextPart`.
+ * Publish a text trace artifact using a text part.
  *
  * Used for free-form observability text such as agent reasoning, chain of
  * thought, or internal decision logs. Like all trace artifacts, these are
@@ -392,8 +437,7 @@ export function publishThoughtArtifact(
   traceKey: string,
   text: string,
 ): void {
-  const event: TaskArtifactUpdateEvent = {
-    kind: "artifact-update",
+  const event = TaskArtifactUpdateEvent.fromJSON({
     taskId,
     contextId,
     append: false,
@@ -406,8 +450,8 @@ export function publishThoughtArtifact(
         traceType: traceKey,
         timestamp: new Date().toISOString(),
       },
-      parts: [{ kind: "text", text }],
+      parts: [{ text }],
     },
-  };
-  bus.publish(event);
+  });
+  publishArtifactEvent(bus, event);
 }

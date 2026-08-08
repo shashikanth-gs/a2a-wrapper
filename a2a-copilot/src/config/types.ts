@@ -6,6 +6,7 @@
  */
 
 import type {
+  AgentCardConfig,
   EventsConfig,
   MemoryConfig,
   SubAgentsConfig,
@@ -13,45 +14,7 @@ import type {
 
 // ─── Agent Card Config ──────────────────────────────────────────────────────
 
-/** A single skill exposed on the agent card. */
-export interface SkillConfig {
-  id: string;
-  name: string;
-  description: string;
-  tags?: string[];
-  examples?: string[];
-}
-
-/** Agent identity and capabilities advertised via the A2A Agent Card. */
-export interface AgentCardConfig {
-  /** Human-readable agent name */
-  name: string;
-  /** Agent description (shown to orchestrators / callers) */
-  description: string;
-  /** Protocol version (default: "0.3.0") */
-  protocolVersion?: string;
-  /** Agent software version (default: "1.0.0") */
-  version?: string;
-  /** Skills this agent exposes */
-  skills?: SkillConfig[];
-  /** Supported input modes (default: ["text"]) */
-  defaultInputModes?: string[];
-  /** Supported output modes (default: ["text"]) */
-  defaultOutputModes?: string[];
-  /** Enable streaming capability (default: true) */
-  streaming?: boolean;
-  /** Enable push notifications (default: false) */
-  pushNotifications?: boolean;
-  /**
-   * Enable state transition history capability advertisement.
-   * @deprecated This capability is not implemented in the A2A v1.0 spec and
-   * was removed. Kept for backward compatibility only — value is ignored.
-   * Default: false.
-   */
-  stateTransitionHistory?: boolean;
-  /** Agent provider info */
-  provider?: { organization: string; url?: string };
-}
+export type { AgentCardConfig, SkillConfig } from "@a2a-wrapper/core";
 
 // ─── Server Config ──────────────────────────────────────────────────────────
 

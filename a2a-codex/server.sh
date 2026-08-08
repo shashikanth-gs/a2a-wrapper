@@ -12,8 +12,9 @@
 #   CONFIG_FILE=agents/example/config.json ./server.sh start
 #   ./server.sh start --config agents/example/config.json
 #
-# Required environment:
-#   OPENAI_API_KEY   Your OpenAI API key
+# Environment:
+#   OPENAI_API_KEY   OpenAI API key, or authenticate first with `codex login`
+#   CODEX_MODEL      Recommended when using ChatGPT subscription credentials
 #   WORKSPACE_DIR    Absolute path to the Git repo Codex will operate on
 ###############################################################################
 
@@ -118,9 +119,10 @@ ensure_built() {
 
 validate_env() {
   if [[ -z "${OPENAI_API_KEY:-}" ]]; then
-    err "OPENAI_API_KEY is not set. Export it before starting the agent."
-    err "  export OPENAI_API_KEY=sk-..."
-    exit 1
+    warn "OPENAI_API_KEY is not set — relying on credentials from 'codex login'."
+    if [[ -z "${CODEX_MODEL:-}" ]]; then
+      warn "CODEX_MODEL is not set. Subscription users should select a supported model explicitly."
+    fi
   fi
   if [[ -z "${WORKSPACE_DIR:-}" ]]; then
     warn "WORKSPACE_DIR is not set — using config value or failing at startup."
@@ -246,7 +248,8 @@ Commands:
 
 Environment:
   CONFIG_FILE         Path to agent config.json (required)
-  OPENAI_API_KEY      OpenAI API key (required)
+  OPENAI_API_KEY      OpenAI API key (optional after `codex login`)
+  CODEX_MODEL         Model override (recommended with subscription auth)
   WORKSPACE_DIR       Git repository path for Codex to operate on
 
 Examples:

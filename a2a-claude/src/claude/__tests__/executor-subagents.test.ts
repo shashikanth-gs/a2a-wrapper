@@ -55,7 +55,16 @@ function makeCtx(taskId: string, contextId: string, text = "do the thing"): Requ
     taskId,
     contextId,
     task: undefined,
-    userMessage: { kind: "message", messageId: "m1", role: "user", parts: [{ kind: "text", text }] },
+    userMessage: {
+      messageId: "m1",
+      contextId,
+      taskId,
+      role: 1, // Role.ROLE_USER
+      parts: [{ content: { $case: "text", value: text }, metadata: undefined }],
+      metadata: undefined,
+      extensions: [],
+      referenceTaskIds: [],
+    },
   } as unknown as RequestContext;
 }
 

@@ -18,7 +18,7 @@ export {
   publishFinalArtifact,
   publishStreamingChunk,
   publishLastChunkMarker,
-} from "./opencode/event-publisher.js";
+} from "@a2a-wrapper/core";
 
 export { resolveConfig, loadConfigFile, loadEnvOverrides } from "./config/loader.js";
 export type { AgentConfig, AgentCardConfig, ServerConfig, OpenCodeConfig, SessionConfig, FeatureFlags, TimeoutConfig, LoggingConfig, SkillConfig, McpServerConfig, McpLocalServerConfig, McpRemoteServerConfig, McpOAuthServerConfig } from "./config/types.js";

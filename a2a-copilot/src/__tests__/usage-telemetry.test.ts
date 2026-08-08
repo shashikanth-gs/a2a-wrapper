@@ -10,16 +10,39 @@
  *
  * Strategy: mock the Copilot SDK + SessionManager so no real network calls
  * are made. The executor's event handling logic is exercised in isolation.
+ *
+ * A2A v1.0 note: `ExecutionEventBus.publish()` takes a `{kind, data}`
+ * envelope, and `TaskStatus.state` is the numeric `TaskState` enum, with no
+ * `final` field on the wire (terminality is inferred from `state` alone) —
+ * see `@a2a-wrapper/core`'s event-publisher.ts module doc for details.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { RequestContext, ExecutionEventBus } from "@a2a-js/sdk/server";
 import type { Message as A2AMessage } from "@a2a-js/sdk";
+import { TaskState } from "@a2a-js/sdk";
 
 import { CopilotExecutor } from "../copilot/executor.js";
 import type { CopilotSession } from "../copilot/session-manager.js";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+const TERMINAL_STATES = new Set<TaskState>([
+  TaskState.TASK_STATE_COMPLETED,
+  TaskState.TASK_STATE_FAILED,
+  TaskState.TASK_STATE_CANCELED,
+  TaskState.TASK_STATE_REJECTED,
+]);
+
+/** True if `e` is a `{kind: "statusUpdate", data}` envelope. */
+function isStatusUpdate(e: any): boolean {
+  return e?.kind === "statusUpdate";
+}
+
+/** True if `e` is a `{kind: "artifactUpdate", data}` envelope. */
+function isArtifactUpdate(e: any): boolean {
+  return e?.kind === "artifactUpdate";
+}
 
 /** Build the minimal Required<AgentConfig> shape the executor needs. */
 function makeConfig(overrides: {
@@ -55,15 +78,18 @@ function makeConfig(overrides: {
   };
 }
 
-/** Build a minimal A2A message. */
+/** Build a minimal A2A message (v1.0 proto-oneof Part shape). */
 function makeUserMessage(text: string): A2AMessage {
   return {
-    kind: "message",
     messageId: "msg-1",
-    role: "user",
-    parts: [{ kind: "text", text }],
     contextId: "ctx-test",
-  };
+    taskId: "",
+    role: 1, // Role.ROLE_USER
+    parts: [{ content: { $case: "text", value: text }, metadata: undefined }],
+    metadata: undefined,
+    extensions: [],
+    referenceTaskIds: [],
+  } as unknown as A2AMessage;
 }
 
 /** Build a minimal RequestContext. */
@@ -232,7 +258,7 @@ describe("10.1 streaming mode, trackUsage:true emits K trace.usage artifacts", (
     });
 
     const traceUsageArtifacts = bus.events.filter(
-      (e: any) => e.kind === "artifact-update" && e.artifact?.name === "trace.usage",
+      (e: any) => isArtifactUpdate(e) && e.data?.artifact?.name === "trace.usage",
     );
     expect(traceUsageArtifacts).toHaveLength(K);
   });
@@ -244,7 +270,7 @@ describe("10.1 streaming mode, trackUsage:true emits K trace.usage artifacts", (
     });
 
     const traceUsageArtifacts = bus.events.filter(
-      (e: any) => e.kind === "artifact-update" && e.artifact?.name === "trace.usage",
+      (e: any) => isArtifactUpdate(e) && e.data?.artifact?.name === "trace.usage",
     );
     expect(traceUsageArtifacts).toHaveLength(0);
   });
@@ -263,7 +289,7 @@ describe("10.2 streaming mode, trackUsage:false emits 0 trace.usage artifacts", 
     });
 
     const traceUsageArtifacts = bus.events.filter(
-      (e: any) => e.kind === "artifact-update" && e.artifact?.name === "trace.usage",
+      (e: any) => isArtifactUpdate(e) && e.data?.artifact?.name === "trace.usage",
     );
     expect(traceUsageArtifacts).toHaveLength(0);
   });
@@ -278,7 +304,7 @@ describe("10.2 streaming mode, trackUsage:false emits 0 trace.usage artifacts", 
     });
 
     const traceUsageArtifacts = bus.events.filter(
-      (e: any) => e.kind === "artifact-update" && e.artifact?.name === "trace.usage",
+      (e: any) => isArtifactUpdate(e) && e.data?.artifact?.name === "trace.usage",
     );
     expect(traceUsageArtifacts).toHaveLength(0);
   });
@@ -287,24 +313,20 @@ describe("10.2 streaming mode, trackUsage:false emits 0 trace.usage artifacts", 
 // ─── 10.3 — Final completed event has correct metadata["x-usage"] structure ──
 
 describe("10.3 final completed event has correct metadata[\"x-usage\"] structure", () => {
-  it("final completed event has final:true, state:completed, and a valid x-usage object", async () => {
+  it("final completed event has state:completed and a valid x-usage object", async () => {
     const { bus } = await runExecutor({
       config: makeConfig({ streaming: true }),
       usageEventPayloads: [makeUsageEventData({ inputTokens: 150, outputTokens: 75, cost: 0 })],
     });
 
     const finalCompleted = bus.events.find(
-      (e: any) =>
-        e.kind === "status-update" &&
-        e.final === true &&
-        e.status?.state === "completed",
+      (e: any) => isStatusUpdate(e) && e.data?.status?.state === TaskState.TASK_STATE_COMPLETED,
     );
 
     expect(finalCompleted).toBeDefined();
-    expect(finalCompleted.final).toBe(true);
-    expect(finalCompleted.status.state).toBe("completed");
+    expect(finalCompleted.data.status.state).toBe(TaskState.TASK_STATE_COMPLETED);
 
-    const xUsage = finalCompleted.metadata?.["x-usage"];
+    const xUsage = finalCompleted.data.metadata?.["x-usage"];
     expect(xUsage).toBeDefined();
 
     // Shape checks — UsageTelemetryData fields
@@ -338,10 +360,10 @@ describe("10.3 final completed event has correct metadata[\"x-usage\"] structure
     });
 
     const finalCompleted = bus.events.find(
-      (e: any) => e.kind === "status-update" && e.final === true && e.status?.state === "completed",
+      (e: any) => isStatusUpdate(e) && e.data?.status?.state === TaskState.TASK_STATE_COMPLETED,
     );
 
-    const xUsage = finalCompleted?.metadata?.["x-usage"];
+    const xUsage = finalCompleted?.data?.metadata?.["x-usage"];
     expect(xUsage).toBeDefined();
     expect(xUsage.llmCalls).toBe(2);
     expect(xUsage.inputTokens).toBe(300);
@@ -357,10 +379,10 @@ describe("10.3 final completed event has correct metadata[\"x-usage\"] structure
     });
 
     const finalCompleted = bus.events.find(
-      (e: any) => e.kind === "status-update" && e.final === true && e.status?.state === "completed",
+      (e: any) => isStatusUpdate(e) && e.data?.status?.state === TaskState.TASK_STATE_COMPLETED,
     );
 
-    const xUsage = finalCompleted?.metadata?.["x-usage"];
+    const xUsage = finalCompleted?.data?.metadata?.["x-usage"];
     expect(xUsage).toBeDefined();
     expect(xUsage.llmCalls).toBe(0);
     expect(xUsage.inputTokens).toBe(0);
@@ -405,7 +427,7 @@ describe("10.4 metadata[\"x-usage\"] absent on failed, canceled, rejected events
     await executor.execute(makeContext(), bus as any);
 
     const terminalEvents = bus.events.filter(
-      (e: any) => e.kind === "status-update" && e.final === true,
+      (e: any) => isStatusUpdate(e) && TERMINAL_STATES.has(e.data?.status?.state),
     );
 
     // There must be at least one final event (the failed one)
@@ -413,12 +435,12 @@ describe("10.4 metadata[\"x-usage\"] absent on failed, canceled, rejected events
 
     // The failed terminal event must not carry x-usage
     const failedEvents = terminalEvents.filter(
-      (e: any) => e.status?.state === "failed",
+      (e: any) => e.data?.status?.state === TaskState.TASK_STATE_FAILED,
     );
     expect(failedEvents.length).toBeGreaterThanOrEqual(1);
 
     for (const event of failedEvents) {
-      expect(event.metadata?.["x-usage"]).toBeUndefined();
+      expect(event.data?.metadata?.["x-usage"]).toBeUndefined();
     }
   });
 
@@ -436,12 +458,12 @@ describe("10.4 metadata[\"x-usage\"] absent on failed, canceled, rejected events
     await executor.cancelTask("task-cancel", bus as any);
 
     const canceledEvents = bus.events.filter(
-      (e: any) => e.kind === "status-update" && e.status?.state === "canceled",
+      (e: any) => isStatusUpdate(e) && e.data?.status?.state === TaskState.TASK_STATE_CANCELED,
     );
 
     expect(canceledEvents.length).toBeGreaterThanOrEqual(1);
     for (const event of canceledEvents) {
-      expect(event.metadata?.["x-usage"]).toBeUndefined();
+      expect(event.data?.metadata?.["x-usage"]).toBeUndefined();
     }
   });
 
@@ -452,13 +474,11 @@ describe("10.4 metadata[\"x-usage\"] absent on failed, canceled, rejected events
     });
 
     const nonCompletedStatusEvents = bus.events.filter(
-      (e: any) =>
-        e.kind === "status-update" &&
-        !(e.final === true && e.status?.state === "completed"),
+      (e: any) => isStatusUpdate(e) && e.data?.status?.state !== TaskState.TASK_STATE_COMPLETED,
     );
 
     for (const event of nonCompletedStatusEvents) {
-      expect(event.metadata?.["x-usage"]).toBeUndefined();
+      expect(event.data?.metadata?.["x-usage"]).toBeUndefined();
     }
   });
 });
@@ -477,17 +497,17 @@ describe("10.5 non-streaming mode emits same metadata[\"x-usage\"] shape as stre
     });
 
     const streamingFinal = streamingBusResult.bus.events.find(
-      (e: any) => e.kind === "status-update" && e.final === true && e.status?.state === "completed",
+      (e: any) => isStatusUpdate(e) && e.data?.status?.state === TaskState.TASK_STATE_COMPLETED,
     );
     const nonStreamingFinal = nonStreamingBusResult.bus.events.find(
-      (e: any) => e.kind === "status-update" && e.final === true && e.status?.state === "completed",
+      (e: any) => isStatusUpdate(e) && e.data?.status?.state === TaskState.TASK_STATE_COMPLETED,
     );
 
     expect(streamingFinal).toBeDefined();
     expect(nonStreamingFinal).toBeDefined();
 
-    const sUsage = streamingFinal?.metadata?.["x-usage"];
-    const nsUsage = nonStreamingFinal?.metadata?.["x-usage"];
+    const sUsage = streamingFinal?.data?.metadata?.["x-usage"];
+    const nsUsage = nonStreamingFinal?.data?.metadata?.["x-usage"];
 
     // Both must be present
     expect(sUsage).toBeDefined();
@@ -513,11 +533,11 @@ describe("10.5 non-streaming mode emits same metadata[\"x-usage\"] shape as stre
     });
 
     const finalCompleted = bus.events.find(
-      (e: any) => e.kind === "status-update" && e.final === true && e.status?.state === "completed",
+      (e: any) => isStatusUpdate(e) && e.data?.status?.state === TaskState.TASK_STATE_COMPLETED,
     );
 
     expect(finalCompleted).toBeDefined();
-    const xUsage = finalCompleted?.metadata?.["x-usage"];
+    const xUsage = finalCompleted?.data?.metadata?.["x-usage"];
     expect(xUsage).toBeDefined();
     expect(xUsage.llmCalls).toBe(0);
     expect(xUsage.cost).toBeNull();
@@ -533,10 +553,10 @@ describe("10.5 non-streaming mode emits same metadata[\"x-usage\"] shape as stre
     });
 
     const finalCompleted = bus.events.find(
-      (e: any) => e.kind === "status-update" && e.final === true && e.status?.state === "completed",
+      (e: any) => isStatusUpdate(e) && e.data?.status?.state === TaskState.TASK_STATE_COMPLETED,
     );
 
-    const xUsage = finalCompleted?.metadata?.["x-usage"];
+    const xUsage = finalCompleted?.data?.metadata?.["x-usage"];
     expect(xUsage).toBeDefined();
     expect(xUsage.llmCalls).toBe(2);
     expect(xUsage.inputTokens).toBe(125);
@@ -578,10 +598,10 @@ describe("10.5 non-streaming mode emits same metadata[\"x-usage\"] shape as stre
     session.emit("assistant.usage", makeUsageEventData({ inputTokens: 9999 }));
 
     const finalCompleted = bus.events.find(
-      (e: any) => e.kind === "status-update" && e.final === true && e.status?.state === "completed",
+      (e: any) => isStatusUpdate(e) && e.data?.status?.state === TaskState.TASK_STATE_COMPLETED,
     );
 
-    const xUsage = finalCompleted?.metadata?.["x-usage"];
+    const xUsage = finalCompleted?.data?.metadata?.["x-usage"];
     expect(xUsage).toBeDefined();
     // Only the event emitted during sendAndWait should be recorded
     expect(xUsage.inputTokens).toBe(42);

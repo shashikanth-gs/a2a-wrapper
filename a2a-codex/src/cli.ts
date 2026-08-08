@@ -52,9 +52,9 @@ Options:
   --version                    Show version
 
 Environment variables:
-  OPENAI_API_KEY               Required. Your OpenAI API key.
+  OPENAI_API_KEY               OpenAI API key (optional after \`codex login\`).
   WORKSPACE_DIR                Workspace directory (alternative to --workspace).
-  CODEX_MODEL                  Model override (alternative to --model).
+  CODEX_MODEL                  Model override; recommended with subscription auth.
   CODEX_CA_CERTIFICATE         Path to a corporate CA certificate PEM file.
   LOG_LEVEL                    Log level override.
   STREAM_ARTIFACTS             Set to "true" to enable streaming artifact chunks.

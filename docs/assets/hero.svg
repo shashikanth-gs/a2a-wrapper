@@ -1,0 +1,104 @@
+<svg width="1000" height="560" viewBox="0 0 1000 560" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="hero-title hero-desc" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+  <title id="hero-title">a2a-wrapper: one protocol, any coding agent</title>
+  <desc id="hero-desc">Diagram showing Claude Code, OpenAI Codex, GitHub Copilot, OpenCode, and Google Antigravity each wrapped into a standalone a2a-* server built on shared @a2a-wrapper/core, exposed to any A2A-speaking orchestrator over one standard protocol.</desc>
+
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#64748b"/>
+    </marker>
+    <linearGradient id="wrapperFill" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1e3a5f"/>
+      <stop offset="100%" stop-color="#173252"/>
+    </linearGradient>
+    <linearGradient id="orchFill" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0a3a32"/>
+      <stop offset="100%" stop-color="#052e2b"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Card background -->
+  <rect x="0" y="0" width="1000" height="560" rx="20" fill="#0f172a"/>
+
+  <!-- Title -->
+  <text x="500" y="45" text-anchor="middle" font-size="27" font-weight="700" fill="#f1f5f9">One Protocol. Any Coding Agent.</text>
+  <text x="500" y="72" text-anchor="middle" font-size="14" fill="#94a3b8">Turns Claude Code, Codex, Copilot, OpenCode &amp; Antigravity into standalone, interoperable A2A servers</text>
+
+  <!-- Core container band behind wrapper column -->
+  <rect x="288" y="92" width="214" height="360" rx="16" fill="none" stroke="#38bdf8" stroke-opacity="0.45" stroke-width="1.5" stroke-dasharray="5 5"/>
+
+  <!-- Row 1: Claude -->
+  <g>
+    <rect x="40" y="100" width="210" height="58" rx="10" fill="#1e293b" stroke="#334155"/>
+    <text x="145" y="124" text-anchor="middle" font-size="14" font-weight="600" fill="#e2e8f0">Claude Code</text>
+    <text x="145" y="142" text-anchor="middle" font-size="10.5" fill="#94a3b8">@anthropic-ai/claude-agent-sdk</text>
+    <line x1="252" y1="129" x2="298" y2="129" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <rect x="300" y="100" width="190" height="58" rx="10" fill="url(#wrapperFill)" stroke="#38bdf8"/>
+    <text x="395" y="134" text-anchor="middle" font-size="15" font-weight="700" fill="#e0f2fe">a2a-claude</text>
+  </g>
+
+  <!-- Row 2: Codex -->
+  <g>
+    <rect x="40" y="172" width="210" height="58" rx="10" fill="#1e293b" stroke="#334155"/>
+    <text x="145" y="196" text-anchor="middle" font-size="14" font-weight="600" fill="#e2e8f0">OpenAI Codex</text>
+    <text x="145" y="214" text-anchor="middle" font-size="10.5" fill="#94a3b8">@openai/codex-sdk</text>
+    <line x1="252" y1="201" x2="298" y2="201" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <rect x="300" y="172" width="190" height="58" rx="10" fill="url(#wrapperFill)" stroke="#38bdf8"/>
+    <text x="395" y="206" text-anchor="middle" font-size="15" font-weight="700" fill="#e0f2fe">a2a-codex</text>
+  </g>
+
+  <!-- Row 3: Copilot -->
+  <g>
+    <rect x="40" y="244" width="210" height="58" rx="10" fill="#1e293b" stroke="#334155"/>
+    <text x="145" y="268" text-anchor="middle" font-size="14" font-weight="600" fill="#e2e8f0">GitHub Copilot</text>
+    <text x="145" y="286" text-anchor="middle" font-size="10.5" fill="#94a3b8">@github/copilot-sdk (BYOK)</text>
+    <line x1="252" y1="273" x2="298" y2="273" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <rect x="300" y="244" width="190" height="58" rx="10" fill="url(#wrapperFill)" stroke="#38bdf8"/>
+    <text x="395" y="278" text-anchor="middle" font-size="15" font-weight="700" fill="#e0f2fe">a2a-copilot</text>
+  </g>
+
+  <!-- Row 4: OpenCode -->
+  <g>
+    <rect x="40" y="316" width="210" height="58" rx="10" fill="#1e293b" stroke="#334155"/>
+    <text x="145" y="340" text-anchor="middle" font-size="14" font-weight="600" fill="#e2e8f0">OpenCode</text>
+    <text x="145" y="358" text-anchor="middle" font-size="10.5" fill="#94a3b8">@opencode-ai/sdk (multi-provider)</text>
+    <line x1="252" y1="345" x2="298" y2="345" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <rect x="300" y="316" width="190" height="58" rx="10" fill="url(#wrapperFill)" stroke="#38bdf8"/>
+    <text x="395" y="350" text-anchor="middle" font-size="15" font-weight="700" fill="#e0f2fe">a2a-opencode</text>
+  </g>
+
+  <!-- Row 5: Antigravity -->
+  <g>
+    <rect x="40" y="388" width="210" height="58" rx="10" fill="#1e293b" stroke="#334155"/>
+    <text x="145" y="412" text-anchor="middle" font-size="14" font-weight="600" fill="#e2e8f0">Google Antigravity</text>
+    <text x="145" y="430" text-anchor="middle" font-size="10.5" fill="#94a3b8">Python SDK via managed bridge</text>
+    <line x1="252" y1="417" x2="298" y2="417" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <rect x="300" y="388" width="190" height="58" rx="10" fill="url(#wrapperFill)" stroke="#38bdf8"/>
+    <text x="395" y="422" text-anchor="middle" font-size="15" font-weight="700" fill="#e0f2fe">a2a-antigravity</text>
+  </g>
+
+  <!-- Core label -->
+  <text x="395" y="470" text-anchor="middle" font-size="11.5" fill="#7dd3fc">built on shared @a2a-wrapper/core — agent card · sessions · events · CLI</text>
+
+  <!-- Converging paths from each wrapper to the orchestrator -->
+  <path d="M490,129 C 620,129 620,273 758,273" fill="none" stroke="#64748b" stroke-width="1.3" stroke-opacity="0.7"/>
+  <path d="M490,201 C 610,201 610,273 758,273" fill="none" stroke="#64748b" stroke-width="1.3" stroke-opacity="0.7"/>
+  <path d="M490,273 C 620,273 620,273 758,273" fill="none" stroke="#64748b" stroke-width="1.3" stroke-opacity="0.7"/>
+  <path d="M490,345 C 610,345 610,273 758,273" fill="none" stroke="#64748b" stroke-width="1.3" stroke-opacity="0.7"/>
+  <path d="M490,417 C 620,417 620,273 758,273" fill="none" stroke="#64748b" stroke-width="1.3" stroke-opacity="0.7"/>
+
+  <!-- Protocol gate pill, layered over the convergence point -->
+  <rect x="540" y="255" width="195" height="36" rx="18" fill="#38bdf8"/>
+  <text x="637" y="278" text-anchor="middle" font-size="12.5" font-weight="700" fill="#0f172a">A2A Protocol · HTTP</text>
+
+  <!-- Orchestrator box -->
+  <rect x="758" y="208" width="204" height="130" rx="14" fill="url(#orchFill)" stroke="#34d399" stroke-width="1.5"/>
+  <text x="860" y="255" text-anchor="middle" font-size="17" font-weight="700" fill="#d1fae5">Any A2A</text>
+  <text x="860" y="277" text-anchor="middle" font-size="17" font-weight="700" fill="#d1fae5">Orchestrator</text>
+  <text x="860" y="304" text-anchor="middle" font-size="11" fill="#6ee7b7">agents · IDEs · A2A hubs</text>
+  <text x="860" y="322" text-anchor="middle" font-size="11" fill="#6ee7b7">no backend-specific code</text>
+
+  <!-- Bottom caption -->
+  <line x1="60" y1="484" x2="940" y2="484" stroke="#1e293b" stroke-width="1"/>
+  <text x="500" y="514" text-anchor="middle" font-size="13" fill="#94a3b8">MCP = vertical rail (how agents access tools)   ·   A2A = horizontal rail (how agents talk to each other)</text>
+  <text x="500" y="536" text-anchor="middle" font-size="12" fill="#64748b">Native A2A v1.0, backward compatible with v0.3.x — one server, either protocol version, negotiated automatically</text>
+</svg>

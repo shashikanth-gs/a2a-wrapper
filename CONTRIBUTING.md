@@ -4,7 +4,7 @@ Thanks for your interest in contributing! This is a monorepo containing multiple
 
 ## Prerequisites
 
-- [Node.js](https://nodejs.org/) >= 18.0.0
+- [Node.js](https://nodejs.org/) >= 20.0.0
 - npm (comes with Node.js)
 
 ## Repository Structure
@@ -180,7 +180,7 @@ The `a2a-*` workspace glob in the root `package.json` automatically picks up the
    ```bash
    npx changeset
    ```
-5. Open a pull request against `main`. CI will build and test across Node.js 18, 20, and 22.
+5. Open a pull request against `main`. CI will build and test across Node.js 20 and 22.
 6. Address review feedback and ensure CI passes.
 
 ## Code of Conduct

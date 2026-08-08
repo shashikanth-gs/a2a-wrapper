@@ -240,6 +240,14 @@ describe("Test 2d — a2a-opencode Runtime Preservation", () => {
     // Snapshot: these are the .ts files that exist in the unfixed code
     // Note: post-release additions like __tests__/sub-agents.test.ts (added
     // by the a2a-subagents spec) are appended in alphabetical order.
+    //
+    // A2A v1.0 migration note: `opencode/event-publisher.ts` and
+    // `server/agent-card.ts` were deliberately deleted — both were
+    // wrapper-local duplicates of protocol-construction logic that now
+    // lives solely in `@a2a-wrapper/core` (event-publisher.ts /
+    // agent-card.ts), consolidating server bootstrap onto core's
+    // `createA2AServer`. This is an intended removal, not the accidental
+    // regression this test otherwise guards against.
     expect(relativePaths).toEqual([
       "__tests__/config-schema.test.ts",
       "__tests__/schema-up-to-date.test.ts",
@@ -252,7 +260,6 @@ describe("Test 2d — a2a-opencode Runtime Preservation", () => {
       "config/types.ts",
       "index.ts",
       "opencode/client.ts",
-      "opencode/event-publisher.ts",
       "opencode/event-stream.ts",
       "opencode/executor.ts",
       "opencode/index.ts",
@@ -260,7 +267,6 @@ describe("Test 2d — a2a-opencode Runtime Preservation", () => {
       "opencode/permission-handler.ts",
       "opencode/session-manager.ts",
       "opencode/types.ts",
-      "server/agent-card.ts",
       "server/index.ts",
       "utils/deferred.ts",
       "utils/logger.ts",
@@ -281,6 +287,6 @@ describe("Test 2d — a2a-opencode Runtime Preservation", () => {
     }
 
     // Verify the number of files matches our expected count
-    expect(Object.keys(hashMap)).toHaveLength(23);
+    expect(Object.keys(hashMap)).toHaveLength(21);
   });
 });

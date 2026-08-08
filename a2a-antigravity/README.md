@@ -3,7 +3,7 @@
 [![npm version](https://img.shields.io/npm/v/a2a-antigravity.svg)](https://www.npmjs.com/package/a2a-antigravity)
 [![CI](https://github.com/shashikanth-gs/a2a-wrapper/actions/workflows/ci.yml/badge.svg)](https://github.com/shashikanth-gs/a2a-wrapper/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Node.js >=18](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](https://nodejs.org)
+[![Node.js >=20](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org)
 
 Google Antigravity is an agent runtime for Gemini-backed local and remote
 software engineering workflows. It exposes repository tools, policy controls,
@@ -26,7 +26,7 @@ code.
 > horizontal rail to Google Antigravity.
 
 **Features:**
-- Full [A2A v0.3.0](https://github.com/google-deepmind/a2a) protocol — Agent Card, JSON-RPC, REST, and SSE-compatible behavior through `@a2a-js/sdk`
+- Native [A2A v1.0](https://a2a-protocol.org) protocol, backward compatible with v0.3.x clients — Agent Card, JSON-RPC, REST, and SSE-compatible behavior through `@a2a-js/sdk`
 - Powered by the Google Antigravity Python SDK through a private Python bridge
 - Explicit `a2a-antigravity setup` command for managed Python virtualenv creation
 - Gemini API key and Vertex/ADC auth modes exposed through JSON/env/CLI config
@@ -103,9 +103,9 @@ The agent card is available at
 |---|---|
 | Google Antigravity Python SDK | **0.1.5** |
 | Gemini model | **gemini-3.1-flash-lite** |
-| `@a2a-js/sdk` | **0.3.13** |
-| A2A protocol | **0.3.0** |
-| Node.js | **>=18** |
+| `@a2a-js/sdk` | **1.0.0** |
+| A2A protocol | **v1.0 (native) + v0.3.x (backward compatible)** |
+| Node.js | **>=20** |
 | Python | **>=3.10** |
 
 Other versions may work, but the above combination is what has been tested
@@ -120,7 +120,7 @@ A2A Client (Orchestrator / Inspector / curl)
   ▼
 Express Server  (a2a-antigravity, Node/TypeScript)
   │  ├─ /.well-known/agent-card.json  → Agent Card
-  │  ├─ /a2a/jsonrpc                  → JSON-RPC  (message/send, message/sendSubscribe, …)
+  │  ├─ /a2a/jsonrpc                  → JSON-RPC  (message/send, message/stream, …)
   │  ├─ /a2a/rest                     → REST handler
   │  └─ /health                       → Health check
   │

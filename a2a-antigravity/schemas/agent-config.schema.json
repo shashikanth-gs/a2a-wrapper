@@ -4,35 +4,52 @@
   "definitions": {
     "AgentCardConfig": {
       "additionalProperties": false,
+      "description": "Agent identity and capabilities advertised via the A2A Agent Card.\n\nThis interface captures all fields that appear in the public-facing agent card served at `/.well-known/agent-card.json`. Orchestrators and callers use this metadata to discover the agent's name, supported modes, streaming capability, and available skills.",
       "properties": {
         "defaultInputModes": {
+          "default": [
+            "text"
+          ],
+          "description": "Supported input content modes.",
           "items": {
             "type": "string"
           },
           "type": "array"
         },
         "defaultOutputModes": {
+          "default": [
+            "text"
+          ],
+          "description": "Supported output content modes.",
           "items": {
             "type": "string"
           },
           "type": "array"
         },
         "description": {
+          "description": "Agent description shown to orchestrators and callers. Should concisely explain the agent's purpose and domain expertise.",
           "type": "string"
         },
         "name": {
+          "description": "Human-readable agent name. Displayed in orchestrator UIs and agent discovery listings.",
           "type": "string"
         },
         "protocolVersion": {
+          "default": "0.3.0",
+          "deprecated": "Superseded by A2A v1.0's per-interface `protocolVersion`\n(see `AgentCard.supportedInterfaces[]`, built by `buildAgentCard`).\nKept for backward compatibility with existing config files only —\nthe agent card builder no longer reads this value.",
+          "description": "A2A protocol version this agent supports.",
           "type": "string"
         },
         "provider": {
           "additionalProperties": false,
+          "description": "Agent provider information. Identifies the organization responsible for this agent deployment.",
           "properties": {
             "organization": {
+              "description": "Organization name.",
               "type": "string"
             },
             "url": {
+              "description": "Optional URL for the provider's website or documentation.",
               "type": "string"
             }
           },
@@ -42,22 +59,59 @@
           "type": "object"
         },
         "pushNotifications": {
+          "default": false,
+          "description": "Whether the agent supports push notifications.",
           "type": "boolean"
         },
+        "signing": {
+          "additionalProperties": false,
+          "description": "Optional Signed Agent Card support (A2A v1.0, JWS per RFC 7515). Off by default. When enabled, the private key is read from the environment variable named by `privateKeyJwkEnvVar`, whose value must be a JSON-serialized JWK — never store key material in the config file itself.",
+          "properties": {
+            "algorithm": {
+              "description": "JWS algorithm (e.g. `\"RS256\"`, `\"ES256\"`).",
+              "type": "string"
+            },
+            "enabled": {
+              "default": false,
+              "type": "boolean"
+            },
+            "keyId": {
+              "description": "Key ID (`kid`) to embed in the JWS protected header.",
+              "type": "string"
+            },
+            "privateKeyJwkEnvVar": {
+              "description": "Name of the env var holding the signing private key as a JSON JWK.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "privateKeyJwkEnvVar",
+            "keyId",
+            "algorithm"
+          ],
+          "type": "object"
+        },
         "skills": {
+          "description": "Skills this agent exposes to callers. Each skill represents a discrete capability advertised in the agent card.",
           "items": {
             "$ref": "#/definitions/SkillConfig"
           },
           "type": "array"
         },
         "stateTransitionHistory": {
-          "deprecated": "Kept for backward compatibility. Ignored by the agent card builder.",
+          "default": false,
+          "deprecated": "This capability is not implemented in the A2A v1.0 spec and\nwas removed. Kept for backward compatibility only — value is ignored.\nThe agent card builder always sets this to `false`.",
+          "description": "Enable state transition history capability advertisement.",
           "type": "boolean"
         },
         "streaming": {
+          "default": true,
+          "description": "Whether the agent supports streaming responses.",
           "type": "boolean"
         },
         "version": {
+          "default": "1.0.0",
+          "description": "Agent software version string.",
           "type": "string"
         }
       },
@@ -526,23 +580,29 @@
     },
     "SkillConfig": {
       "additionalProperties": false,
+      "description": "A single skill exposed on the agent card.\n\nSkills describe discrete capabilities the agent advertises to orchestrators and callers via the A2A Agent Card. Each skill has a unique identifier, human-readable metadata, and optional usage examples.",
       "properties": {
         "description": {
+          "description": "Detailed description of what this skill does. Helps orchestrators decide whether to route a task to this agent.",
           "type": "string"
         },
         "examples": {
+          "description": "Optional example prompts demonstrating how to invoke this skill. Included in the agent card only when non-empty.",
           "items": {
             "type": "string"
           },
           "type": "array"
         },
         "id": {
+          "description": "Unique identifier for this skill. Used as the stable key when referencing the skill programmatically.",
           "type": "string"
         },
         "name": {
+          "description": "Human-readable display name for the skill. Shown in agent card UIs and orchestrator dashboards.",
           "type": "string"
         },
         "tags": {
+          "description": "Optional tags for categorization and discovery. Orchestrators may use tags to filter or group agents by capability.",
           "items": {
             "type": "string"
           },

@@ -7,10 +7,27 @@ import { FakeClaudeClient, happyTurn } from "./fake-client.js";
 import { DEFAULTS } from "../../config/defaults.js";
 import type { AgentConfig } from "../../config/types.js";
 import type { RequestContext, ExecutionEventBus } from "@a2a-js/sdk/server";
+import { TaskState } from "@a2a-js/sdk";
 
 // ─── Test doubles ────────────────────────────────────────────────────────────
+//
+// A2A v1.0: ExecutionEventBus.publish() takes a {kind, data} envelope, and
+// TaskStatus.state is the numeric TaskState enum — see event-publisher.ts's
+// module doc in @a2a-wrapper/core for details.
 
-interface PublishedEvent { kind?: string; status?: { state?: string }; [k: string]: unknown }
+/** Reverse map from TaskState enum back to the legacy lowercase-hyphen string, for readable assertions. */
+const STATE_NAME: Partial<Record<TaskState, string>> = {
+  [TaskState.TASK_STATE_SUBMITTED]: "submitted",
+  [TaskState.TASK_STATE_WORKING]: "working",
+  [TaskState.TASK_STATE_INPUT_REQUIRED]: "input-required",
+  [TaskState.TASK_STATE_COMPLETED]: "completed",
+  [TaskState.TASK_STATE_CANCELED]: "canceled",
+  [TaskState.TASK_STATE_FAILED]: "failed",
+  [TaskState.TASK_STATE_REJECTED]: "rejected",
+  [TaskState.TASK_STATE_AUTH_REQUIRED]: "auth-required",
+};
+
+interface PublishedEvent { kind?: string; data?: { status?: { state?: TaskState }; [k: string]: unknown }; [k: string]: unknown }
 
 function makeBus() {
   const events: PublishedEvent[] = [];
@@ -28,14 +45,23 @@ function makeCtx(taskId: string, contextId: string, text = "do the thing"): Requ
     taskId,
     contextId,
     task: undefined,
-    userMessage: { kind: "message", messageId: "m1", role: "user", parts: [{ kind: "text", text }] },
+    userMessage: {
+      messageId: "m1",
+      contextId,
+      taskId,
+      role: 1, // Role.ROLE_USER
+      parts: [{ content: { $case: "text", value: text }, metadata: undefined }],
+      metadata: undefined,
+      extensions: [],
+      referenceTaskIds: [],
+    },
   } as unknown as RequestContext;
 }
 
 function states(events: PublishedEvent[]): string[] {
   return events
-    .filter((e) => e.kind === "status-update")
-    .map((e) => (e.status?.state ?? "") as string);
+    .filter((e) => e.kind === "statusUpdate")
+    .map((e) => STATE_NAME[e.data?.status?.state as TaskState] ?? "");
 }
 
 // ─── Setup ───────────────────────────────────────────────────────────────────
@@ -63,7 +89,7 @@ describe("ClaudeExecutor.execute", () => {
     await ex.execute(makeCtx("t1", "ctx-1"), bus);
 
     expect(states(events)).toEqual(["submitted", "working", "completed"]);
-    const artifact = events.find((e) => e.kind === "artifact-update") as Record<string, unknown>;
+    const artifact = events.find((e) => e.kind === "artifactUpdate") as Record<string, unknown>;
     expect(JSON.stringify(artifact)).toContain("hello world");
     expect(finished()).toBe(1);
     expect(client.calls[0].options.cwd).toBe(ws);

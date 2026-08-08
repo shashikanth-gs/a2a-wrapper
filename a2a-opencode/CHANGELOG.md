@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Native A2A v1.0 protocol support, fully backward compatible with v0.3.x clients — negotiated automatically per request via the `A2A-Version` header, no config changes needed. Upgraded to `@a2a-js/sdk@^1.0.0`.
+
+### Changed
+
+- `createA2AServer()` is now a thin delegate to `@a2a-wrapper/core`'s server factory instead of duplicating Express/SDK wiring. The local `opencode/event-publisher.ts` (a duplicate of core's protocol-event construction) was removed — `publishStatus`/`publishFinalArtifact`/etc. are now imported directly from `@a2a-wrapper/core`. No change to the public `createA2AServer(config)` API.
+
 ## 1.6.1
 
 ### Patch Changes
@@ -95,7 +105,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - A2A v0.3.0 protocol implementation over Express HTTP server
 - Agent Card served at `/.well-known/agent-card.json`
-- JSON-RPC endpoint at `/a2a/jsonrpc` — `tasks/send`, `tasks/sendSubscribe`, `tasks/get`, `tasks/cancel`
+- JSON-RPC endpoint at `/a2a/jsonrpc` — `message/send`, `message/stream`, `tasks/get`, `tasks/cancel`
 - REST endpoint at `/a2a/rest`
 - OpenCode backend (`@opencode-ai/sdk`) for LLM inference via `opencode serve`
 - SSE event streaming with automatic reconnect and polling fallback

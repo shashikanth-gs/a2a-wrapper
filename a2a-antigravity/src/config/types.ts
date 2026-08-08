@@ -8,6 +8,7 @@
  */
 
 import type {
+  AgentCardConfig,
   EventsConfig,
   MemoryConfig,
   SubAgentsConfig,
@@ -15,28 +16,7 @@ import type {
 
 // ─── Agent Card Config ──────────────────────────────────────────────────────
 
-export interface SkillConfig {
-  id: string;
-  name: string;
-  description: string;
-  tags?: string[];
-  examples?: string[];
-}
-
-export interface AgentCardConfig {
-  name: string;
-  description: string;
-  protocolVersion?: string;
-  version?: string;
-  skills?: SkillConfig[];
-  defaultInputModes?: string[];
-  defaultOutputModes?: string[];
-  streaming?: boolean;
-  pushNotifications?: boolean;
-  /** @deprecated Kept for backward compatibility. Ignored by the agent card builder. */
-  stateTransitionHistory?: boolean;
-  provider?: { organization: string; url?: string };
-}
+export type { AgentCardConfig, SkillConfig } from "@a2a-wrapper/core";
 
 // ─── Server Config ──────────────────────────────────────────────────────────
 

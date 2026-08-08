@@ -12,7 +12,7 @@ OpenAI Codex is a production-grade software engineering agent. It handles reposi
 > **The pattern:** MCP is the vertical rail — how agents access tools. A2A is the horizontal rail — how agents talk to each other. This library adds the horizontal rail to OpenAI Codex.
 
 **Features:**
-- Full [A2A v0.3.0](https://github.com/google-deepmind/a2a) protocol — Agent Card, JSON-RPC, REST, streaming
+- Native [A2A v1.0](https://a2a-protocol.org) protocol, backward compatible with v0.3.x clients — Agent Card, JSON-RPC, REST, streaming
 - Powered by `@openai/codex-sdk` — `o4-mini`, `o3`, `gpt-4o`, and any Codex-compatible model
 - Repository sandboxing — `read-only`, `workspace-write`, `danger-full-access` modes
 - MCP tool support — stdio and Streamable HTTP transports
@@ -57,7 +57,7 @@ A2A Client (Orchestrator / Inspector / curl)
   ▼
 Express Server  (a2a-codex)
   │  ├─ /.well-known/agent-card.json  → Agent Card
-  │  ├─ /a2a/jsonrpc                  → JSON-RPC  (message/send, message/sendSubscribe, …)
+  │  ├─ /a2a/jsonrpc                  → JSON-RPC  (message/send, message/stream, …)
   │  ├─ /a2a/rest                     → REST handler
   │  ├─ /context                      → Read context.md
   │  ├─ /context/build                → Trigger context discovery
@@ -74,15 +74,17 @@ CodexExecutor
 
 | Variable | Required | Description |
 |---|---|---|
-| `OPENAI_API_KEY` | Yes | Your OpenAI API key |
+| `OPENAI_API_KEY` | No* | OpenAI API key; omit after authenticating with `codex login` |
 | `WORKSPACE_DIR` | Yes* | Absolute path to the Git repository Codex will operate in |
-| `CODEX_MODEL` | No | Override model (e.g. `o4-mini`, `o3`, `gpt-4o`) |
+| `CODEX_MODEL` | No** | Override model; required in practice when using ChatGPT subscription auth |
 | `LOG_LEVEL` | No | `debug` \| `info` \| `warn` \| `error` (default: `info`) |
 | `PORT` | No | A2A server port (default: from config, fallback `3020`) |
 | `ADVERTISE_HOST` | No | Hostname embedded in agent card URLs (default: `localhost`) |
 | `STREAM_ARTIFACTS` | No | Set `"true"` to stream artifact chunks (default: buffered) |
 
-*Can also be set via `codex.workingDirectory` in `config.json` or the `--workspace` CLI flag.
+\* Authentication requires either `OPENAI_API_KEY` or credentials from `codex login`. `WORKSPACE_DIR` can instead be set via `codex.workingDirectory` or `--workspace`.
+
+\** Subscription users should select a supported model explicitly so the SDK does not inherit an incompatible desktop-app default.
 
 ## Configuration Reference
 
@@ -104,6 +106,12 @@ All settings live in a single JSON config file. Priority order: **built-in defau
 ```
 
 ### Full config reference
+
+> `agentCard.protocolVersion` below is optional and kept only for backward
+> compatibility with older config files — the server negotiates A2A v1.0 vs.
+> v0.3.x automatically per request and no longer reads this field. See
+> [Protocol Versions](../packages/core/README.md#protocol-versions) for how
+> negotiation works.
 
 ```json
 {
@@ -288,7 +296,7 @@ Set `features.streamArtifactChunks: true` (or `STREAM_ARTIFACTS=true`) to stream
 
 ## Cancellation
 
-Call `tasks/cancel` (JSON-RPC) or `DELETE /a2a/rest/tasks/{taskId}` to cancel an in-flight task. The executor calls `abortController.abort()` on the Codex `runStreamed` call. Cancellation is idempotent — multiple calls for the same task ID are safe.
+Call `CancelTask` (v1 JSON-RPC) or `tasks/cancel` (v0.3 JSON-RPC) to cancel an in-flight task. For HTTP+JSON, use `POST /a2a/rest/tasks/{taskId}:cancel` with v1 or `POST /a2a/rest/v1/tasks/{taskId}:cancel` with v0.3. The executor calls `abortController.abort()` on the Codex `runStreamed` call. Cancellation is idempotent — multiple calls for the same task ID are safe.
 
 ## Context API
 

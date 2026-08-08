@@ -3,7 +3,7 @@
 [![npm version](https://img.shields.io/npm/v/a2a-opencode.svg)](https://www.npmjs.com/package/a2a-opencode)
 [![CI](https://github.com/shashikanth-gs/a2a-wrapper/actions/workflows/ci.yml/badge.svg)](https://github.com/shashikanth-gs/a2a-wrapper/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Node.js >=18](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](https://nodejs.org)
+[![Node.js >=20](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org)
 
 [OpenCode](https://opencode.ai) is a production-grade agent runtime that supports Anthropic, OpenAI, GitHub Copilot, and more. It already handles multi-step planning, MCP tool execution, and streaming across any provider you configure.
 
@@ -12,7 +12,7 @@
 > **The pattern:** MCP is the vertical rail — how agents access tools. A2A is the horizontal rail — how agents talk to each other. This library adds the horizontal rail to OpenCode, making it vendor-neutral by default.
 
 **Features:**
-- Full [A2A v0.3.0](https://github.com/google-deepmind/a2a) protocol — Agent Card, JSON-RPC, REST, SSE streaming
+- Native [A2A v1.0](https://a2a-protocol.org) protocol, backward compatible with v0.3.x clients — Agent Card, JSON-RPC, REST, SSE streaming
 - Powered by OpenCode with support for any LLM provider (Anthropic, OpenAI, GitHub Copilot, and more)
 - MCP tool server support — HTTP, SSE, stdio, and OAuth transports
 - Multi-turn conversations via persistent OpenCode sessions
@@ -22,6 +22,52 @@
 - Docker-ready with corporate proxy CA support
 - TypeScript source with full type declarations
 - Postman collection included for API exploration
+
+<details>
+<summary><strong>Table of Contents</strong></summary>
+
+- [Why not just integrate the LLM provider API directly?](#why-not-just-integrate-the-llm-provider-api-directly)
+- [Works with agent frameworks](#works-with-agent-frameworks)
+- [Quick Start](#quick-start)
+- [Tested With](#tested-with)
+- [Architecture](#architecture)
+- [Installation](#installation)
+- [Usage](#usage)
+  - [CLI](#cli)
+  - [Programmatic API](#programmatic-api)
+- [Configuration](#configuration)
+  - [JSON Config File](#json-config-file)
+  - [Environment Variables](#environment-variables)
+- [Bundled Agent Examples](#bundled-agent-examples)
+  - [Example Agent (minimal)](#example-agent-minimal)
+  - [Creating Your Own Agent](#creating-your-own-agent)
+- [MCP Tool Servers](#mcp-tool-servers)
+  - [Local server (stdio child process)](#local-server-stdio-child-process)
+  - [Remote server (HTTP / SSE)](#remote-server-http--sse)
+  - [Authenticated remote servers (custom headers)](#authenticated-remote-servers-custom-headers)
+  - [Remote server with OAuth](#remote-server-with-oauth)
+- [Memory Persistence](#memory-persistence)
+  - [Config](#config)
+  - [Instructions](#instructions)
+  - [Skills](#skills)
+  - [Where files are written](#where-files-are-written)
+  - [`agentCard.skills` vs `memory.skills`](#agentcardskills-vs-memoryskills)
+- [Calling Other A2A Agents](#calling-other-a2a-agents)
+- [Event Transport (Observability)](#event-transport-observability)
+  - [Default (A2A sideband)](#default-a2a-sideband)
+  - [HTTP collector](#http-collector)
+  - [Custom transport (programmatic)](#custom-transport-programmatic)
+- [Docker](#docker)
+  - [Corporate Proxy (Netskope / Zscaler)](#corporate-proxy-netskope--zscaler)
+- [A2A Protocol](#a2a-protocol)
+  - [Protocol Versions](#protocol-versions)
+- [API Reference (Postman)](#api-reference-postman)
+- [Context Building](#context-building)
+- [Related Packages](#related-packages)
+- [Contributing](#contributing)
+- [License](#license)
+
+</details>
 
 ## Why not just integrate the LLM provider API directly?
 
@@ -74,9 +120,9 @@ npx a2a-opencode --config agents/example/config.json
 |---|---|
 | OpenCode server | **v1.3.0** |
 | `@opencode-ai/sdk` | **1.3.0** |
-| `@a2a-js/sdk` | **0.3.13** |
-| A2A protocol | **v0.3.0** |
-| Node.js | **>=18** |
+| `@a2a-js/sdk` | **1.0.0** |
+| A2A protocol | **v1.0 (native) + v0.3.x (backward compatible)** |
+| Node.js | **>=20** |
 
 > Other versions may work, but the above combination is what has been tested end-to-end.
 
@@ -89,7 +135,7 @@ A2A Client (Orchestrator / Inspector / curl)
   ▼
 Express Server  (a2a-opencode)
   │  ├─ /.well-known/agent-card.json  → Agent Card
-  │  ├─ /a2a/jsonrpc                  → JSON-RPC  (message/send, message/sendSubscribe, …)
+  │  ├─ /a2a/jsonrpc                  → JSON-RPC  (message/send, message/stream, …)
   │  ├─ /a2a/rest                     → REST handler
   │  ├─ /context                      → Read context.md
   │  ├─ /context/build                → Trigger context discovery
@@ -180,6 +226,12 @@ Config is resolved in priority order: **defaults ← JSON file ← env vars ← 
 ### JSON Config File
 
 Create a `config.json` (see `agents/example/config.json` for the fully annotated template):
+
+> `agentCard.protocolVersion` below is optional and kept only for backward
+> compatibility with older config files — the server negotiates A2A v1.0 vs.
+> v0.3.x automatically per request and no longer reads this field. See
+> [Protocol Versions](../packages/core/README.md#protocol-versions) for how
+> negotiation works.
 
 ```json
 {
@@ -497,18 +549,21 @@ docker run -p 3000:3000 \
 
 ## A2A Protocol
 
-Implements **A2A v0.3.0**:
+### Protocol Versions
+
+Speaks **A2A v1.0 natively** and is **fully backward compatible with v0.3.x clients** — no configuration needed. Send `A2A-Version: 1.0` to discover the native v1.0 Agent Card. Send `A2A-Version: 0.3` or `0.3.0`—or omit the header for older clients—to receive the legacy card. JSON-RPC/REST handlers additionally auto-detect native and legacy method shapes. Both versions use the same endpoints below; see [Protocol Versions](../packages/core/README.md#protocol-versions) for the complete negotiation rules and optional Signed Agent Card support.
 
 | Endpoint | Description |
 |---|---|
 | `GET /.well-known/agent-card.json` | Agent identity and capabilities |
-| `POST /a2a/jsonrpc` | JSON-RPC: `message/send`, `message/sendSubscribe` |
-| `POST /a2a/rest` | REST equivalent |
+| `POST /a2a/jsonrpc` | JSON-RPC: `message/send`, `message/stream` (v0.3) / `SendMessage`, `SendStreamingMessage` (v1.0) |
+| `POST /a2a/rest/message:send` | v1 HTTP+JSON message send |
+| `POST /a2a/rest/v1/message:send` | v0.3 HTTP+JSON message send |
 | `GET /health` | Health check |
 | `POST /context/build` | Trigger context discovery |
 | `GET /context` | Read the built context file |
 
-Example JSON-RPC request (`message/send`):
+Example JSON-RPC request (`message/send`, v0.3-shaped — still accepted and automatically translated):
 
 ```json
 {

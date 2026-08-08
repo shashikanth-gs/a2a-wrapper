@@ -3,7 +3,7 @@
 [![npm version](https://img.shields.io/npm/v/a2a-claude.svg)](https://www.npmjs.com/package/a2a-claude)
 [![CI](https://github.com/shashikanth-gs/a2a-wrapper/actions/workflows/ci.yml/badge.svg)](https://github.com/shashikanth-gs/a2a-wrapper/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Node.js >=18](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](https://nodejs.org)
+[![Node.js >=20](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org)
 
 Claude Code is Anthropic's production-grade software engineering agent. It handles repository navigation, multi-step planning, shell commands, file editing, and permission management — all the plumbing you'd spend months building from scratch.
 
@@ -12,7 +12,7 @@ Claude Code is Anthropic's production-grade software engineering agent. It handl
 > **The pattern:** MCP is the vertical rail — how agents access tools. A2A is the horizontal rail — how agents talk to each other. This library adds the horizontal rail to Claude Code.
 
 **Features:**
-- Full [A2A v0.3.0](https://github.com/google-deepmind/a2a) protocol — Agent Card, JSON-RPC, REST, streaming
+- Native [A2A v1.0](https://a2a-protocol.org) protocol, backward compatible with v0.3.x clients — Agent Card, JSON-RPC, REST, streaming
 - Powered by `@anthropic-ai/claude-agent-sdk` (pinned `0.3.202`) — `claude-sonnet-5`, `claude-opus-4-8`, and any SDK-compatible model
 - Permission-mode guardrails — headless-safe modes only, with an explicit opt-in for unrestricted access
 - MCP tool support — stdio and Streamable HTTP transports
@@ -135,6 +135,12 @@ Two more things worth knowing:
 - Both values are validated at startup. An unsupported effort level or a malformed `thinking` object fails `initialize()` with a message naming the allowed values.
 
 ### Full config reference
+
+> `agentCard.protocolVersion` below is optional and kept only for backward
+> compatibility with older config files — the server negotiates A2A v1.0 vs.
+> v0.3.x automatically per request and no longer reads this field. See
+> [Protocol Versions](../packages/core/README.md#protocol-versions) for how
+> negotiation works.
 
 ```json
 {

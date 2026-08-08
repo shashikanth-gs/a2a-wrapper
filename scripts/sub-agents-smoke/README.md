@@ -40,5 +40,5 @@ each. The harness exits 0 on success.
 prevented the CLI from running when launched via `npx` on macOS
 (`/tmp -> /private/tmp` symlink resolution caused
 `import.meta.url === \`file://${process.argv[1]}\`` to mismatch).
-This is fixed in `0.2.0` (the version pinned in
-[`packages/core/src/sub-agents/version.ts`](../../packages/core/src/sub-agents/version.ts)).
+This is fixed in `0.2.0+`; the repository currently pins `0.2.1` in
+[`packages/core/src/sub-agents/version.ts`](../../packages/core/src/sub-agents/version.ts).
