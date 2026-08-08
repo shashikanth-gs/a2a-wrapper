@@ -29,7 +29,7 @@
 # ---------------------------------------------------------------------------
 # Stage 1 — Builder: compile TypeScript to JavaScript
 # ---------------------------------------------------------------------------
-FROM node:18-slim AS builder
+FROM node:20-slim AS builder
 
 WORKDIR /app
 
@@ -45,7 +45,7 @@ RUN npm run build
 # ---------------------------------------------------------------------------
 # Stage 2 — Runtime: minimal production image
 # ---------------------------------------------------------------------------
-FROM node:18-slim
+FROM node:20-slim
 
 LABEL org.opencontainers.image.title="A2A GitHub Copilot Wrapper" \
       org.opencontainers.image.description="A2A protocol wrapper for the GitHub Copilot SDK" \
