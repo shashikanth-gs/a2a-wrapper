@@ -1,4 +1,18 @@
-name: Release
+name: Publish
+
+# Both the canary snapshot publish and the gated stable publish live in this
+# one file on purpose: npm Trusted Publishing allows exactly one trusted
+# publisher configuration per package, bound to a single workflow filename.
+# Splitting canary/release into separate files (as an earlier version of
+# this pipeline did) would require registering two trusted publishers per
+# package, which npm doesn't support. Everything that can call `npm publish`
+# for these packages has to live here, with job-level `if:`/`environment:`
+# doing the branching instead of separate files.
+#
+# When registering the trusted publisher on npmjs.com for each package,
+# leave the "environment" field blank — the `canary` job runs without a
+# GitHub Environment, while `release` runs under the `release` Environment,
+# and a trusted publisher scoped to one environment would reject the other.
 
 on:
   workflow_run:
@@ -7,10 +21,60 @@ on:
     branches: [main]
 
 concurrency:
-  group: release
+  group: publish-${{ github.event.workflow_run.head_sha }}
   cancel-in-progress: false
 
+env:
+  TURBO_TELEMETRY_DISABLED: 1
+
 jobs:
+  canary:
+    name: Publish canary
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Upgrade npm for trusted publishing
+        run: npm install -g npm@11
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build all packages
+        run: npx turbo run build
+
+      - name: Version packages as snapshot
+        # `--snapshot canary` lets changesets own the whole prerelease suffix
+        # (base version + "canary" + its own run-time timestamp) rather than
+        # us trying to compose it ourselves — changesets appends its own
+        # timestamp after whatever tag it's given regardless, so a
+        # hand-rolled suffix only doubles up. This mutates package.json/
+        # CHANGELOGs and consumes .changeset/*.md in the runner's working
+        # copy only. Nothing here is ever committed or pushed back to main,
+        # so the pending changesets stay intact for the real Version
+        # Packages PR (see version.yml).
+        run: npx changeset version --snapshot canary
+
+      - name: Publish canary packages
+        # --no-git-tag: snapshot versions are throwaway, no reason to cut a
+        # git tag for them (and nothing here ever gets pushed regardless).
+        run: npx changeset publish --tag canary --no-git-tag
+
   check:
     name: Check release readiness
     if: github.event.workflow_run.conclusion == 'success'

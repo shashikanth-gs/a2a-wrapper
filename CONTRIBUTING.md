@@ -128,12 +128,14 @@ This creates a markdown file in `.changeset/` — commit it with your PR.
 Once a PR is merged to `main`, three things happen automatically:
 
 1. **CI** re-validates `main` (build, typecheck, test).
-2. **Canary publish** — once CI succeeds, every affected package is published to npm under the `canary` dist-tag with a version like `1.8.0-canary.20260812063045` (next semver + UTC timestamp of the merge commit). Install one with `npm install <package>@canary`. This never touches `main` — the snapshot version bump happens only in the CI runner and is discarded, so pending changesets are left intact.
+2. **Canary publish** — once CI succeeds, every affected package is published to npm under the `canary` dist-tag with a snapshot version like `1.8.0-canary-20260812070958`. Install one with `npm install <package>@canary`. This never touches `main` — the snapshot version bump happens only in the CI runner and is discarded, so pending changesets are left intact.
 3. **Version Packages PR** — the Changesets bot opens/updates a PR on `main` that batches all pending changesets into real version bumps and CHANGELOG entries.
 
 When a maintainer merges the Version Packages PR, the release workflow checks whether a release is ready (no pending changesets and at least one package version not yet published) and, if so, waits for **manual approval** via the `release` GitHub Environment before running `npx changeset publish` under the `latest` dist-tag and creating GitHub releases.
 
 So `npm install <package>` always gets the latest approved stable release, while `npm install <package>@canary` gets the most recent merge to `main`.
+
+Both the canary and stable-release publish steps live in the single `.github/workflows/publish.yml` file, as separate jobs. This is required, not stylistic: npm Trusted Publishing allows exactly one trusted publisher per package, bound to one workflow filename, so every path that can call `npm publish` for these packages has to originate from that one file. `version.yml` (the Version Packages PR bot) is a separate file because it never publishes to npm.
 
 ## Adding a New Wrapper
 
