@@ -1,16 +1,16 @@
 name: Downloads Badge
 
-# Computes all-time npm download totals for every published package and
-# commits the result as shields.io "endpoint badge" JSON to a dedicated
-# `badges` branch (not `main` — this keeps generated data out of main's
-# history and off to the side of any branch protection rule on `main`).
-# The README points a shields.io endpoint badge at the raw file on that
-# branch.
+# Computes all-time npm download totals for every published package
+# (scripts/downloads-badge.mjs) and commits the result as shields.io
+# endpoint-badge JSON to a dedicated `badges` branch (not `main` — this
+# keeps generated data out of main's history and off to the side of any
+# branch protection rule on `main`). The README points a shields.io
+# endpoint badge at the raw file on that branch.
 
 on:
   schedule:
     - cron: "0 6 * * *" # daily, 06:00 UTC
-  workflow_dispatch: {}
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -32,54 +32,7 @@ jobs:
           node-version: 24.x
 
       - name: Compute total downloads
-        run: |
-          mkdir -p "$BADGES_DIR"
-          node -e '
-          const fs = require("fs");
-          const pkgs = ["@a2a-wrapper/core","a2a-claude","a2a-codex","a2a-copilot","a2a-opencode","a2a-antigravity"];
-          const fmt = d => d.toISOString().slice(0, 10);
-
-          // npm caps any single date range at ~18 months, so chunk from
-          // when npm download-stats data begins (2015-01-10) to today.
-          async function totalDownloads(pkg) {
-            const end = new Date();
-            let cursor = new Date("2015-01-10");
-            let total = 0;
-            while (cursor < end) {
-              const chunkEnd = new Date(Math.min(cursor.getTime() + 540 * 86400000, end.getTime()));
-              const url = `https://api.npmjs.org/downloads/point/${fmt(cursor)}:${fmt(chunkEnd)}/${encodeURIComponent(pkg)}`;
-              const res = await fetch(url);
-              const data = await res.json();
-              total += data.downloads ?? 0;
-              cursor = new Date(chunkEnd.getTime() + 86400000);
-            }
-            return total;
-          }
-
-          (async () => {
-            const perPackage = {};
-            let grand = 0;
-            for (const pkg of pkgs) {
-              const total = await totalDownloads(pkg);
-              perPackage[pkg] = total;
-              grand += total;
-              console.log(`${pkg}: ${total}`);
-            }
-            console.log(`TOTAL: ${grand}`);
-
-            const badge = {
-              schemaVersion: 1,
-              label: "downloads",
-              message: `${grand.toLocaleString()} total`,
-              color: "blue",
-            };
-            fs.writeFileSync(`${process.env.BADGES_DIR}/downloads.json`, JSON.stringify(badge, null, 2) + "\n");
-            fs.writeFileSync(
-              `${process.env.BADGES_DIR}/downloads-detail.json`,
-              JSON.stringify({ perPackage, grand, updatedAt: new Date().toISOString() }, null, 2) + "\n",
-            );
-          })();
-          '
+        run: node scripts/downloads-badge.mjs
 
       - name: Commit and push to badges branch
         run: |
