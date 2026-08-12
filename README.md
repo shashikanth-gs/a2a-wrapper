@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/shashikanth-gs/a2a-wrapper/actions/workflows/ci.yml/badge.svg)](https://github.com/shashikanth-gs/a2a-wrapper/actions/workflows/ci.yml)
 [![Publish](https://github.com/shashikanth-gs/a2a-wrapper/actions/workflows/publish.yml/badge.svg)](https://github.com/shashikanth-gs/a2a-wrapper/actions/workflows/publish.yml)
+[![Total Downloads](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/shashikanth-gs/a2a-wrapper/badges/.github/badges/downloads.json)](https://github.com/shashikanth-gs/a2a-wrapper/blob/badges/.github/badges/downloads-detail.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js >=20](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org)
 
