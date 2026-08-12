@@ -44,19 +44,17 @@ jobs:
       - name: Build all packages
         run: npx turbo run build
 
-      - name: Compute canary tag
-        id: tag
-        run: |
-          TAG="canary.$(TZ=UTC git show -s --format=%cd --date=format:%Y%m%d%H%M%S HEAD)"
-          echo "Canary tag: $TAG"
-          echo "value=$TAG" >> "$GITHUB_OUTPUT"
-
       - name: Version packages as snapshot
-        # This mutates package.json/CHANGELOGs and consumes .changeset/*.md
-        # in the runner's working copy only. Nothing here is ever committed
-        # or pushed back to main, so the pending changesets stay intact for
-        # the real Version Packages PR (see version.yml).
-        run: npx changeset version --snapshot ${{ steps.tag.outputs.value }}
+        # `--snapshot canary` lets changesets own the whole prerelease suffix
+        # (base version + "canary" + its own run-time timestamp) rather than
+        # us trying to compose it ourselves — changesets appends its own
+        # timestamp after whatever tag it's given regardless, so a
+        # hand-rolled suffix only doubles up. This mutates package.json/
+        # CHANGELOGs and consumes .changeset/*.md in the runner's working
+        # copy only. Nothing here is ever committed or pushed back to main,
+        # so the pending changesets stay intact for the real Version
+        # Packages PR (see version.yml).
+        run: npx changeset version --snapshot canary
 
       - name: Publish canary packages
         run: npx changeset publish --tag canary
