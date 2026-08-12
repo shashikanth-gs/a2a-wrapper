@@ -1,6 +1,7 @@
 # a2a-wrapper
 
 [![CI](https://github.com/shashikanth-gs/a2a-wrapper/actions/workflows/ci.yml/badge.svg)](https://github.com/shashikanth-gs/a2a-wrapper/actions/workflows/ci.yml)
+[![Publish](https://github.com/shashikanth-gs/a2a-wrapper/actions/workflows/publish.yml/badge.svg)](https://github.com/shashikanth-gs/a2a-wrapper/actions/workflows/publish.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js >=20](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org)
 
@@ -14,16 +15,16 @@ A monorepo of [A2A protocol](https://a2a-protocol.org) wrappers that turn produc
 
 ## Packages
 
-| Package | npm | Description |
-|---|---|---|
-| [`@a2a-wrapper/core`](packages/core/) | [![npm](https://img.shields.io/npm/v/@a2a-wrapper/core.svg)](https://www.npmjs.com/package/@a2a-wrapper/core) | Shared infrastructure — logging, config loading, event publishing, server factory, session management, CLI scaffold |
-| [`a2a-copilot`](a2a-copilot/) | [![npm](https://img.shields.io/npm/v/a2a-copilot.svg)](https://www.npmjs.com/package/a2a-copilot) | A2A wrapper for GitHub Copilot SDK. Supports **Bring Your Own Model (BYOK)** — Ollama, OpenAI, Anthropic, Azure, vLLM, or any OpenAI-compatible endpoint |
-| [`a2a-opencode`](a2a-opencode/) | [![npm](https://img.shields.io/npm/v/a2a-opencode.svg)](https://www.npmjs.com/package/a2a-opencode) | A2A wrapper for OpenCode — multi-provider out of the box (Anthropic, OpenAI, GitHub Copilot, and more) |
-| [`a2a-claude`](a2a-claude/) | [![npm](https://img.shields.io/npm/v/a2a-claude.svg)](https://www.npmjs.com/package/a2a-claude) | A2A wrapper for Claude Code — fully spec-compliant agent powered by the official `@anthropic-ai/claude-agent-sdk` |
-| [`a2a-codex`](a2a-codex/) | [![npm](https://img.shields.io/npm/v/a2a-codex.svg)](https://www.npmjs.com/package/a2a-codex) | A2A wrapper for OpenAI Codex SDK — repository-scoped software engineering agent with sandboxing, MCP, and multi-agent delegation |
-| [`a2a-antigravity`](a2a-antigravity/) | [![npm](https://img.shields.io/npm/v/a2a-antigravity.svg)](https://www.npmjs.com/package/a2a-antigravity) | A2A wrapper for Google Antigravity SDK — Node/TypeScript public server with a managed Python SDK subprocess, Gemini auth, policies, MCP, and sideband traces |
+| Package | Stable | Canary | Description |
+|---|---|---|---|
+| [`@a2a-wrapper/core`](packages/core/) | [![npm](https://img.shields.io/npm/v/@a2a-wrapper/core.svg)](https://www.npmjs.com/package/@a2a-wrapper/core) | [![canary](https://img.shields.io/npm/v/@a2a-wrapper/core/canary.svg?label=canary&color=orange)](https://www.npmjs.com/package/@a2a-wrapper/core/v/canary) | Shared infrastructure — logging, config loading, event publishing, server factory, session management, CLI scaffold |
+| [`a2a-copilot`](a2a-copilot/) | [![npm](https://img.shields.io/npm/v/a2a-copilot.svg)](https://www.npmjs.com/package/a2a-copilot) | [![canary](https://img.shields.io/npm/v/a2a-copilot/canary.svg?label=canary&color=orange)](https://www.npmjs.com/package/a2a-copilot/v/canary) | A2A wrapper for GitHub Copilot SDK. Supports **Bring Your Own Model (BYOK)** — Ollama, OpenAI, Anthropic, Azure, vLLM, or any OpenAI-compatible endpoint |
+| [`a2a-opencode`](a2a-opencode/) | [![npm](https://img.shields.io/npm/v/a2a-opencode.svg)](https://www.npmjs.com/package/a2a-opencode) | [![canary](https://img.shields.io/npm/v/a2a-opencode/canary.svg?label=canary&color=orange)](https://www.npmjs.com/package/a2a-opencode/v/canary) | A2A wrapper for OpenCode — multi-provider out of the box (Anthropic, OpenAI, GitHub Copilot, and more) |
+| [`a2a-claude`](a2a-claude/) | [![npm](https://img.shields.io/npm/v/a2a-claude.svg)](https://www.npmjs.com/package/a2a-claude) | [![canary](https://img.shields.io/npm/v/a2a-claude/canary.svg?label=canary&color=orange)](https://www.npmjs.com/package/a2a-claude/v/canary) | A2A wrapper for Claude Code — fully spec-compliant agent powered by the official `@anthropic-ai/claude-agent-sdk` |
+| [`a2a-codex`](a2a-codex/) | [![npm](https://img.shields.io/npm/v/a2a-codex.svg)](https://www.npmjs.com/package/a2a-codex) | [![canary](https://img.shields.io/npm/v/a2a-codex/canary.svg?label=canary&color=orange)](https://www.npmjs.com/package/a2a-codex/v/canary) | A2A wrapper for OpenAI Codex SDK — repository-scoped software engineering agent with sandboxing, MCP, and multi-agent delegation |
+| [`a2a-antigravity`](a2a-antigravity/) | [![npm](https://img.shields.io/npm/v/a2a-antigravity.svg)](https://www.npmjs.com/package/a2a-antigravity) | [![canary](https://img.shields.io/npm/v/a2a-antigravity/canary.svg?label=canary&color=orange)](https://www.npmjs.com/package/a2a-antigravity/v/canary) | A2A wrapper for Google Antigravity SDK — Node/TypeScript public server with a managed Python SDK subprocess, Gemini auth, policies, MCP, and sideband traces |
 
-`npm install <package>` always installs the latest stable release. Every package also publishes a `canary` build automatically after each merge to `main` that passes CI — install one with `npm install <package>@canary` to try an unreleased fix ahead of the next stable version. See each package's README for details, or [Release Process](CONTRIBUTING.md#release-process) for how the pipeline works.
+Both badges are live — **Stable** reflects the latest approved release (`npm install <package>`), **Canary** reflects the most recent successful merge to `main` (`npm install <package>@canary`). See [Release Process](CONTRIBUTING.md#release-process) for how the pipeline works.
 
 ### Feature Comparison
 
