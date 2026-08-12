@@ -114,7 +114,7 @@ The CLI will ask you:
 2. The semver bump type (patch / minor / major)
 3. A summary of the change
 
-This creates a markdown file in `.changeset/` — commit it with your PR. When the PR merges, the Changesets GitHub Action opens a "Version Packages" PR that batches pending bumps. Merging that PR publishes the updated packages to npm.
+This creates a markdown file in `.changeset/` — commit it with your PR.
 
 ### When to create a changeset
 
@@ -122,6 +122,18 @@ This creates a markdown file in `.changeset/` — commit it with your PR. When t
 - New features (backward-compatible) → `minor`
 - Breaking changes → `major`
 - Documentation-only or CI-only changes → no changeset needed
+
+## Release Process
+
+Once a PR is merged to `main`, three things happen automatically:
+
+1. **CI** re-validates `main` (build, typecheck, test).
+2. **Canary publish** — once CI succeeds, every affected package is published to npm under the `canary` dist-tag with a version like `1.8.0-canary.20260812063045` (next semver + UTC timestamp of the merge commit). Install one with `npm install <package>@canary`. This never touches `main` — the snapshot version bump happens only in the CI runner and is discarded, so pending changesets are left intact.
+3. **Version Packages PR** — the Changesets bot opens/updates a PR on `main` that batches all pending changesets into real version bumps and CHANGELOG entries.
+
+When a maintainer merges the Version Packages PR, the release workflow checks whether a release is ready (no pending changesets and at least one package version not yet published) and, if so, waits for **manual approval** via the `release` GitHub Environment before running `npx changeset publish` under the `latest` dist-tag and creating GitHub releases.
+
+So `npm install <package>` always gets the latest approved stable release, while `npm install <package>@canary` gets the most recent merge to `main`.
 
 ## Adding a New Wrapper
 

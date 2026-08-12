@@ -1,0 +1,112 @@
+name: Release
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Check release readiness
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+
+      - name: Determine release readiness
+        id: check
+        # Ready only once a Version Packages PR has been merged: no
+        # changesets left pending, and at least one public package's local
+        # version hasn't been published yet.
+        run: |
+          PENDING=$(find .changeset -maxdepth 1 -name '*.md' ! -name 'README.md' | wc -l)
+          if [ "$PENDING" -gt 0 ]; then
+            echo "Pending changesets found ($PENDING); nothing to release yet."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          READY=false
+          for pkg_dir in packages/* a2a-*; do
+            [ -f "$pkg_dir/package.json" ] || continue
+            PRIVATE=$(node -p "require('./$pkg_dir/package.json').private || false")
+            if [ "$PRIVATE" = "true" ]; then continue; fi
+            NAME=$(node -p "require('./$pkg_dir/package.json').name")
+            LOCAL_VERSION=$(node -p "require('./$pkg_dir/package.json').version")
+            PUBLISHED_VERSION=$(npm view "$NAME" version 2>/dev/null || echo "")
+            echo "$NAME: local=$LOCAL_VERSION published=${PUBLISHED_VERSION:-<unpublished>}"
+            if [ "$LOCAL_VERSION" != "$PUBLISHED_VERSION" ]; then
+              READY=true
+            fi
+          done
+          echo "ready=$READY" >> "$GITHUB_OUTPUT"
+
+  release:
+    name: Publish stable release
+    needs: check
+    if: needs.check.outputs.ready == 'true'
+    environment: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Upgrade npm for trusted publishing
+        run: npm install -g npm@11
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build all packages
+        run: npx turbo run build
+
+      - name: Test all packages
+        run: npx turbo run test
+
+      - name: Verify a2a-antigravity managed Python setup
+        run: node a2a-antigravity/dist/cli.js setup --venv-dir "$RUNNER_TEMP/a2a-antigravity-venv"
+
+      - name: Verify a2a-antigravity npm package contents
+        run: npm pack -w a2a-antigravity --dry-run
+
+      - name: Publish to npm and create GitHub releases
+        uses: changesets/action@v1
+        with:
+          publish: npx changeset publish
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
