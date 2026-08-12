@@ -23,6 +23,8 @@ A monorepo of [A2A protocol](https://a2a-protocol.org) wrappers that turn produc
 | [`a2a-codex`](a2a-codex/) | [![npm](https://img.shields.io/npm/v/a2a-codex.svg)](https://www.npmjs.com/package/a2a-codex) | A2A wrapper for OpenAI Codex SDK — repository-scoped software engineering agent with sandboxing, MCP, and multi-agent delegation |
 | [`a2a-antigravity`](a2a-antigravity/) | [![npm](https://img.shields.io/npm/v/a2a-antigravity.svg)](https://www.npmjs.com/package/a2a-antigravity) | A2A wrapper for Google Antigravity SDK — Node/TypeScript public server with a managed Python SDK subprocess, Gemini auth, policies, MCP, and sideband traces |
 
+`npm install <package>` always installs the latest stable release. Every package also publishes a `canary` build automatically after each merge to `main` that passes CI — install one with `npm install <package>@canary` to try an unreleased fix ahead of the next stable version. See each package's README for details, or [Release Process](CONTRIBUTING.md#release-process) for how the pipeline works.
+
 ### Feature Comparison
 
 All five wrappers share the same core: A2A v1.0 native + v0.3.x backward-compatible protocol support, sub-agent delegation, MCP tool integration, and JSON config with env/CLI overrides. Where they differ:
@@ -199,7 +201,9 @@ Every PR that changes package behavior should include a changeset:
 npx changeset
 ```
 
-The CLI will ask which packages were affected, the semver bump type (patch / minor / major), and a summary. Commit the generated file with your PR. When the PR merges, the Changesets GitHub Action opens a "Version Packages" PR that batches pending bumps. Merging that PR publishes the updated packages to npm.
+The CLI will ask which packages were affected, the semver bump type (patch / minor / major), and a summary. Commit the generated file with your PR.
+
+Every merge to `main` (with or without a changeset) publishes affected packages under the `canary` npm tag automatically — see [Release Channels](#packages) above. Changesets themselves accumulate on a long-lived "Version Packages" PR that the Changesets bot keeps up to date; merging it — whenever a maintainer decides a stable release is ready — is the first of two gates before anything publishes under `latest`. See [Release Process](CONTRIBUTING.md#release-process) for the full pipeline.
 
 ## Adding a New Wrapper
 

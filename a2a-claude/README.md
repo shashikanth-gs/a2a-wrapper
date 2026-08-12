@@ -40,13 +40,22 @@ Fetch the agent card:
 curl -s http://localhost:3030/.well-known/agent-card.json | jq .
 ```
 
-Once published, the CLI is also runnable directly:
+The CLI is also runnable directly:
 
 ```bash
 npm install -g a2a-claude
 export ANTHROPIC_API_KEY=sk-ant-... WORKSPACE_DIR=/path/to/your/repo
 a2a-claude --config agents/example/config.json
 ```
+
+## Release Channels
+
+| Channel | Install | Cadence |
+|---|---|---|
+| Stable | `npm install a2a-claude` | Manually reviewed and approved — see [Release Process](https://github.com/shashikanth-gs/a2a-wrapper/blob/main/CONTRIBUTING.md#release-process) |
+| Canary | `npm install a2a-claude@canary` | Every merge to `main` that passes CI |
+
+Canary builds publish automatically after each merge, tagged like `a2a-claude@0.4.0-canary-20260812081117`. They're unreviewed and have no changelog entry — useful for trying a fix ahead of a stable release, not for production. `npm install a2a-claude` always resolves to the latest stable release regardless of how many canaries have shipped since.
 
 ## Authentication
 

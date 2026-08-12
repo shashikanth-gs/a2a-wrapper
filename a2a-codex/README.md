@@ -48,6 +48,15 @@ a2a-codex --config agents/example/config.json
 
 The agent card is available at `http://localhost:3020/.well-known/agent-card.json`.
 
+## Release Channels
+
+| Channel | Install | Cadence |
+|---|---|---|
+| Stable | `npm install a2a-codex` | Manually reviewed and approved — see [Release Process](https://github.com/shashikanth-gs/a2a-wrapper/blob/main/CONTRIBUTING.md#release-process) |
+| Canary | `npm install a2a-codex@canary` | Every merge to `main` that passes CI |
+
+Canary builds publish automatically after each merge, tagged like `a2a-codex@1.7.1-canary-20260812081117`. They're unreviewed and have no changelog entry — useful for trying a fix ahead of a stable release, not for production. `npm install a2a-codex` always resolves to the latest stable release regardless of how many canaries have shipped since.
+
 ## Architecture
 
 ```
