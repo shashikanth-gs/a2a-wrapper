@@ -1,6 +1,6 @@
 # a2a-claude
 
-## 0.3.0
+## Unreleased
 
 ### Minor Changes
 
@@ -35,13 +35,7 @@
 ### Patch Changes
 
 - Updated dependencies [d6c2701]
-  - @a2a-wrapper/core@2.0.0
-
-## Unreleased
-
-### Minor Changes
-
-- Native A2A v1.0 protocol support, fully backward compatible with v0.3.x clients — negotiated automatically per request via the `A2A-Version` header, no config changes needed. `createA2AServer()` is now a thin delegate to `@a2a-wrapper/core`'s server factory (upgraded to `@a2a-js/sdk@^1.0.0`) instead of duplicating Express/SDK wiring.
+  - @a2a-wrapper/core (unreleased)
 
 ## 0.2.0
 

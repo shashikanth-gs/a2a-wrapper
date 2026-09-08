@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.0.0
+## Unreleased
 
 ### Major Changes
 
@@ -21,17 +21,6 @@
   - Each wrapper's `createA2AServer()` public API is unchanged, but is now a thin delegate to `@a2a-wrapper/core`'s `createA2AServer` instead of duplicating Express/SDK server wiring — restoring the "A2A protocol code lives only in core" design.
   - `a2a-copilot` and `a2a-opencode` no longer ship their own local `event-publisher.ts`; both now use `@a2a-wrapper/core`'s (v1.0-aware) event publisher.
   - `@a2a-js/sdk` dependency bumped to `^1.0.0` (previously an inconsistent mix of `^0.3.9`/`^0.3.13`).
-
-## Unreleased
-
-### Major Changes
-
-- **Native A2A protocol v1.0 support, backward compatible with v0.3.x.** Built on `@a2a-js/sdk@^1.0.0` and its `compat/v0_3` translation layer.
-  - `buildAgentCard()` now produces the native v1.0 `AgentCard` shape (`supportedInterfaces[]` instead of `url`/`additionalInterfaces`/`protocolVersion`; `capabilities.extendedAgentCard` instead of `supportsAuthenticatedExtendedCard`; `stateTransitionHistory` removed). **Breaking** for any caller reading the old v0.3 fields directly off the return value — the server itself still serves a fully v0.3-shaped card to legacy clients.
-  - `createA2AServer()`'s JSON-RPC/REST transports and the `/.well-known/agent-card.json` route negotiate protocol version per-request via the `A2A-Version` header. `ServerOptions.protocolVersion` default changed from `"0.3"` to `"1.0"`.
-  - New `ServerOptions.onListening` hook and `ServerOptions.agentCardSigning` option (Signed Agent Cards, RFC 7515 JWS, opt-in via `AgentCardConfig.signing` or the programmatic option).
-  - New `extractUserText(message)` export centralizing inbound `Part` parsing for the v1.0 proto-oneof `Part` shape.
-  - `TaskState` is now re-exported as a value (real numeric enum in v1.0, was a string-literal type in v0.3).
 
 ## 1.7.0
 
