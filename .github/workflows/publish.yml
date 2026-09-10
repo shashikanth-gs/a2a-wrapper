@@ -19,9 +19,35 @@ on:
     workflows: ["CI"]
     types: [completed]
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      fix_release_tag:
+        description: >-
+          Existing release tag to regenerate combined notes for (e.g.
+          release-2026-09-10-28). Leave blank to no-op this trigger — the
+          canary/check/release jobs only ever run from workflow_run.
+        required: false
+      old_core:
+        description: "@a2a-wrapper/core version to span back to (exclusive), e.g. 1.7.0"
+        required: false
+      old_claude:
+        description: "a2a-claude version to span back to (exclusive)"
+        required: false
+      old_copilot:
+        description: "a2a-copilot version to span back to (exclusive)"
+        required: false
+      old_opencode:
+        description: "a2a-opencode version to span back to (exclusive)"
+        required: false
+      old_codex:
+        description: "a2a-codex version to span back to (exclusive)"
+        required: false
+      old_antigravity:
+        description: "a2a-antigravity version to span back to (exclusive)"
+        required: false
 
 concurrency:
-  group: publish-${{ github.event.workflow_run.head_sha }}
+  group: publish-${{ github.event.workflow_run.head_sha || github.run_id }}
   cancel-in-progress: false
 
 env:
@@ -185,6 +211,29 @@ jobs:
       - name: Verify a2a-antigravity npm package contents
         run: npm pack -w a2a-antigravity --dry-run
 
+      - name: Record pre-publish npm versions
+        # Captured before publishing so the release-notes step can span back
+        # to the version that was actually live on `latest` before this run,
+        # not just the single CHANGELOG heading matching the version that
+        # just published. Without this, a run that follows a stuck/aborted
+        # release (whose real content landed on a version string this run
+        # never touches) produces notes covering only this run's own
+        # changeset and silently drops everything still stranded above it.
+        id: prepublish
+        run: |
+          JSON="{}"
+          for pkg_dir in packages/* a2a-*; do
+            [ -f "$pkg_dir/package.json" ] || continue
+            PRIVATE=$(node -p "require('./$pkg_dir/package.json').private || false")
+            if [ "$PRIVATE" = "true" ]; then continue; fi
+            NAME=$(node -p "require('./$pkg_dir/package.json').name")
+            OLD_VERSION=$(npm view "$NAME" version 2>/dev/null || echo "")
+            JSON=$(echo "$JSON" | jq --arg n "$NAME" --arg v "$OLD_VERSION" '. + {($n): $v}')
+          done
+          echo "versions<<PREPUBLISH_EOF" >> "$GITHUB_OUTPUT"
+          echo "$JSON" >> "$GITHUB_OUTPUT"
+          echo "PREPUBLISH_EOF" >> "$GITHUB_OUTPUT"
+
       - name: Publish to npm
         # createGithubReleases: false suppresses this action's normal
         # one-release-per-package behavior (it still tags each published
@@ -201,14 +250,19 @@ jobs:
       - name: Create combined GitHub release
         # One release page per publish run, covering every package that
         # actually published (from `publishedPackages` — packages with
-        # nothing new this run are absent, never mentioned). Body is
-        # assembled from each published package's own CHANGELOG.md section
-        # for its new version, so it matches what changesets already wrote
-        # rather than a second, hand-maintained description.
+        # nothing new this run are absent, never mentioned). For each
+        # package, the body includes every CHANGELOG section newer than
+        # whatever was on `latest` before this run (from the prepublish
+        # step) — not just the single heading matching the version that
+        # just published — so content stranded above the matched heading by
+        # an earlier stuck/aborted release still makes it into the notes.
+        # Multiple spanned versions are demoted to ### so they nest under
+        # the package's own ## heading.
         if: steps.changesets.outputs.published == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.publishedPackages }}
+          OLD_VERSIONS: ${{ steps.prepublish.outputs.versions }}
         run: |
           set -euo pipefail
 
@@ -216,6 +270,7 @@ jobs:
           echo "$PUBLISHED_PACKAGES" | jq -c '.[]' | while read -r entry; do
             NAME=$(echo "$entry" | jq -r '.name')
             VERSION=$(echo "$entry" | jq -r '.version')
+            OLD_VERSION=$(echo "$OLD_VERSIONS" | jq -r --arg n "$NAME" '.[$n] // ""')
 
             DIR=""
             for pkg_dir in packages/* a2a-*; do
@@ -232,15 +287,19 @@ jobs:
             fi
 
             {
-              echo "### $NAME@$VERSION"
+              echo "## $NAME@$VERSION"
               echo
-              awk -v ver="## $VERSION" '
-                $0 ~ /^## / {
-                  if (found) exit
-                  if ($0 == ver || index($0, ver" ") == 1) { found = 1; next }
-                }
-                found { print }
-              ' "$DIR/CHANGELOG.md"
+              if [ -n "$OLD_VERSION" ]; then
+                awk -v old="## $OLD_VERSION" '
+                  NR == 1 { next }
+                  $0 ~ /^## / && ($0 == old || index($0, old" ") == 1) { exit }
+                  { print }
+                ' "$DIR/CHANGELOG.md" | sed -E 's/^## /### /'
+              else
+                # No prior published version found (brand-new package):
+                # include the whole changelog, minus its title line.
+                tail -n +2 "$DIR/CHANGELOG.md" | sed -E 's/^## /### /'
+              fi
               echo
             } >> release-notes.md
           done
@@ -251,3 +310,67 @@ jobs:
           gh release create "$TAG" \
             --title "Release ${DATE}" \
             --notes-file release-notes.md
+
+  fix-release-notes:
+    name: Regenerate a release's combined notes
+    # One-off utility: rebuilds a given release's body the same way the
+    # step above does, spanning every CHANGELOG section between an
+    # explicitly supplied "old" baseline version and each package's current
+    # package.json version. Use this to repair a release whose notes came
+    # out too narrow (e.g. because it followed a stuck/aborted publish and
+    # landed before the pre-publish-version-capture fix above existed).
+    if: github.event_name == 'workflow_dispatch' && inputs.fix_release_tag != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Rebuild and update release notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OLD_CORE: ${{ inputs.old_core }}
+          OLD_CLAUDE: ${{ inputs.old_claude }}
+          OLD_COPILOT: ${{ inputs.old_copilot }}
+          OLD_OPENCODE: ${{ inputs.old_opencode }}
+          OLD_CODEX: ${{ inputs.old_codex }}
+          OLD_ANTIGRAVITY: ${{ inputs.old_antigravity }}
+        run: |
+          set -euo pipefail
+
+          : > release-notes.md
+          for pkg_dir in packages/* a2a-*; do
+            [ -f "$pkg_dir/package.json" ] || continue
+            PRIVATE=$(node -p "require('./$pkg_dir/package.json').private || false")
+            if [ "$PRIVATE" = "true" ]; then continue; fi
+            NAME=$(node -p "require('./$pkg_dir/package.json').name")
+            VERSION=$(node -p "require('./$pkg_dir/package.json').version")
+
+            case "$NAME" in
+              "@a2a-wrapper/core") OLD_VERSION="$OLD_CORE" ;;
+              "a2a-claude") OLD_VERSION="$OLD_CLAUDE" ;;
+              "a2a-copilot") OLD_VERSION="$OLD_COPILOT" ;;
+              "a2a-opencode") OLD_VERSION="$OLD_OPENCODE" ;;
+              "a2a-codex") OLD_VERSION="$OLD_CODEX" ;;
+              "a2a-antigravity") OLD_VERSION="$OLD_ANTIGRAVITY" ;;
+              *) OLD_VERSION="" ;;
+            esac
+
+            {
+              echo "## $NAME@$VERSION"
+              echo
+              if [ -n "$OLD_VERSION" ]; then
+                awk -v old="## $OLD_VERSION" '
+                  NR == 1 { next }
+                  $0 ~ /^## / && ($0 == old || index($0, old" ") == 1) { exit }
+                  { print }
+                ' "$pkg_dir/CHANGELOG.md" | sed -E 's/^## /### /'
+              else
+                tail -n +2 "$pkg_dir/CHANGELOG.md" | sed -E 's/^## /### /'
+              fi
+              echo
+            } >> release-notes.md
+          done
+
+          gh release edit "${{ inputs.fix_release_tag }}" --notes-file release-notes.md
