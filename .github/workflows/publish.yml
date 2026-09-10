@@ -168,9 +168,69 @@ jobs:
       - name: Verify a2a-antigravity npm package contents
         run: npm pack -w a2a-antigravity --dry-run
 
-      - name: Publish to npm and create GitHub releases
+      - name: Publish to npm
+        # createGithubReleases: false suppresses this action's normal
+        # one-release-per-package behavior (it still tags each published
+        # package, since push-git-tags defaults to true and stays on) — the
+        # step below creates a single combined release instead.
+        id: changesets
         uses: changesets/action@v1
         with:
           publish: npx changeset publish
+          createGithubReleases: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create combined GitHub release
+        # One release page per publish run, covering every package that
+        # actually published (from `publishedPackages` — packages with
+        # nothing new this run are absent, never mentioned). Body is
+        # assembled from each published package's own CHANGELOG.md section
+        # for its new version, so it matches what changesets already wrote
+        # rather than a second, hand-maintained description.
+        if: steps.changesets.outputs.published == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.publishedPackages }}
+        run: |
+          set -euo pipefail
+
+          : > release-notes.md
+          echo "$PUBLISHED_PACKAGES" | jq -c '.[]' | while read -r entry; do
+            NAME=$(echo "$entry" | jq -r '.name')
+            VERSION=$(echo "$entry" | jq -r '.version')
+
+            DIR=""
+            for pkg_dir in packages/* a2a-*; do
+              [ -f "$pkg_dir/package.json" ] || continue
+              PKG_NAME=$(node -p "require('./$pkg_dir/package.json').name")
+              if [ "$PKG_NAME" = "$NAME" ]; then
+                DIR="$pkg_dir"
+                break
+              fi
+            done
+            if [ -z "$DIR" ]; then
+              echo "::warning::Could not find package directory for $NAME, skipping its changelog in the combined release"
+              continue
+            fi
+
+            {
+              echo "### $NAME@$VERSION"
+              echo
+              awk -v ver="## $VERSION" '
+                $0 ~ /^## / {
+                  if (found) exit
+                  if ($0 == ver || index($0, ver" ") == 1) { found = 1; next }
+                }
+                found { print }
+              ' "$DIR/CHANGELOG.md"
+              echo
+            } >> release-notes.md
+          done
+
+          DATE=$(date -u +%Y-%m-%d)
+          TAG="release-${DATE}-${{ github.run_number }}"
+
+          gh release create "$TAG" \
+            --title "Release ${DATE}" \
+            --notes-file release-notes.md
