@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.8.1
 
 ### Minor Changes
 
@@ -24,8 +24,10 @@
 
 ### Patch Changes
 
+- Updated dependencies [f3c7062]
+- Updated dependencies [41e2d82]
 - Updated dependencies [d6c2701]
-  - @a2a-wrapper/core (unreleased)
+  - @a2a-wrapper/core@2.1.0
 
 ## 1.7.0
 
