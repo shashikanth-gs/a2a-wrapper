@@ -58,6 +58,21 @@ jobs:
       - name: Build all packages
         run: npx turbo run build
 
+      - name: Check for pending changesets
+        # With zero pending changesets (the state right after a Version
+        # Packages PR merges), `changeset version --snapshot` has nothing to
+        # bump and is a no-op — package.json is already sitting at exactly
+        # the next real release version. Publishing that under --tag canary
+        # anyway would burn the real version string on the registry before
+        # the release job gets to it, and since npm never allows publishing
+        # the same exact version twice, the release job's publish of that
+        # package (to `latest`) then hard-fails with 409 Conflict. Skip the
+        # snapshot publish entirely in that case; there's nothing to preview.
+        id: pending
+        run: |
+          PENDING=$(find .changeset -maxdepth 1 -name '*.md' ! -name 'README.md' | wc -l)
+          echo "count=$PENDING" >> "$GITHUB_OUTPUT"
+
       - name: Version packages as snapshot
         # `--snapshot canary` lets changesets own the whole prerelease suffix
         # (base version + "canary" + its own run-time timestamp) rather than
@@ -68,11 +83,13 @@ jobs:
         # copy only. Nothing here is ever committed or pushed back to main,
         # so the pending changesets stay intact for the real Version
         # Packages PR (see version.yml).
+        if: steps.pending.outputs.count > 0
         run: npx changeset version --snapshot canary
 
       - name: Publish canary packages
         # --no-git-tag: snapshot versions are throwaway, no reason to cut a
         # git tag for them (and nothing here ever gets pushed regardless).
+        if: steps.pending.outputs.count > 0
         run: npx changeset publish --tag canary --no-git-tag
 
   check:
