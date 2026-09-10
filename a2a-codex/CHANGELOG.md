@@ -2,14 +2,6 @@
 
 ## 1.7.1
 
-### Patch Changes
-
-- Updated dependencies [f3c7062]
-- Updated dependencies [41e2d82]
-  - @a2a-wrapper/core@2.1.0
-
-## Unreleased
-
 ### Minor Changes
 
 - d6c2701: Add native A2A protocol v1.0 support, built on `@a2a-js/sdk@1.0.0`, while preserving full backward compatibility with A2A v0.3.x clients.
@@ -32,8 +24,10 @@
 
 ### Patch Changes
 
+- Updated dependencies [f3c7062]
+- Updated dependencies [41e2d82]
 - Updated dependencies [d6c2701]
-  - @a2a-wrapper/core (unreleased)
+  - @a2a-wrapper/core@2.1.0
 
 ## 1.6.1
 
