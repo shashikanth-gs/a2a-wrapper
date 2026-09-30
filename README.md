@@ -42,8 +42,6 @@ Coding agents like Claude Code, Codex and Copilot are powerful but isolated. You
 
    <img src="docs/assets/crew-demo.gif" alt="Recording: a planner delegates a feature to an implementer agent, then a tester agent (mock agents)" width="760">
 
-*The first recording is a real run. The second uses `--mock` stand-in agents so it is reproducible without API keys.*
-
 ## When to use this
 
 | You want to… | Use |
