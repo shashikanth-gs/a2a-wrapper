@@ -1,3 +1,5 @@
+<div align="center">
+
 # a2a-wrapper
 
 [![CI](https://github.com/shashikanth-gs/a2a-wrapper/actions/workflows/ci.yml/badge.svg)](https://github.com/shashikanth-gs/a2a-wrapper/actions/workflows/ci.yml)
@@ -5,14 +7,52 @@
 [![Total Downloads](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/shashikanth-gs/a2a-wrapper/badges/.github/badges/downloads.json)](https://github.com/shashikanth-gs/a2a-wrapper/blob/badges/.github/badges/downloads-detail.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js >=20](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org)
+[![GitHub Stars](https://img.shields.io/github/stars/shashikanth-gs/a2a-wrapper?style=social)](https://github.com/shashikanth-gs/a2a-wrapper)
+[![Follow on GitHub](https://img.shields.io/github/followers/shashikanth-gs?style=social)](https://github.com/shashikanth-gs)
 
 <img src="docs/assets/hero.svg" alt="a2a-wrapper: Claude Code, OpenAI Codex, GitHub Copilot, OpenCode, and Google Antigravity each wrapped into a standalone a2a-* server on shared @a2a-wrapper/core, exposed to any A2A orchestrator over one protocol" width="100%">
 
+**Turn Claude Code, OpenAI Codex, GitHub Copilot and OpenCode into A2A agents that can discover, delegate to, and work with each other.**
+
 A monorepo of [A2A protocol](https://a2a-protocol.org) wrappers that turn production AI backends into standalone, interoperable agents. Drop a JSON config file in, get a fully spec-compliant A2A server out.
+
+[Website](https://a2a-wrapper.allsrc.dev) · [Quick Start](#quick-start) · [Copilot Example](examples/copilot-quickstart/) · [Crew Demo](examples/software-engineering-crew/) · [Security Guide](docs/security.md)
 
 > **Speaks A2A v1.0 natively, backward compatible with v0.3.x clients.** Every wrapper here negotiates protocol version per request — v1.0-aware orchestrators get the native wire format, and anything still on v0.3.x keeps working with zero config changes. See [Protocol Versions](packages/core/README.md#protocol-versions) for how it works.
 
+*If you find this project useful or are using it to build your own agent wrappers, please consider giving it a star! ⭐️*
+
+</div>
+
 > **The pattern:** MCP is the vertical rail — how agents access tools. A2A is the horizontal rail — how agents talk to each other. This repo adds the horizontal rail to multiple AI backends.
+
+## Why this exists
+
+Coding agents like Claude Code, Codex and Copilot are powerful but isolated. You can't cleanly hand a task from one to another, track long-running work, or compose them into a team without writing custom glue for each.
+
+`a2a-wrapper` puts each of them behind the same open protocol. You get discovery (agent cards), a task lifecycle, streaming, multi-turn sessions and sub-agent delegation without writing protocol code, and any A2A client can talk to any wrapper.
+
+**See it working, in two steps:**
+
+1. **Simple:** [Copilot Quickstart](examples/copilot-quickstart/). One config file turns GitHub Copilot into an A2A server; discover it and talk to it.
+
+   <img src="docs/assets/copilot-quickstart.gif" alt="Recording: start a2a-copilot, discover it via its agent card, and ask it a question" width="760">
+
+2. **Extended:** [Software Engineering Crew](examples/software-engineering-crew/). Claude Code implements a feature and Codex writes the tests, coordinated over A2A. It has a `--mock` mode that needs no API keys.
+
+   <img src="docs/assets/crew-demo.gif" alt="Recording: a planner delegates a feature to an implementer agent, then a tester agent (mock agents)" width="760">
+
+*The first recording is a real run. The second uses `--mock` stand-in agents so it is reproducible without API keys.*
+
+## When to use this
+
+| You want to… | Use |
+|---|---|
+| Expose Claude Code, Codex, Copilot, OpenCode or Antigravity as an A2A server with just a config file | **a2a-wrapper** |
+| Build a fully custom agent from scratch | The official [A2A SDKs](https://a2a-protocol.org) |
+| Adapt Python agent frameworks or plain functions to A2A | A Python adapter library; this repo is Node/TypeScript |
+
+These are complementary: an orchestrator built with any A2A SDK can call the wrappers here.
 
 ## Packages
 
@@ -115,6 +155,50 @@ cd examples/a2a-subagents-scenario
 ```
 
 ## Quick Start
+
+**60 seconds, no clone needed.** Turn GitHub Copilot into an A2A server (needs a GitHub account with Copilot access):
+
+```bash
+npm install -g a2a-copilot
+gh auth login        # or: export GITHUB_TOKEN=...
+
+cat > config.json <<'JSON'
+{
+  "agentCard": {
+    "name": "Copilot Agent",
+    "description": "GitHub Copilot as an A2A agent",
+    "version": "1.0.0",
+    "protocolVersion": "0.3.0",
+    "streaming": true,
+    "defaultInputModes": ["text"],
+    "defaultOutputModes": ["text"],
+    "skills": [{ "id": "assistant", "name": "Coding Assistant", "description": "Answer coding questions", "tags": ["code"] }]
+  },
+  "server": { "port": 3000, "hostname": "127.0.0.1" },
+  "copilot": { "model": "auto", "systemPrompt": "You are a concise coding assistant.", "systemPromptMode": "replace" }
+}
+JSON
+
+a2a-copilot --config ./config.json
+```
+
+Then, from another terminal, discover and talk to it like any A2A client would:
+
+```bash
+curl http://localhost:3000/.well-known/agent-card.json
+curl -X POST http://localhost:3000/a2a/jsonrpc -H 'content-type: application/json' -d '{
+  "jsonrpc": "2.0", "id": "1", "method": "message/send",
+  "params": { "message": { "kind": "message", "messageId": "m1", "role": "user",
+    "parts": [{ "kind": "text", "text": "What does Array.prototype.flatMap do?" }] },
+    "configuration": { "blocking": true } }
+}'
+```
+
+The full walkthrough, with a recording, is in [`examples/copilot-quickstart`](examples/copilot-quickstart/). Claude Code, Codex, OpenCode and Antigravity work the same way with their own package and config block. When you're ready for more than one agent, try the [Software Engineering Crew](examples/software-engineering-crew/).
+
+> **Security:** the endpoint has no built-in authentication and agents can act on your machine. The config above binds to `127.0.0.1`. Read the [Security Guide](docs/security.md) before exposing it on a network.
+
+### From source (all wrappers)
 
 ```bash
 # Clone the monorepo
@@ -255,6 +339,12 @@ Adding a new A2A wrapper (e.g. `a2a-claude`) requires no changes to the root con
    ```
 
 See the [core package README](packages/core/README.md) for the full API guide.
+
+## Security
+
+Wrappers run coding agents behind an HTTP endpoint. Read the [Security Guide](docs/security.md) before exposing one beyond localhost.
+
+*a2a-wrapper is an independent project and is not affiliated with or endorsed by Anthropic, OpenAI, GitHub, or Google.*
 
 ## Roadmap
 

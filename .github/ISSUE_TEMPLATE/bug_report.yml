@@ -1,0 +1,31 @@
+name: Bug report
+description: Something isn't working as documented
+labels: [bug]
+body:
+  - type: dropdown
+    id: package
+    attributes:
+      label: Package
+      options: ["@a2a-wrapper/core", a2a-claude, a2a-codex, a2a-copilot, a2a-opencode, a2a-antigravity, examples, docs]
+    validations: { required: true }
+  - type: input
+    id: version
+    attributes:
+      label: Package version and Node version
+      placeholder: "a2a-claude 0.4.1, Node 22.4"
+    validations: { required: true }
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations: { required: true }
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Config (with secrets removed) and the request you sent.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      render: shell

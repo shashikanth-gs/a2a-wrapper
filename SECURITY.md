@@ -9,6 +9,9 @@ The following packages are actively maintained and receive security updates:
 | `@a2a-wrapper/core` | Latest |
 | `a2a-copilot` | Latest |
 | `a2a-opencode` | Latest |
+| `a2a-claude` | Latest |
+| `a2a-codex` | Latest |
+| `a2a-antigravity` | Latest |
 
 Only the latest published version of each package is supported with security patches.
 
@@ -20,7 +23,7 @@ If you discover a security vulnerability in any package within this monorepo, pl
 
 When reporting, include:
 
-- Which package is affected (`@a2a-wrapper/core`, `a2a-copilot`, or `a2a-opencode`)
+- Which package is affected (`@a2a-wrapper/core` or any `a2a-*` wrapper)
 - A description of the vulnerability
 - Steps to reproduce the issue
 - Any potential impact
@@ -39,3 +42,5 @@ This policy covers all workspace packages in the [a2a-wrapper monorepo](https://
 - **`@a2a-wrapper/core`** (`packages/core/`) — shared A2A protocol core library
 - **`a2a-copilot`** (`a2a-copilot/`) — A2A wrapper for Copilot
 - **`a2a-opencode`** (`a2a-opencode/`) — A2A wrapper for OpenCode
+
+For deployment guidance (network exposure, permission modes, workspace hygiene), see the [Security Guide](docs/security.md).
