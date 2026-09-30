@@ -1,0 +1,34 @@
+name: Docs site deploy
+
+# The documentation site (a2a-wrapper.allsrc.dev) lives in the shashikanth-gs/oss-sites repo and
+# builds its reference pages from this repository's READMEs, changelogs and docs/. When those change
+# on main, trigger a redeploy so the site stays in sync.
+#
+# Setup: create a Deploy Hook in the Vercel project (Settings > Git > Deploy Hooks) and save its URL
+# as the repository secret VERCEL_DEPLOY_HOOK. Without the secret this workflow does nothing.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "README.md"
+      - "CONTRIBUTING.md"
+      - "docs/**"
+      - "**/README.md"
+      - "**/CHANGELOG.md"
+
+jobs:
+  trigger:
+    name: Trigger Vercel deploy hook
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call deploy hook
+        env:
+          HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$HOOK" ]; then
+            echo "VERCEL_DEPLOY_HOOK is not set; skipping."
+            exit 0
+          fi
+          curl -fsS -X POST "$HOOK"
