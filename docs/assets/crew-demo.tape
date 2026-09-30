@@ -17,6 +17,7 @@ Type 'export PS1="\[\e[32m\]crew\[\e[0m\] \$ "' Enter
 Type "cd examples/software-engineering-crew" Enter
 Type "MOCK_DELAY_MS=1800 node mock-agents.mjs > /dev/null 2>&1 &" Enter
 Type "sleep 1 && clear" Enter
+Sleep 2s
 Show
 
 Type "# Two A2A agents are up: an implementer (:3030) and a tester (:3020)" Enter
@@ -25,7 +26,7 @@ Type "curl -s localhost:3030/.well-known/agent-card.json" Enter
 Sleep 2s
 Type "clear" Enter
 Type 'node planner.mjs "Add a slugify(text) helper"' Enter
-Sleep 11s
+Sleep 6s
 
 Hide
 Type "kill %1" Enter
