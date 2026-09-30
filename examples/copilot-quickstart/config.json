@@ -1,0 +1,32 @@
+{
+  "agentCard": {
+    "name": "Copilot Agent",
+    "description": "GitHub Copilot exposed as an A2A agent.",
+    "version": "1.0.0",
+    "protocolVersion": "0.3.0",
+    "defaultInputModes": ["text"],
+    "defaultOutputModes": ["text"],
+    "streaming": true,
+    "skills": [
+      {
+        "id": "assistant",
+        "name": "Coding Assistant",
+        "description": "Answer coding questions and explain code",
+        "tags": ["code", "assistant"]
+      }
+    ]
+  },
+  "server": {
+    "port": 3000,
+    "hostname": "127.0.0.1",
+    "advertiseHost": "localhost",
+    "advertiseProtocol": "http"
+  },
+  "copilot": {
+    "model": "auto",
+    "streaming": true,
+    "systemPromptMode": "replace",
+    "systemPrompt": "You are a concise coding assistant. Answer in a few sentences."
+  },
+  "timeouts": { "prompt": 120000 }
+}
