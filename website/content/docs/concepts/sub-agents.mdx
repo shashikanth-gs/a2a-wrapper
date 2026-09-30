@@ -1,0 +1,77 @@
+---
+title: Sub-agents
+description: Let one a2a-wrapper agent delegate to other A2A agents. Declare subAgents in config and each remote skill becomes a callable MCP tool through the a2a-mcp-skillmap bridge.
+---
+
+Any wrapper agent can **delegate to other A2A agents**. You declare them under `subAgents` in the config. The wrapper starts the [`a2a-mcp-skillmap`](https://github.com/shashikanth-gs/a2a-mcp-skillmap) bridge as a stdio MCP server, registered under the reserved key `a2a-subagents`. Each remote skill then appears to the model as an ordinary tool named `{name}__{skillId}`.
+
+```
+Parent agent (model)
+   │  calls tool: coding__review
+   ▼
+a2a-mcp-skillmap (MCP bridge, stdio)
+   │  A2A message/send
+   ▼
+Remote A2A agent (any framework)
+```
+
+## Configuration
+
+```json
+{
+  "subAgents": {
+    "agents": [
+      {
+        "name": "coding",
+        "agentCardUrl": "https://coding.example.com/.well-known/agent-card.json",
+        "auth": { "mode": "bearer", "token": "${CODING_AGENT_TOKEN}" }
+      },
+      {
+        "name": "research",
+        "agentCardUrl": "https://research.example.com/",
+        "endpointUrlOverride": "https://research.internal.local/.well-known/agent-card.json"
+      }
+    ],
+    "options": { "responseMode": "artifact", "probeTimeoutMs": 5000, "syncBudgetMs": 30000 }
+  }
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `name` | Unique prefix for the tools this agent contributes |
+| `agentCardUrl` | Where to fetch the remote agent's card |
+| `endpointUrlOverride` | Use a different URL than the one in the card (for example an internal address) |
+| `auth` | Outbound authentication: `none`, `bearer`, or `api_key` (with optional `headerName`). Tokens may reference environment variables as `${VAR}` |
+| `options.responseMode` | How results come back, for example `artifact` |
+| `options.probeTimeoutMs` | Timeout for the startup reachability probe |
+| `options.syncBudgetMs` | How long a call may wait synchronously before returning a task handle |
+
+When `subAgents` is absent, the agent starts normally with no side effects. Besides the `{name}__{skillId}` tools, the model also gets `task_status`, `task_result` and `task_cancel` tools for long-running delegated work.
+
+## What happens at startup
+
+1. Validate the config (unique names, valid URLs, no reserved-key collisions, env-var substitution on tokens).
+2. Write the bridge config to `<workspace>/.a2a/subagents-bridge.json` with mode `0600`.
+3. Probe each sub-agent in parallel. An unreachable agent is logged, not fatal.
+4. Register the bridge as an MCP server in the parent's MCP map.
+
+The bridge is pinned to an exact `a2a-mcp-skillmap` version, so a new bridge release cannot silently change behaviour.
+
+## Observability
+
+MCP calls to `a2a-subagents` are enriched with `toolKind: "a2a_subagent"` and `delegation: true` in [sideband events](/docs/concepts/observability), so you can see delegation in traces.
+
+## Try it without API keys
+
+The repository has a self-contained example, [`examples/a2a-subagents-scenario`](https://github.com/shashikanth-gs/a2a-wrapper/tree/main/examples/a2a-subagents-scenario), with two fake sub-agents, a parent config and an end-to-end test that needs no keys.
+
+```bash
+npx turbo run build
+cd examples/a2a-subagents-scenario
+./start-all.sh
+```
+
+## Sub-agents versus the crew example
+
+The [crew example](/docs/getting-started/multi-agent-crew) orchestrates agents from outside with a planner script. Sub-agents instead let the model itself decide when to delegate, using tools. Use an external planner for a fixed pipeline; use sub-agents when the model should choose.

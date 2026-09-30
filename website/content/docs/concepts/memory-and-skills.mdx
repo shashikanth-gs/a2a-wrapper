@@ -1,0 +1,62 @@
+---
+title: Memory and skills
+description: Give an a2a-wrapper agent persistent instructions and reusable skills. The memory config block writes instruction files and SKILL.md folders into the workspace in each backend's native location.
+---
+
+The **`memory`** config block materialises instructions and skills into the agent's workspace at startup. The backend reads them as part of its normal context, so the agent has persistent knowledge across sessions.
+
+```json
+{
+  "memory": {
+    "instructions": "./memory/instructions.md",
+    "skills": ["./memory/skills/code-review", "./memory/skills/testing"]
+  }
+}
+```
+
+Relative paths resolve against the directory containing the config file.
+
+## Where files are written
+
+Each backend has its own conventions, and core maps them for you:
+
+| Backend | Instructions file | Skills directory |
+|---|---|---|
+| Copilot | `.github/copilot-instructions.md` | `.github/skills/` |
+| Claude | `CLAUDE.md` | `.claude/skills/` |
+| OpenCode | `.opencode/instructions.md` | `.opencode/skills/` |
+| Codex | `.codex/instructions.md` | `.agents/skills/` |
+| Antigravity | `AGENTS.md` | `.antigravity/skills/` |
+
+Codex also reads `AGENTS.md` in the workspace root for project-level instructions.
+
+## Skill format
+
+A skill is a folder with a `SKILL.md` containing frontmatter and instructions:
+
+```markdown title="memory/skills/code-review/SKILL.md"
+---
+name: code-review
+description: Provides code review guidelines and checklists
+license: MIT
+compatibility:
+  - copilot
+  - opencode
+allowed-tools:
+  - read_file
+  - search_files
+---
+
+# Code Review Skill
+
+Instructions for the model on how to perform code reviews...
+```
+
+The `name` must be kebab-case and at most 64 characters. A skill folder may also contain `scripts/`, `references/` and `assets/`.
+
+## Memory skills versus card skills
+
+- `memory.skills` are internal instructions for the model. They are never exposed externally.
+- `agentCard.skills` are public metadata for discovery.
+
+Keep them in sync by hand. They often deserve different wording: the card entry is short and aimed at orchestrators, while the memory skill is detailed and technical.

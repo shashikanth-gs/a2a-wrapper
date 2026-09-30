@@ -1,0 +1,69 @@
+---
+title: Observability and events
+description: Sideband trace events in a2a-wrapper. Tool calls, reasoning, file changes and usage emitted as A2A trace artifacts or sent to an HTTP collector or custom sink such as Kafka.
+---
+
+Beyond the final answer, wrappers can emit **sideband events** describing what the agent did: tool calls, reasoning summaries, file changes, todo lists, errors and usage. Use them for tracing, dashboards and orchestration.
+
+## Event types
+
+| `eventType` | Emitted when |
+|---|---|
+| `agent_started` | The backend session starts |
+| `agent_finished` | A task completes (may include usage and cost) |
+| `agent_error` | A task fails |
+| `tool_call_start`, `tool_call_end` | A tool, shell command or MCP call begins and ends |
+| `thinking` | A reasoning summary is available |
+| `decision` | A notable choice, such as a file change or todo list |
+
+Each event carries an `eventId`, `agentId`, `traceId`, a timestamp and a `data` payload. Which events a wrapper emits is controlled by `features` flags such as `emitThinkingEvents`, `emitToolEvents`, `emitFileChangeEvents`, `emitTodoEvents` and `emitRateLimitEvents`. Exact mappings per backend are in each package reference.
+
+<Callout title="What is redacted">
+  Secrets such as API keys, tokens and passwords are redacted. Tool output is truncated at 10,000 characters. File contents are never emitted, only the path and kind of change.
+</Callout>
+
+## Transports
+
+Configure where events go with the `events` block.
+
+| Transport | Config | Behaviour |
+|---|---|---|
+| **A2A sideband** | `"transport": "a2a"` (default) | Publishes trace artifacts on the task. Orchestrators find them through the `urn:x-a2a:trace:v1` extension in the agent card |
+| **HTTP collector** | `"transport": "http"` | POSTs each event as JSON to `httpUrl`, with optional headers for auth |
+
+```json
+{
+  "events": {
+    "enabled": true,
+    "transport": "http",
+    "httpUrl": "https://telemetry.example.com/events",
+    "httpTimeout": 5000,
+    "httpHeaders": { "Authorization": "Bearer ${TELEMETRY_TOKEN}" }
+  }
+}
+```
+
+<Callout type="warn">
+  Some event types, such as `rate_limit` and `context_window` in `a2a-claude`, have no A2A trace-artifact mapping, so they are dropped on the default `a2a` transport. Use the `http` transport or a custom one to observe them.
+</Callout>
+
+## Custom sinks
+
+When embedding a wrapper programmatically, pass a function or an `EventTransport` to `createA2AServer` to send events anywhere, for example Kafka or a database:
+
+```ts
+import { createA2AServer } from "@a2a-wrapper/core";
+
+const handle = await createA2AServer(config, executorFactory, {
+  eventTransport: async (event) => {
+    await kafkaProducer.send({
+      topic: "agent-traces",
+      messages: [{ value: JSON.stringify(event) }],
+    });
+  },
+});
+```
+
+## Usage and cost telemetry
+
+`a2a-copilot` adds tiered usage telemetry: a summary on every completed task, plus optional per-call trace artifacts and context-window snapshots when `features.trackUsage` is `true`. `a2a-claude` reports usage, cost and turn count on `agent_finished`. See the package references for fields.

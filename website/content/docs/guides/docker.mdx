@@ -1,0 +1,43 @@
+---
+title: Docker
+description: Run a2a-wrapper agents in Docker. Build from the monorepo root, pass credentials as environment variables, mount a workspace, and handle Codex sandboxing and corporate proxy certificates.
+---
+
+Most wrappers ship a Dockerfile. Running an agent in a container is the recommended way to limit what it can reach. See the [security guide](/docs/guides/security).
+
+## Build from the monorepo root
+
+The image needs the local `@a2a-wrapper/core` source, so build from the repository root:
+
+```bash
+docker build -f a2a-claude/Dockerfile -t a2a-claude:latest .
+```
+
+Replace `a2a-claude` with the wrapper you want.
+
+## Run
+
+Pass credentials as environment variables and mount only the workspace:
+
+```bash
+docker run -p 3030:3030 \
+  -e ANTHROPIC_API_KEY=sk-ant-... \
+  -e WORKSPACE_DIR=/workspace \
+  -v /host/path/to/repo:/workspace \
+  a2a-claude:latest
+```
+
+Inside a container the server must bind to a reachable interface. Publish the port with `-p`, and on a shared network put an authenticating proxy in front, since the endpoint itself has no authentication.
+
+## Wrapper notes
+
+| Wrapper | Note |
+|---|---|
+| `a2a-claude` | The Dockerfile header documents an alternative that mounts `~/.claude` read-only for subscription credentials, and its OAuth-expiry caveat |
+| `a2a-codex` | Codex wraps shell commands in Bubblewrap, which needs Linux user namespaces. Standard containers block them, so shell tool calls fail unless you run with `--privileged` or `--security-opt=seccomp:unconfined`. For local development, run without Docker |
+| `a2a-copilot`, `a2a-opencode` | Support a corporate proxy CA (Netskope, Zscaler). See their references |
+| `a2a-antigravity` | No published Docker image yet, because of the Node and Python bridge |
+
+<Callout type="warn" title="Do not bake secrets into images">
+  Pass API keys at runtime with `-e` or your orchestrator's secret store. Never `COPY` a config containing credentials.
+</Callout>

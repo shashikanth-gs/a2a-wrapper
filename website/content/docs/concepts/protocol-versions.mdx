@@ -1,0 +1,36 @@
+---
+title: Protocol versions
+description: a2a-wrapper speaks A2A v1.0 natively and stays backward compatible with v0.3.x clients, negotiating per request with no configuration. How the agent card, JSON-RPC and REST routes translate between versions.
+---
+
+Every wrapper speaks **A2A v1.0 natively** and is **backward compatible with v0.3.x clients** out of the box. There is nothing to configure. The behaviour is built on the official `@a2a-js/sdk`'s own v0.3 compatibility layer, not a hand-written shim, and lives only in `@a2a-wrapper/core`.
+
+## How negotiation works
+
+Per request:
+
+**Agent card.** `GET /.well-known/agent-card.json` reads the caller's `A2A-Version` header.
+
+| Header | Response |
+|---|---|
+| `1.0` | The native v1.0 card, using `supportedInterfaces[]` |
+| `0.3`, `0.3.0`, or none | A v0.3-shaped legacy card with `url`, `additionalInterfaces` and `protocolVersion: "0.3.0"` |
+
+**JSON-RPC.** `POST /a2a/jsonrpc` accepts native v1.0 shapes and translates v0.3 requests and responses. Legacy method names such as `message/send` and `message/stream` keep working.
+
+**REST.** The routes under `/a2a/rest` accept v1.0 shapes; legacy routes such as `/a2a/rest/v1/message:send` keep working.
+
+No separately configured v0.3 server is needed.
+
+## Which version should my client use?
+
+- New clients should send `A2A-Version: 1.0`.
+- Existing v0.3 clients need no changes. The examples in these docs use the v0.3 method names (`message/send`) because they work with every client.
+
+## The protocolVersion config field
+
+Example configs set `"protocolVersion": "0.3.0"` in `agentCard`. This is informational: it does not limit which wire format is served, because that is negotiated per request.
+
+## Signed cards
+
+v1.0 supports JWS-signed agent cards as an opt-in. See [agent cards](/docs/concepts/agent-cards#signed-agent-cards).

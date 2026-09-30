@@ -1,0 +1,51 @@
+---
+title: Choosing a wrapper
+description: Compare a2a-copilot, a2a-claude, a2a-codex, a2a-opencode and a2a-antigravity. Backends, provider flexibility, sandboxing, streaming, and default ports, so you can pick the right A2A wrapper for your agent.
+---
+
+All five wrappers share the same core: A2A v1.0 native with v0.3.x compatibility, sub-agent delegation, MCP tool integration, and JSON config with environment and CLI overrides. They differ in the backend behind them.
+
+## Comparison
+
+| | Backend SDK | Provider flexibility | Safety controls | Default port (example config) |
+|---|---|---|---|---|
+| **a2a-copilot** | GitHub Copilot SDK | BYOK: Ollama, OpenAI, Anthropic, Azure, vLLM, any OpenAI-compatible endpoint | Run in a container with a scratch workspace | 3000 |
+| **a2a-claude** | `@anthropic-ai/claude-agent-sdk` | Claude models (Anthropic API, Bedrock, Vertex) | `permissionMode`: `plan`, `acceptEdits`, `dontAsk`, gated `bypassPermissions` | 3030 |
+| **a2a-codex** | `@openai/codex-sdk` | OpenAI Codex models | `sandboxMode`: `read-only`, `workspace-write`, `danger-full-access`; `approvalPolicy` | 3020 |
+| **a2a-opencode** | OpenCode | Multi-provider, switch in one config line | `--auto-approve` is on by default; run in a container | 3000 |
+| **a2a-antigravity** | Google Antigravity Python SDK, through a managed bridge | Gemini (API key or Vertex/ADC) | Antigravity policies, `run_command` gating | 3040 |
+
+## Which should I pick?
+
+<Cards>
+  <Card title="I want the broadest model choice" href="/docs/reference/packages/a2a-opencode">
+    **a2a-opencode** routes to Anthropic, OpenAI, GitHub Copilot and more. **a2a-copilot** adds BYOK for local and self-hosted models.
+  </Card>
+  <Card title="I want strong multi-step coding" href="/docs/reference/packages/a2a-claude">
+    **a2a-claude** wraps Claude Code: repository navigation, planning, shell and edits, with explicit permission modes.
+  </Card>
+  <Card title="I want a sandboxed repository agent" href="/docs/reference/packages/a2a-codex">
+    **a2a-codex** confines work to the workspace with `read-only` or `workspace-write` sandboxes.
+  </Card>
+  <Card title="I already use Gemini" href="/docs/reference/packages/a2a-antigravity">
+    **a2a-antigravity** exposes Google Antigravity. It needs a one-time Python environment setup.
+  </Card>
+</Cards>
+
+## Things worth knowing
+
+- **Local or self-hosted models:** use `a2a-copilot` with a BYOK provider. The model must support native tool calling; some small local models emit tool calls as plain text and will not work.
+- **Read-only review agent:** `a2a-claude` with `permissionMode: "plan"` or `a2a-codex` with `sandboxMode: "read-only"`.
+- **Docker:** most wrappers ship a Dockerfile. Codex shell sandboxing needs extra privileges inside a container; see [Docker](/docs/guides/docker).
+- **OpenCode needs an OpenCode server.** `a2a-opencode` connects to a running OpenCode server at `opencode.baseUrl` (the example uses `http://localhost:4097`).
+- **Mixing wrappers:** any combination works in one system because they all speak A2A. The [crew example](/docs/getting-started/multi-agent-crew) pairs Claude with Codex.
+
+## Wrapper or something else?
+
+| You want to… | Use |
+|---|---|
+| Expose an existing coding agent over A2A with no code | a2a-wrapper |
+| Build a fully custom agent from scratch | The official A2A SDKs |
+| Orchestrate many agents with a framework | LangGraph, Google ADK, CrewAI and similar as the orchestrator, calling wrappers as execution nodes |
+
+See also [integrate with agent frameworks](/docs/guides/integrate-with-frameworks).

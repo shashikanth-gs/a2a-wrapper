@@ -1,0 +1,56 @@
+---
+title: FAQ
+description: Frequently asked questions about a2a-wrapper. What it is, how it differs from MCP, which agents it supports, whether it is secure, protocol versions, and how to use it with LangGraph, ADK and other frameworks.
+---
+
+## What is a2a-wrapper?
+
+A set of Node.js packages that expose Claude Code, OpenAI Codex, GitHub Copilot, OpenCode and Google Antigravity as standalone agents over the A2A protocol. You provide a JSON config file and get a spec-compliant server. See the [introduction](/docs).
+
+## How is A2A different from MCP?
+
+MCP connects an agent to tools and data. A2A connects agents to each other. They are complementary: a coding agent uses MCP for its tools and A2A to be called by, or to call, other agents. See [What is A2A?](/docs/concepts/a2a-protocol).
+
+## Which agents are supported?
+
+GitHub Copilot (`a2a-copilot`), Claude Code (`a2a-claude`), OpenAI Codex (`a2a-codex`), OpenCode (`a2a-opencode`) and Google Antigravity (`a2a-antigravity`). See [choosing a wrapper](/docs/guides/choosing-a-wrapper).
+
+## Do I need API keys?
+
+Yes, for the real backends. Copilot needs a GitHub account with Copilot access, Claude needs an Anthropic key, Codex needs an OpenAI key or `codex login`, and so on. The [crew example](/docs/getting-started/multi-agent-crew) has a `--mock` mode that needs no keys.
+
+## Which A2A protocol versions are supported?
+
+A2A v1.0 natively, with backward compatibility for v0.3.x clients, negotiated per request with no configuration. See [protocol versions](/docs/concepts/protocol-versions).
+
+## Is it secure to expose an agent?
+
+Not by default. The endpoint has no built-in authentication, and the default bind address is `0.0.0.0`. The agents can edit files and run commands. Bind to `127.0.0.1` for local use, run in a container, and put an authenticating proxy in front for anything shared. Read the [security guide](/docs/guides/security).
+
+## Can I use local or self-hosted models?
+
+Yes, through `a2a-copilot` with a BYOK provider such as Ollama or vLLM. The model must support native tool calling.
+
+## Can agents call each other?
+
+Yes, in two ways: an external orchestrator calling several agents, or a wrapper agent with `subAgents` configured so its model calls other agents as tools. See [sub-agents](/docs/concepts/sub-agents) and the [crew example](/docs/getting-started/multi-agent-crew).
+
+## Does it work with LangGraph, Google ADK, CrewAI or Microsoft Agent Framework?
+
+It complements them. Use the framework for orchestration and state, and call the wrappers as A2A execution nodes. See [integrate with agent frameworks](/docs/guides/integrate-with-frameworks).
+
+## Do I need to write code?
+
+No. A JSON config and one command start a server. Code is needed only to call the agent (any HTTP client works) or to build a new wrapper.
+
+## How do I install it?
+
+`npm install -g a2a-copilot` (or `a2a-claude`, `a2a-codex`, `a2a-opencode`, `a2a-antigravity`), then run it with `--config`. See [installation](/docs/getting-started/installation).
+
+## What is the license?
+
+MIT.
+
+## How do I contribute?
+
+See [contributing](/docs/community/contributing). Bug reports and pull requests are welcome.

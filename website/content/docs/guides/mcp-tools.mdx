@@ -1,0 +1,112 @@
+---
+title: MCP tool servers
+description: Give an a2a-wrapper agent extra tools through MCP. Stdio and HTTP server configuration for each wrapper, authenticated remote servers with environment-variable headers, and OAuth.
+---
+
+Wrappers pass an `mcp` map to the backend so it can use MCP tool servers. The shape differs slightly per backend; the concept is the same.
+
+<Callout type="warn">
+  MCP configuration is fixed when the agent starts. Declare every server in `config.json` before launching. The key `a2a-subagents` is reserved for the [sub-agent bridge](/docs/concepts/sub-agents).
+</Callout>
+
+## Supported transports
+
+| Wrapper | Transports |
+|---|---|
+| `a2a-copilot` | HTTP, SSE, stdio |
+| `a2a-claude` | stdio, Streamable HTTP (SSE-only servers are rejected at startup) |
+| `a2a-codex` | stdio, Streamable HTTP (SSE-only is not supported) |
+| `a2a-opencode` | local (stdio), remote (HTTP/SSE), remote with OAuth |
+| `a2a-antigravity` | Antigravity-supported stdio and Streamable HTTP |
+
+## A local stdio server
+
+<Tabs items={['Copilot / Claude / Codex', 'OpenCode']}>
+<Tab value="Copilot / Claude / Codex">
+
+```json
+{
+  "mcp": {
+    "filesystem": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "${WORKSPACE_DIR}"]
+    }
+  }
+}
+```
+
+</Tab>
+<Tab value="OpenCode">
+
+```json
+{
+  "mcp": {
+    "filesystem": {
+      "type": "local",
+      "command": ["npx", "@modelcontextprotocol/server-filesystem", "/path/to/workspace"],
+      "enabled": true,
+      "timeout": 10000
+    }
+  }
+}
+```
+
+</Tab>
+</Tabs>
+
+## A remote HTTP server
+
+```json
+{
+  "mcp": {
+    "my-tools": { "type": "http", "url": "http://localhost:8002/mcp" }
+  }
+}
+```
+
+In `a2a-opencode` use `"type": "remote"` instead of `"http"`.
+
+## Authenticated servers
+
+Hosted servers such as Linear or Notion need credentials. Add a `headers` map. Values support `${ENV_VAR}` substitution, so secrets never live in the config file.
+
+```json
+{
+  "mcp": {
+    "linear": {
+      "type": "http",
+      "url": "https://mcp.linear.app/mcp",
+      "headers": { "Authorization": "Bearer ${LINEAR_API_KEY}" }
+    }
+  }
+}
+```
+
+```bash
+LINEAR_API_KEY=lin_xxx a2a-claude --config ./config.json
+```
+
+For stdio servers, `args` and `env` values support the same substitution, so the spawned server receives its tokens without them being committed.
+
+## OAuth (OpenCode)
+
+When a remote server requires an OAuth2 flow:
+
+```json
+{
+  "mcp": {
+    "my-oauth-tools": {
+      "type": "remote",
+      "url": "https://api.example.com/mcp",
+      "oauth": { "clientId": "...", "clientSecret": "...", "scope": "read write" }
+    }
+  }
+}
+```
+
+Prefer `headers` with an environment variable whenever you control the token.
+
+## Scope tools tightly
+
+An MCP server runs as a separate process with its own permissions. Give it the narrowest arguments and environment it needs, and use the backend's own allow and deny controls where available (for example `enabledTools` and `disabledTools` in `a2a-codex`). See the [security guide](/docs/guides/security).

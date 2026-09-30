@@ -1,0 +1,18 @@
+{
+  "title": "a2a-wrapper",
+  "pages": [
+    "index",
+    "---Getting started---",
+    "...getting-started",
+    "---Concepts---",
+    "...concepts",
+    "---Guides---",
+    "...guides",
+    "---Reference---",
+    "...reference",
+    "---AI & agents---",
+    "...ai",
+    "---Community---",
+    "...community"
+  ]
+}

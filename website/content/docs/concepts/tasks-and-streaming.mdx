@@ -1,0 +1,45 @@
+---
+title: Tasks and streaming
+description: How a2a-wrapper agents execute A2A tasks. Task states, blocking versus streaming calls, buffered versus streamed artifacts, cancellation, and what happens to long-running background work.
+---
+
+## The task lifecycle
+
+Sending a message creates a **task**. The wrapper publishes status updates as the backend works, then delivers the result as an **artifact**.
+
+| State | Meaning |
+|---|---|
+| `submitted` | Accepted, not yet running |
+| `working` | The backend is executing |
+| `input-required` | The agent needs more input from the caller |
+| `completed` | Finished successfully; artifacts hold the result |
+| `failed` | Finished with an error |
+| `canceled` | Stopped by the caller |
+
+## Two ways to call an agent
+
+**Blocking.** `message/send` with `configuration.blocking: true` returns once the task is done. Simple, and what the [quick start](/docs/getting-started/quickstart) uses.
+
+**Streaming.** `message/stream` returns a stream of events (status updates and artifact chunks) as they happen. Use it for long tasks or live UIs. Agent cards advertise `streaming: true` when supported.
+
+## Buffered versus streamed artifacts
+
+By default wrappers **buffer** the response and publish a single complete artifact at the end. This is the most compatible mode, including with the A2A Inspector.
+
+Set `features.streamArtifactChunks: true` (or `STREAM_ARTIFACTS=true` where supported) to publish incremental chunks with `append: true`. Enable it only if your client correctly handles appending artifact updates.
+
+## Cancellation
+
+Clients can cancel an in-flight task: `tasks/cancel` on v0.3 JSON-RPC, `CancelTask` on v1.0, or the REST route `POST /a2a/rest/v1/tasks/{taskId}:cancel` (v0.3). The wrapper aborts the backend call using an `AbortController`. Cancelling is idempotent, so repeating it for the same task is safe.
+
+## Turns are serialised per context
+
+Within one `contextId`, turns run one at a time. Concurrent messages on the same context are queued, not run in parallel. Different contexts run independently.
+
+## Long-running background work (a2a-claude)
+
+Claude Code can start background tasks. `a2a-claude` can hold the A2A task open while that work is in flight, so the task stays `working` until the background work finishes rather than completing early. Background task membership is reported through a `background_tasks` event. See the [a2a-claude reference](/docs/reference/packages/a2a-claude).
+
+## Rate limits (a2a-claude)
+
+When Claude reports a rate limit, `a2a-claude` always fails the task rather than hanging, and emits a `rate_limit` event with the reset time when available. Details are in the reference.

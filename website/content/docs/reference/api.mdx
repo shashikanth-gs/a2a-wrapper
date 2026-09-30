@@ -1,0 +1,93 @@
+---
+title: HTTP API
+description: The HTTP surface every a2a-wrapper agent exposes. The agent card endpoint, A2A JSON-RPC and REST routes, health check, and example requests for message/send, message/stream, tasks/get and tasks/cancel.
+---
+
+Every wrapper serves the same endpoints. `{base}` below is the agent's URL, for example `http://localhost:3000`.
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/.well-known/agent-card.json` | GET | The [agent card](/docs/concepts/agent-cards). Honours the `A2A-Version` header |
+| `/a2a/jsonrpc` | POST | A2A over JSON-RPC 2.0 |
+| `/a2a/rest/...` | varies | A2A over HTTP+JSON |
+| `/health` | GET | Health check |
+| `/context` | GET | Read the workspace `context.md` (some wrappers) |
+| `/context/build` | POST | Build `context.md` by exploring the workspace read-only (some wrappers) |
+
+<Callout type="warn">
+  None of these endpoints is authenticated by the wrapper. Bind to loopback or put an authenticating proxy in front. See the [security guide](/docs/guides/security).
+</Callout>
+
+## JSON-RPC methods
+
+The examples use the v0.3 method names, which every client supports. The server also accepts native v1.0 shapes. See [protocol versions](/docs/concepts/protocol-versions).
+
+| Method | Purpose |
+|---|---|
+| `message/send` | Send a message and get a task or message back |
+| `message/stream` | Send a message and receive a stream of events |
+| `tasks/get` | Fetch a task's current state |
+| `tasks/cancel` | Cancel an in-flight task |
+
+### message/send
+
+```bash
+curl -s -X POST {base}/a2a/jsonrpc -H 'content-type: application/json' -d '{
+  "jsonrpc": "2.0", "id": "1", "method": "message/send",
+  "params": {
+    "message": {
+      "kind": "message", "messageId": "m1", "role": "user",
+      "contextId": "optional-conversation-id",
+      "parts": [{ "kind": "text", "text": "Explain this repository." }]
+    },
+    "configuration": { "blocking": true }
+  }
+}'
+```
+
+A successful blocking response contains a task:
+
+```json
+{
+  "jsonrpc": "2.0", "id": "1",
+  "result": {
+    "kind": "task",
+    "id": "…", "contextId": "…",
+    "status": { "state": "completed" },
+    "artifacts": [{ "artifactId": "…", "parts": [{ "kind": "text", "text": "…" }] }]
+  }
+}
+```
+
+Read the answer from `result.artifacts[].parts[].text`. Reuse `result.contextId` on follow-up messages to continue the conversation.
+
+### message/stream
+
+Same request body with `"method": "message/stream"`. The response is a Server-Sent Events stream of status updates and artifact chunks. Agent cards advertise support with `streaming: true`.
+
+### tasks/get and tasks/cancel
+
+```bash
+curl -s -X POST {base}/a2a/jsonrpc -H 'content-type: application/json' -d '{
+  "jsonrpc": "2.0", "id": "2", "method": "tasks/cancel",
+  "params": { "id": "<taskId>" }
+}'
+```
+
+Cancelling is idempotent.
+
+## Errors
+
+Failures use JSON-RPC's `error` object: `{ "error": { "code": …, "message": "…" } }`. A task that fails during execution returns a task with `status.state` of `failed`. Check both.
+
+## REST (HTTP+JSON)
+
+The REST binding lives under `/a2a/rest`. Legacy v0.3 routes are available, for example `POST /a2a/rest/v1/message:send` and `POST /a2a/rest/v1/tasks/{taskId}:cancel`. v1.0 routes omit the `/v1` segment, for example `POST /a2a/rest/tasks/{taskId}:cancel`.
+
+## Health
+
+```bash
+curl -s {base}/health
+```
+
+Use it for container and load-balancer probes.

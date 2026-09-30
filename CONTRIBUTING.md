@@ -18,6 +18,7 @@ a2a-wrapper/
 ├── a2a-opencode/          # a2a-opencode — OpenCode wrapper
 ├── a2a-codex/             # a2a-codex — OpenAI Codex SDK wrapper
 ├── a2a-antigravity/       # a2a-antigravity — Google Antigravity SDK wrapper
+├── website/               # Documentation site (Fumadocs / Next.js), separate from the workspaces
 ├── turbo.json             # Turborepo task pipeline
 ├── .changeset/            # Changesets versioning config
 └── package.json           # Root workspace config

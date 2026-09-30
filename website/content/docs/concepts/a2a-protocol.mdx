@@ -1,0 +1,40 @@
+---
+title: What is A2A?
+description: The Agent2Agent (A2A) protocol is an open standard for agents to discover each other, exchange tasks, stream results and collaborate, regardless of which framework or vendor built them. How it relates to MCP, and what it gives a2a-wrapper users.
+---
+
+**Agent2Agent (A2A)** is an open protocol that lets independent AI agents talk to each other over HTTP. An agent built on one framework can discover an agent built on another, hand it a task, follow its progress, and receive results, without either side exposing its internals.
+
+The specification lives at [a2a-protocol.org](https://a2a-protocol.org).
+
+## A2A and MCP are complementary
+
+| | MCP | A2A |
+|---|---|---|
+| Direction | Vertical: agent to tools and data | Horizontal: agent to agent |
+| Question it answers | "How does this agent use a tool?" | "How do agents delegate to each other?" |
+| Unit of work | A tool call | A task, possibly long-running, with its own lifecycle |
+
+A typical coding agent already speaks MCP for its tools. a2a-wrapper adds the A2A side so that agent can be called by, and can call, other agents.
+
+## The pieces you will meet
+
+**Agent card.** A JSON document at `/.well-known/agent-card.json` describing the agent: its name, skills, endpoints and supported protocol versions. It is how discovery works. See [agent cards](/docs/concepts/agent-cards).
+
+**Message.** One turn of communication, made of *parts* (text, files or structured data), sent with a role of `user` or `agent`.
+
+**Task.** A unit of work the agent tracks. A task moves through states such as `submitted`, `working`, `input-required`, `completed`, `failed` and `canceled`. See [tasks and streaming](/docs/concepts/tasks-and-streaming).
+
+**Artifact.** An output of a task, for example the final answer or a generated file, delivered as parts.
+
+**Context.** A `contextId` groups related messages and tasks into one conversation. a2a-wrapper uses it to keep a backend session alive across turns. See [sessions](/docs/concepts/sessions).
+
+**Transports.** A2A can be carried over JSON-RPC and over HTTP+JSON (REST). The wrappers serve both.
+
+## Opacity
+
+A2A agents collaborate without sharing internal state, memory or tools. A caller sees tasks and artifacts, not the model, prompts or tool calls behind them. The wrappers respect this: rich detail such as tool calls and reasoning is published only as opt-in [sideband trace events](/docs/concepts/observability), not as part of the answer.
+
+## What a2a-wrapper adds
+
+Implementing the protocol correctly for each coding agent is repetitive and easy to get subtly wrong. a2a-wrapper centralises it once in [`@a2a-wrapper/core`](/docs/reference/packages/core) and adds a thin backend-specific executor per agent, so you get a compliant server from a config file.

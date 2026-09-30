@@ -1,0 +1,47 @@
+---
+title: Integrate with agent frameworks
+description: Use a2a-wrapper agents as execution nodes inside LangGraph, Google ADK, CrewAI, Microsoft Agent Framework or any A2A-capable orchestrator. The wrappers complement orchestration frameworks rather than replace them.
+---
+
+Orchestration frameworks such as LangGraph, Google ADK, Microsoft Agent Framework and CrewAI manage state, memory and control flow. a2a-wrapper does not replace them. It gives them **execution nodes** that are real coding agents.
+
+```
+LangGraph / ADK / Microsoft Agent Framework / CrewAI
+        (state, memory, flow control)
+                    ↓
+              A2A protocol
+                    ↓
+   a2a-copilot · a2a-claude · a2a-codex · a2a-opencode · a2a-antigravity
+```
+
+## What the orchestrator needs to do
+
+Any orchestrator that can make HTTP calls can drive a wrapper, in three steps:
+
+1. **Discover**: `GET {base}/.well-known/agent-card.json`. Read `url` and `skills`.
+2. **Send**: `POST` a `message/send` (or `message/stream`) JSON-RPC request to the card's `url`, reusing a `contextId` across turns.
+3. **Read**: take the answer from the task's `artifacts`, and check `status.state`.
+
+The [quick start](/docs/getting-started/quickstart) shows the exact requests, and the [crew example](/docs/getting-started/multi-agent-crew) shows a planner doing this against two agents.
+
+## Use an A2A client library
+
+If your framework or language has an A2A client, point it at the wrapper's base URL. The wrappers implement the standard protocol, so the official SDKs and inspectors work with them.
+
+<Callout>
+  Check your framework's documentation for its current A2A client support and API. The wrapper side is framework-independent.
+</Callout>
+
+## Two ways to compose agents
+
+| Approach | How | Good for |
+|---|---|---|
+| **External orchestration** | A planner or framework calls each agent | Fixed pipelines, explicit control, audit |
+| **Sub-agents** | A wrapper agent declares `subAgents` and the model calls other agents as tools | The model should decide when and what to delegate. See [sub-agents](/docs/concepts/sub-agents) |
+
+## Tips
+
+- **Reuse one `contextId` per agent per workflow** so each agent keeps its own history.
+- **Give each agent its own workspace or branch** if they edit files, to avoid conflicting changes.
+- **Use streaming** (`message/stream`) for long tasks, or blocking calls with a generous timeout.
+- **Secure the wiring.** Each agent is an unauthenticated entry point unless you add a gateway. See the [security guide](/docs/guides/security).

@@ -1,0 +1,65 @@
+---
+title: Introduction
+description: a2a-wrapper turns Claude Code, OpenAI Codex, GitHub Copilot, OpenCode and Google Antigravity into standalone A2A agents that can discover, delegate to, and work with each other. Drop in a JSON config, get a spec-compliant server.
+---
+
+**a2a-wrapper** is a set of Node.js packages that put production coding agents behind the open [Agent2Agent (A2A) protocol](https://a2a-protocol.org). You write a JSON config file; you get an HTTP server that any A2A client can discover and call.
+
+<Cards>
+  <Card title="Quick start" href="/docs/getting-started/quickstart">
+    Turn GitHub Copilot into an A2A server in about a minute.
+  </Card>
+  <Card title="Multi-agent crew" href="/docs/getting-started/multi-agent-crew">
+    Claude Code implements, Codex writes the tests, all over A2A.
+  </Card>
+  <Card title="Choose a wrapper" href="/docs/guides/choosing-a-wrapper">
+    Compare the five wrappers and pick the right one.
+  </Card>
+  <Card title="Security guide" href="/docs/guides/security">
+    Read this before exposing an agent beyond localhost.
+  </Card>
+</Cards>
+
+## The problem
+
+Coding agents such as Claude Code, Codex and Copilot are powerful but isolated. There is no clean way to hand a task from one to another, track long-running work, or compose several of them into a team, unless you write custom glue for each pair.
+
+## What a2a-wrapper gives you
+
+Each wrapper takes one backend and exposes it as a first-class A2A agent. Out of the box you get:
+
+- **Discovery** through an [agent card](/docs/concepts/agent-cards) served at `/.well-known/agent-card.json`.
+- **A task lifecycle** with streaming, artifacts and cancellation. See [tasks and streaming](/docs/concepts/tasks-and-streaming).
+- **Multi-turn [sessions](/docs/concepts/sessions)**: each A2A `contextId` maps to a persistent backend session.
+- **[Sub-agent delegation](/docs/concepts/sub-agents)**: an agent can call other A2A agents as tools.
+- **MCP tool support** for the backend's own tools.
+- **[Observability](/docs/concepts/observability)** through sideband trace events.
+- **[Protocol compatibility](/docs/concepts/protocol-versions)**: native A2A v1.0, with v0.3.x clients still supported.
+
+## Supported agents
+
+| Backend | Package | Notes |
+|---|---|---|
+| GitHub Copilot | [`a2a-copilot`](/docs/reference/packages/a2a-copilot) | Bring your own model (Ollama, OpenAI, Anthropic, Azure, vLLM) |
+| Claude Code | [`a2a-claude`](/docs/reference/packages/a2a-claude) | Permission modes, background tasks, rate-limit handling |
+| OpenAI Codex | [`a2a-codex`](/docs/reference/packages/a2a-codex) | Repository sandboxing, approval policy |
+| OpenCode | [`a2a-opencode`](/docs/reference/packages/a2a-opencode) | Multi-provider by default |
+| Google Antigravity | [`a2a-antigravity`](/docs/reference/packages/a2a-antigravity) | Node server with a managed Python bridge |
+
+All of them are built on [`@a2a-wrapper/core`](/docs/reference/packages/core), which owns the protocol logic, config loading, server, sessions and events. Each wrapper only implements its backend-specific executor.
+
+## How it fits with MCP
+
+MCP is the vertical rail: how an agent reaches tools. A2A is the horizontal rail: how agents talk to each other. These wrappers add the horizontal rail to agents that already have the vertical one.
+
+## When to use it
+
+| You want to… | Use |
+|---|---|
+| Expose Claude Code, Codex, Copilot, OpenCode or Antigravity as an A2A server with a config file | **a2a-wrapper** |
+| Build a fully custom agent from scratch | The official [A2A SDKs](https://a2a-protocol.org) |
+| Orchestrate agents with LangGraph, Google ADK, CrewAI or similar | Those frameworks as the orchestrator, calling these wrappers as execution nodes |
+
+<Callout type="warn" title="Security first">
+  The A2A endpoint has no built-in authentication and the agents can edit files and run commands. Bind to `127.0.0.1` for local use and read the [security guide](/docs/guides/security) before exposing anything on a network.
+</Callout>
