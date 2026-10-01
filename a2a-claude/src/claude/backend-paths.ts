@@ -1,7 +1,7 @@
 /**
- * Backend Paths — Claude Code Memory Materialization Targets
+ * Backend Paths — Claude Memory Materialization Targets
  *
- * Claude Code reads project instructions from CLAUDE.md and skills from
+ * Claude reads project instructions from CLAUDE.md and skills from
  * .claude/skills within the workspace.
  */
 

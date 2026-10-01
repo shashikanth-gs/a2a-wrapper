@@ -10,9 +10,9 @@
 [![GitHub Stars](https://img.shields.io/github/stars/shashikanth-gs/a2a-wrapper?style=social)](https://github.com/shashikanth-gs/a2a-wrapper)
 [![Follow on GitHub](https://img.shields.io/github/followers/shashikanth-gs?style=social)](https://github.com/shashikanth-gs)
 
-<img src="docs/assets/hero.svg" alt="a2a-wrapper: Claude Code, OpenAI Codex, GitHub Copilot, OpenCode, and Google Antigravity each wrapped into a standalone a2a-* server on shared @a2a-wrapper/core, exposed to any A2A orchestrator over one protocol" width="100%">
+<img src="docs/assets/hero.svg" alt="a2a-wrapper: Claude, OpenAI Codex, GitHub Copilot, OpenCode, and Google Antigravity each wrapped into a standalone a2a-* server on shared @a2a-wrapper/core, exposed to any A2A orchestrator over one protocol" width="100%">
 
-**Turn Claude Code, OpenAI Codex, GitHub Copilot and OpenCode into A2A agents that can discover, delegate to, and work with each other.**
+**Turn Claude, OpenAI Codex, GitHub Copilot and OpenCode into A2A agents that can discover, delegate to, and work with each other.**
 
 A monorepo of [A2A protocol](https://a2a-protocol.org) wrappers that turn production AI backends into standalone, interoperable agents. Drop a JSON config file in, get a fully spec-compliant A2A server out.
 
@@ -28,7 +28,7 @@ A monorepo of [A2A protocol](https://a2a-protocol.org) wrappers that turn produc
 
 ## Why this exists
 
-Coding agents like Claude Code, Codex and Copilot are powerful but isolated. You can't cleanly hand a task from one to another, track long-running work, or compose them into a team without writing custom glue for each.
+Coding agents like Claude, Codex and Copilot are powerful but isolated. You can't cleanly hand a task from one to another, track long-running work, or compose them into a team without writing custom glue for each.
 
 `a2a-wrapper` puts each of them behind the same open protocol. You get discovery (agent cards), a task lifecycle, streaming, multi-turn sessions and sub-agent delegation without writing protocol code, and any A2A client can talk to any wrapper.
 
@@ -38,7 +38,7 @@ Coding agents like Claude Code, Codex and Copilot are powerful but isolated. You
 
    <img src="docs/assets/copilot-quickstart.gif" alt="Recording: start a2a-copilot, discover it via its agent card, and ask it a question" width="760">
 
-2. **Extended:** [Software Engineering Crew](examples/software-engineering-crew/). Claude Code implements a feature and Codex writes the tests, coordinated over A2A. It has a `--mock` mode that needs no API keys.
+2. **Extended:** [Software Engineering Crew](examples/software-engineering-crew/). Claude implements a feature and Codex writes the tests, coordinated over A2A. It has a `--mock` mode that needs no API keys.
 
    <img src="docs/assets/crew-demo.gif" alt="Recording: a planner delegates a feature to an implementer agent, then a tester agent (mock agents)" width="760">
 
@@ -46,7 +46,7 @@ Coding agents like Claude Code, Codex and Copilot are powerful but isolated. You
 
 | You want to… | Use |
 |---|---|
-| Expose Claude Code, Codex, Copilot, OpenCode or Antigravity as an A2A server with just a config file | **a2a-wrapper** |
+| Expose Claude, Codex, Copilot, OpenCode or Antigravity as an A2A server with just a config file | **a2a-wrapper** |
 | Build a fully custom agent from scratch | The official [A2A SDKs](https://a2a-protocol.org) |
 | Adapt Python agent frameworks or plain functions to A2A | A Python adapter library; this repo is Node/TypeScript |
 
@@ -59,7 +59,7 @@ These are complementary: an orchestrator built with any A2A SDK can call the wra
 | [`@a2a-wrapper/core`](packages/core/) | [![npm](https://img.shields.io/npm/v/@a2a-wrapper/core.svg)](https://www.npmjs.com/package/@a2a-wrapper/core) | [![canary](https://img.shields.io/npm/v/@a2a-wrapper/core/canary.svg?label=canary&color=orange)](https://www.npmjs.com/package/@a2a-wrapper/core/v/canary) | Shared infrastructure — logging, config loading, event publishing, server factory, session management, CLI scaffold |
 | [`a2a-copilot`](a2a-copilot/) | [![npm](https://img.shields.io/npm/v/a2a-copilot.svg)](https://www.npmjs.com/package/a2a-copilot) | [![canary](https://img.shields.io/npm/v/a2a-copilot/canary.svg?label=canary&color=orange)](https://www.npmjs.com/package/a2a-copilot/v/canary) | A2A wrapper for GitHub Copilot SDK. Supports **Bring Your Own Model (BYOK)** — Ollama, OpenAI, Anthropic, Azure, vLLM, or any OpenAI-compatible endpoint |
 | [`a2a-opencode`](a2a-opencode/) | [![npm](https://img.shields.io/npm/v/a2a-opencode.svg)](https://www.npmjs.com/package/a2a-opencode) | [![canary](https://img.shields.io/npm/v/a2a-opencode/canary.svg?label=canary&color=orange)](https://www.npmjs.com/package/a2a-opencode/v/canary) | A2A wrapper for OpenCode — multi-provider out of the box (Anthropic, OpenAI, GitHub Copilot, and more) |
-| [`a2a-claude`](a2a-claude/) | [![npm](https://img.shields.io/npm/v/a2a-claude.svg)](https://www.npmjs.com/package/a2a-claude) | [![canary](https://img.shields.io/npm/v/a2a-claude/canary.svg?label=canary&color=orange)](https://www.npmjs.com/package/a2a-claude/v/canary) | A2A wrapper for Claude Code — fully spec-compliant agent powered by the official `@anthropic-ai/claude-agent-sdk` |
+| [`a2a-claude`](a2a-claude/) | [![npm](https://img.shields.io/npm/v/a2a-claude.svg)](https://www.npmjs.com/package/a2a-claude) | [![canary](https://img.shields.io/npm/v/a2a-claude/canary.svg?label=canary&color=orange)](https://www.npmjs.com/package/a2a-claude/v/canary) | A2A wrapper for Claude — fully spec-compliant agent powered by the official `@anthropic-ai/claude-agent-sdk` |
 | [`a2a-codex`](a2a-codex/) | [![npm](https://img.shields.io/npm/v/a2a-codex.svg)](https://www.npmjs.com/package/a2a-codex) | [![canary](https://img.shields.io/npm/v/a2a-codex/canary.svg?label=canary&color=orange)](https://www.npmjs.com/package/a2a-codex/v/canary) | A2A wrapper for OpenAI Codex SDK — repository-scoped software engineering agent with sandboxing, MCP, and multi-agent delegation |
 | [`a2a-antigravity`](a2a-antigravity/) | [![npm](https://img.shields.io/npm/v/a2a-antigravity.svg)](https://www.npmjs.com/package/a2a-antigravity) | [![canary](https://img.shields.io/npm/v/a2a-antigravity/canary.svg?label=canary&color=orange)](https://www.npmjs.com/package/a2a-antigravity/v/canary) | A2A wrapper for Google Antigravity SDK — Node/TypeScript public server with a managed Python SDK subprocess, Gemini auth, policies, MCP, and sideband traces |
 
@@ -101,7 +101,7 @@ Several wrappers are provider-flexible — you are not locked into a single vend
 │ Wrapper packages                                                       │
 │  • a2a-copilot      → GitHub Copilot SDK                               │
 │  • a2a-opencode     → OpenCode Server                                  │
-│  • a2a-claude       → Claude Code SDK                                  │
+│  • a2a-claude       → Claude Agent SDK                                  │
 │  • a2a-codex        → OpenAI Codex SDK                                 │
 │  • a2a-antigravity  → Google Antigravity SDK via Python bridge         │
 └────────────────────────────────────────────────────────────────────────┘
@@ -192,7 +192,7 @@ curl -X POST http://localhost:3000/a2a/jsonrpc -H 'content-type: application/jso
 }'
 ```
 
-The full walkthrough, with a recording, is in [`examples/copilot-quickstart`](examples/copilot-quickstart/). Claude Code, Codex, OpenCode and Antigravity work the same way with their own package and config block. When you're ready for more than one agent, try the [Software Engineering Crew](examples/software-engineering-crew/).
+The full walkthrough, with a recording, is in [`examples/copilot-quickstart`](examples/copilot-quickstart/). Claude, Codex, OpenCode and Antigravity work the same way with their own package and config block. When you're ready for more than one agent, try the [Software Engineering Crew](examples/software-engineering-crew/).
 
 > **Security:** the endpoint has no built-in authentication and agents can act on your machine. The config above binds to `127.0.0.1`. Read the [Security Guide](docs/security.md) before exposing it on a network.
 

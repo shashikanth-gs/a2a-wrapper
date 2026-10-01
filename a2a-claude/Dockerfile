@@ -1,5 +1,5 @@
 # =============================================================================
-# a2a-claude — Claude Code A2A Wrapper
+# a2a-claude — Claude A2A Wrapper
 # =============================================================================
 #
 # IMPORTANT: Build from the MONOREPO ROOT, not from this directory.
@@ -11,32 +11,15 @@
 # resolved via workspace linking rather than the npm registry.
 #
 # ---------------------------------------------------------------------------
-# Authentication — choose ONE of the two approaches below:
+# Authentication — pass an Anthropic API key (Bedrock / Vertex env vars also work):
 # ---------------------------------------------------------------------------
 #
-# Option A — Anthropic API key (recommended for CI / cloud / team deployments):
+# Anthropic API key (recommended for CI / cloud / team deployments):
 #   docker run -p 3030:3030 \
 #     -e ANTHROPIC_API_KEY=<your-key> \
 #     -e WORKSPACE_DIR=/workspace \
 #     -v /host/path/to/repo:/workspace \
 #     a2a-claude:latest
-#
-# Option B — Claude subscription (you have already run `claude login` locally):
-#   Mount your local Claude Code credential store read-only into the container.
-#   The Claude Code CLI looks for credentials under ~/.claude; inside the
-#   container the node user's home is /home/node.
-#
-#   docker run -p 3030:3030 \
-#     -e WORKSPACE_DIR=/workspace \
-#     -e CLAUDE_MODEL=claude-sonnet-5 \
-#     -v ~/.claude:/home/node/.claude:ro \
-#     -v /host/path/to/repo:/workspace \
-#     a2a-claude:latest
-#
-#   Note: OAuth tokens under ~/.claude expire (typically after a few hours). The
-#   CLI cannot refresh them from inside a read-only mount. Re-run `claude login`
-#   on your host when the container starts returning auth errors.
-#   For long-running deployments, Option A (API key) is more reliable.
 #
 # ---------------------------------------------------------------------------
 # Override the agent config at runtime by mounting a custom config:
@@ -97,14 +80,14 @@ RUN rm -rf node_modules/@a2a-wrapper/core && \
 # ---------------------------------------------------------------------------
 FROM node:20-slim
 
-# The bundled Claude Code CLI needs system CA certificates to establish TLS
+# The bundled Claude Agent SDK runtime needs system CA certificates to establish TLS
 # connections to the Anthropic API. node:20-slim omits the ca-certificates
 # package by default.
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-LABEL org.opencontainers.image.title="A2A Claude Code Wrapper" \
-      org.opencontainers.image.description="A2A protocol wrapper for Claude Code via the Claude Agent SDK" \
+LABEL org.opencontainers.image.title="A2A Claude Wrapper" \
+      org.opencontainers.image.description="A2A protocol wrapper for Claude via the Claude Agent SDK" \
       org.opencontainers.image.version="0.1.0" \
       org.opencontainers.image.licenses="MIT"
 

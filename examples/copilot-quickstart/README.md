@@ -62,6 +62,6 @@ The endpoint has no built-in authentication, and Copilot can act on your machine
 
 ## Next
 
-- **Combine agents:** [Software Engineering Crew](../software-engineering-crew/): Claude Code implements, Codex writes the tests, all over A2A.
+- **Combine agents:** [Software Engineering Crew](../software-engineering-crew/): Claude implements, Codex writes the tests, all over A2A.
 - **Use another backend:** the same pattern works for `a2a-claude`, `a2a-codex`, `a2a-opencode` and `a2a-antigravity`; only the config block changes.
 - **Regenerate the recording:** `vhs docs/assets/copilot-quickstart.tape` from the repo root.

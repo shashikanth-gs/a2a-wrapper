@@ -2,8 +2,8 @@
 ###############################################################################
 # Read-Only Reviewer Agent — start / stop / status / logs
 #
-# Code review and repository analysis agent backed by Claude Code.
-# Claude Code is restricted to read-only access — it cannot modify any files.
+# Code review and repository analysis agent backed by Claude.
+# Claude is restricted to read-only access — it cannot modify any files.
 # Safe to point at any repository without risk of accidental changes.
 #
 # Usage:

@@ -128,7 +128,7 @@ export interface ClaudeConfig {
   additionalDirectories?: string[];
   /** Opaque SDK sandbox settings passthrough (OS-level command sandboxing). */
   sandbox?: Record<string, unknown>;
-  /** Override the path to the Claude Code executable. */
+  /** Override the path to the Claude executable. */
   executablePathOverride?: string;
   /** Must be true when permissionMode is "bypassPermissions". */
   dangerouslyAllowBypassPermissions?: boolean;

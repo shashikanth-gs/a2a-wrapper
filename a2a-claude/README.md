@@ -5,11 +5,11 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js >=20](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org)
 
-Claude Code is Anthropic's production-grade software engineering agent. It handles repository navigation, multi-step planning, shell commands, file editing, and permission management — all the plumbing you'd spend months building from scratch.
+Claude is Anthropic's model family, and the Claude Agent SDK gives it a production-grade agent loop. It handles repository navigation, multi-step planning, shell commands, file editing, and permission management — all the plumbing you'd spend months building from scratch.
 
-**a2a-claude** exposes it as a standalone, interoperable agent via the [A2A protocol](https://github.com/google-deepmind/a2a), using the [`@anthropic-ai/claude-agent-sdk`](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk). Drop a JSON config file in, get a fully spec-compliant A2A server out. Any orchestrator that speaks A2A can discover and call it — no Claude-specific integration code required.
+**a2a-claude** exposes that agent as a standalone, interoperable agent via the [A2A protocol](https://github.com/google-deepmind/a2a), using the [`@anthropic-ai/claude-agent-sdk`](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk). Drop a JSON config file in, get a fully spec-compliant A2A server out. Any orchestrator that speaks A2A can discover and call it — no Claude-specific integration code required.
 
-> **The pattern:** MCP is the vertical rail — how agents access tools. A2A is the horizontal rail — how agents talk to each other. This library adds the horizontal rail to Claude Code.
+> **The pattern:** MCP is the vertical rail — how agents access tools. A2A is the horizontal rail — how agents talk to each other. This library adds the horizontal rail to Claude.
 
 **Features:**
 - Native [A2A v1.0](https://a2a-protocol.org) protocol, backward compatible with v0.3.x clients — Agent Card, JSON-RPC, REST, streaming
@@ -61,7 +61,7 @@ Canary builds publish automatically after each merge, tagged like `a2a-claude@0.
 
 `ANTHROPIC_API_KEY` is the primary and recommended authentication path — export it before starting the agent (or set it in `.env`, see `.env.example`).
 
-Bedrock, Vertex, and Claude Code OAuth environment variables (e.g. `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, and related credentials) pass through untouched to the Claude Agent SDK — the wrapper never reads, validates, or stores them. Set whichever auth environment your deployment needs; a2a-claude only cares that the SDK's `query()` call can authenticate when invoked.
+Bedrock, Vertex, and related Claude authentication environment variables (e.g. `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, and related credentials) pass through untouched to the Claude Agent SDK — the wrapper never reads, validates, or stores them. Set whichever auth environment your deployment needs; a2a-claude only cares that the SDK's `query()` call can authenticate when invoked.
 
 The API key (or any other credential) is **never** placed in `config.json`. Config fields that need a secret use `${ENV_VAR}` substitution instead (see MCP servers below).
 
@@ -92,7 +92,7 @@ Fields map 1:1 onto `@anthropic-ai/claude-agent-sdk` `Options` (source of truth:
 | `maxBudgetUsd` | `number` | Max budget in USD per query. |
 | `additionalDirectories` | `string[]` | Additional directories Claude can access. Supports `${ENV_VAR}` per entry. |
 | `sandbox` | `object` | Opaque SDK sandbox settings passthrough (OS-level command sandboxing). |
-| `executablePathOverride` | `string` | Override the path to the Claude Code executable. |
+| `executablePathOverride` | `string` | Override the path to the Claude executable. |
 | `dangerouslyAllowBypassPermissions` | `boolean` | Must be `true` when `permissionMode` is `"bypassPermissions"`. |
 | `contextFile` | `string` | Filename for the pre-built domain context file within `workingDirectory`. Default `"context.md"`. |
 | `contextPrompt` | `string` | Default prompt used when `buildContext()` is called without an explicit prompt. |
@@ -246,7 +246,7 @@ Both disabled states are logged at startup.
 
 ### Permission modes
 
-Claude Code's `permissionMode` controls whether tool calls are auto-approved. Headless A2A execution cannot show an interactive approval prompt to a human, so two of the SDK's four modes are rejected at startup:
+The SDK's `permissionMode` controls whether tool calls are auto-approved. Headless A2A execution cannot show an interactive approval prompt to a human, so two of the SDK's four modes are rejected at startup:
 
 | Mode | Behaviour | Headless-safe |
 |---|---|---|
@@ -261,7 +261,7 @@ Setting `permissionMode: "bypassPermissions"` without `dangerouslyAllowBypassPer
 
 ### `settingSources` isolation
 
-`settingSources` defaults to `[]`, meaning Claude Code loads **no** host `~/.claude` user settings and **no** project `CLAUDE.md` / `.claude/settings.json` — every session starts from a clean, isolated slate driven entirely by `config.json`. Add `"project"` to `settingSources` to let Claude read the workspace's `CLAUDE.md` and project-level settings (useful when the target repository already documents its own conventions). Add `"user"` to load the host user's `~/.claude` settings — only do this in trusted, single-tenant deployments, since it pulls in configuration outside the agent's config file.
+`settingSources` defaults to `[]`, meaning the SDK loads **no** host `~/.claude` user settings and **no** project `CLAUDE.md` / `.claude/settings.json` — every session starts from a clean, isolated slate driven entirely by `config.json`. Add `"project"` to `settingSources` to let Claude read the workspace's `CLAUDE.md` and project-level settings (useful when the target repository already documents its own conventions). Add `"user"` to load the host user's `~/.claude` settings — only do this in trusted, single-tenant deployments, since it pulls in configuration outside the agent's config file.
 
 `strictMcpConfig` is always enabled internally (not user-configurable) — Claude is only allowed to use MCP servers explicitly declared in `config.json`, never ones discovered from ambient settings.
 
@@ -536,8 +536,6 @@ docker run -p 3030:3030 \
   -v /host/path/to/repo:/workspace \
   a2a-claude:latest
 ```
-
-See the `Dockerfile` header comment for the alternative subscription-credential mount (`~/.claude:/home/node/.claude:ro`) and its OAuth-expiry caveat.
 
 ## Manual E2E Verification
 

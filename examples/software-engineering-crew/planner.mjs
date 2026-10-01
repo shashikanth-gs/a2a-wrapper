@@ -113,7 +113,7 @@ try {
 
   console.log("═".repeat(72));
   console.log("FEATURE REQUEST\n" + feature);
-  console.log("\nIMPLEMENTATION (Claude Code via a2a-claude)\n" + implementation);
+  console.log("\nIMPLEMENTATION (Claude via a2a-claude)\n" + implementation);
   console.log("\nTESTS & REVIEW (Codex via a2a-codex)\n" + review);
   console.log("═".repeat(72));
 } catch (err) {

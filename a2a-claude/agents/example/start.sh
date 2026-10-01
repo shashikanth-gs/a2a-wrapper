@@ -2,7 +2,7 @@
 ###############################################################################
 # Example Agent — start / stop / status / logs
 #
-# Minimal workspace engineering agent backed by Claude Code.
+# Minimal workspace engineering agent backed by Claude.
 # Claude can read and write files inside the workspace directory.
 #
 # Copy this directory to create your own agent:

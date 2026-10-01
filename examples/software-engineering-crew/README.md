@@ -14,13 +14,13 @@ A small, real multi-agent workflow built on `a2a-wrapper`, all over the A2A prot
    ┌─────────────────────┐               ┌─────────────────────┐
    │ Implementer         │               │ Tester              │
    │ a2a-claude  :3030   │  ── result ─▶ │ a2a-codex   :3020   │
-   │ (Claude Code)       │               │ (OpenAI Codex)      │
+   │ (Claude)       │               │ (OpenAI Codex)      │
    └─────────────────────┘               └─────────────────────┘
               └──────────── same workspace (git repo) ────────┘
 ```
 
-1. The **planner** takes a feature request and sends it to Claude Code (`a2a-claude`).
-2. Claude Code implements it in the shared workspace and returns a summary as an A2A artifact.
+1. The **planner** takes a feature request and sends it to Claude (`a2a-claude`).
+2. Claude implements it in the shared workspace and returns a summary as an A2A artifact.
 3. The planner hands that summary to Codex (`a2a-codex`), which writes tests, runs them, and fixes what it finds.
 4. The planner prints the combined result.
 
@@ -53,7 +53,7 @@ npx turbo run build
 export WORKSPACE_DIR=$(mktemp -d)
 git -C "$WORKSPACE_DIR" init && git -C "$WORKSPACE_DIR" commit --allow-empty -m init
 
-# 3. Terminal A — the implementer (Claude Code) on :3030
+# 3. Terminal A — the implementer (Claude) on :3030
 export ANTHROPIC_API_KEY=sk-ant-...
 cd a2a-claude && npm run dev -- --config agents/example/config.json
 

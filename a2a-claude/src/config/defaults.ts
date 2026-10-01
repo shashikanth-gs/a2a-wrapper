@@ -9,7 +9,7 @@ import type { AgentConfig } from "./types.js";
 export const DEFAULTS: Required<AgentConfig> = {
   agentCard: {
     name: "Claude A2A Agent",
-    description: "A repository-scoped software engineering agent backed by Claude Code.",
+    description: "A repository-scoped software engineering agent backed by Claude.",
     protocolVersion: "0.3.0",
     version: "1.0.0",
     streaming: true,

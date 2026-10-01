@@ -1,7 +1,7 @@
 /**
  * Session Manager — Claude Session Lifecycle
  *
- * Maps A2A contextId → Claude Code session id for multi-turn continuity.
+ * Maps A2A contextId → Claude session id for multi-turn continuity.
  * Serializes turns within the same context via a promise-chain queue.
  * Tracks active executions (abort controller + query handle) for cancellation.
  */

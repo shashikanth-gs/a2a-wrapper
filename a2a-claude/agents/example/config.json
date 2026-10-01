@@ -1,6 +1,6 @@
 {
   "$comment": [
-    "Claude-Code-backed A2A workspace engineering agent.",
+    "Claude-backed A2A workspace engineering agent.",
     "Required environment variables:",
     "  ANTHROPIC_API_KEY — your Anthropic API key",
     "  WORKSPACE_DIR     — absolute path to the workspace directory",
@@ -11,7 +11,7 @@
   ],
   "agentCard": {
     "name": "Claude Workspace Engineer",
-    "description": "A repository-scoped software engineering agent backed by Claude Code.",
+    "description": "A repository-scoped software engineering agent backed by Claude.",
     "version": "1.0.0",
     "protocolVersion": "0.3.0",
     "streaming": true,
