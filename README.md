@@ -12,7 +12,7 @@
 
 <img src="docs/assets/hero.svg" alt="a2a-wrapper: Claude, OpenAI Codex, GitHub Copilot, OpenCode, and Google Antigravity each wrapped into a standalone a2a-* server on shared @a2a-wrapper/core, exposed to any A2A orchestrator over one protocol" width="100%">
 
-**Turn Claude, OpenAI Codex, GitHub Copilot and OpenCode into A2A agents that can discover, delegate to, and work with each other.**
+**Turn Claude, OpenAI Codex, GitHub Copilot, OpenCode and Google Antigravity into A2A agents that can discover, delegate to, and work with each other.**
 
 A monorepo of [A2A protocol](https://a2a-protocol.org) wrappers that turn production AI backends into standalone, interoperable agents. Drop a JSON config file in, get a fully spec-compliant A2A server out.
 
