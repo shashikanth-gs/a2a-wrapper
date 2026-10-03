@@ -80,6 +80,7 @@ Fields map 1:1 onto `@anthropic-ai/claude-agent-sdk` `Options` (source of truth:
 | `fallbackModel` | `string` | Fallback model when the primary is overloaded/unavailable. |
 | `effort` | `"low" \| "medium" \| "high" \| "xhigh" \| "max"` | Reasoning effort level. Overridable with the `CLAUDE_EFFORT` env var. SDK default when omitted. |
 | `thinking` | `{ type: "adaptive" }` \| `{ type: "enabled", budgetTokens?, display? }` \| `{ type: "disabled" }` | Extended thinking behavior. SDK default when omitted. |
+| `outputFormat` | `{ type: "json_schema", schema: object }` | Request structured JSON output — see **Structured output** below. SDK default (freeform text) when omitted. |
 | `permissionMode` | `"acceptEdits" \| "dontAsk" \| "plan" \| "bypassPermissions"` | Permission mode. `"default"` and `"auto"` are rejected — see **Permission modes** below. Default: `"acceptEdits"`. |
 | `allowedTools` | `string[]` | Tools auto-allowed without prompting. |
 | `disallowedTools` | `string[]` | Tools removed from the model's context entirely. |
@@ -142,6 +143,16 @@ Two more things worth knowing:
 
 - `{ "type": "disabled" }` means no `thinking` sideband events can ever fire, regardless of `features.emitThinkingEvents`.
 - Both values are validated at startup. An unsupported effort level or a malformed `thinking` object fails `initialize()` with a message naming the allowed values.
+
+### Structured output
+
+- **`claude.outputFormat`** (object, optional) — Request structured JSON output.
+  Maps 1:1 onto the Claude Agent SDK's `Options.outputFormat`. Shape:
+  `{ "type": "json_schema", "schema": { ... } }`, where `schema` is a JSON
+  Schema the model's output is constrained to match. When set, the parsed
+  object is published as an `application/json` **data part** on the `response`
+  artifact, alongside the usual text part (the text part is still emitted, so
+  text-only clients are unaffected). Omit for freeform text (the SDK default).
 
 ### Full config reference
 
@@ -560,7 +571,6 @@ The following are explicitly out of scope for this release and tracked as future
 - hooks configuration
 - native Claude subagents (`agents` option)
 - skills
-- structured outputs (`outputFormat`)
 - richer usage/cost telemetry
 - session forking
 - `canUseTool` policy engine

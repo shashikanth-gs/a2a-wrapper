@@ -155,6 +155,37 @@ describe("Property 13: Event publisher structure correctness", () => {
     );
   });
 
+  it("publishFinalArtifact appends a data part when structuredData is an object", () => {
+    const bus = createMockBus();
+    const data = { answer: "42", ok: true };
+    publishFinalArtifact(bus as any, "t1", "c1", "text body", data);
+
+    const parts = bus.events[0].data.artifact.parts;
+    expect(parts).toHaveLength(2);
+    expect(partText(parts[0])).toBe("text body");
+    expect(partData(parts[1])).toEqual(data);
+  });
+
+  it("publishFinalArtifact stays text-only when structuredData is omitted", () => {
+    const bus = createMockBus();
+    publishFinalArtifact(bus as any, "t1", "c1", "text body");
+
+    const parts = bus.events[0].data.artifact.parts;
+    expect(parts).toHaveLength(1);
+    expect(partText(parts[0])).toBe("text body");
+  });
+
+  it("publishLastChunkMarker appends a data part when structuredData is an object", () => {
+    const bus = createMockBus();
+    const data = { answer: "42" };
+    publishLastChunkMarker(bus as any, "t1", "c1", "art-1", "full text", data);
+
+    const parts = bus.events[0].data.artifact.parts;
+    expect(parts).toHaveLength(2);
+    expect(partText(parts[0])).toBe("full text");
+    expect(partData(parts[1])).toEqual(data);
+  });
+
   it("publishStreamingChunk produces event with append: true and lastChunk: false", () => {
     fc.assert(
       fc.property(arbId, arbId, arbId, arbText, (taskId, contextId, artifactId, chunkText) => {

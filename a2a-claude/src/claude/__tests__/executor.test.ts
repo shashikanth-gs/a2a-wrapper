@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ClaudeExecutor } from "../executor.js";
 import { SessionManager } from "../session-manager.js";
-import { FakeClaudeClient, happyTurn } from "./fake-client.js";
+import { FakeClaudeClient, happyTurn, structuredTurn } from "./fake-client.js";
 import { DEFAULTS } from "../../config/defaults.js";
 import type { AgentConfig } from "../../config/types.js";
 import type { RequestContext, ExecutionEventBus } from "@a2a-js/sdk/server";
@@ -95,6 +95,20 @@ describe("ClaudeExecutor.execute", () => {
     expect(finished()).toBe(1);
     expect(client.calls[0].options.cwd).toBe(ws);
     expect(client.calls[0].options.resume).toBeUndefined();
+  });
+
+  it("publishes structured_output as a JSON data part on the response artifact", async () => {
+    const client = new FakeClaudeClient([structuredTurn("s", "{\"answer\":\"42\"}", { answer: "42" })]);
+    const ex = new ClaudeExecutor(config, () => client);
+    const { bus, events } = makeBus();
+
+    await ex.execute(makeCtx("t1", "ctx-1"), bus);
+
+    const artifact = events.find((e) => e.kind === "artifactUpdate") as any;
+    const parts = artifact.data.artifact.parts;
+    const dataPart = parts.find((p: any) => p.content?.$case === "data");
+    expect(dataPart).toBeDefined();
+    expect(dataPart.content.value).toEqual({ answer: "42" });
   });
 
   it("threads the captured session id into the next turn's resume", async () => {

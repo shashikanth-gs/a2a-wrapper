@@ -225,3 +225,22 @@ export function happyTurn(sessionId: string, text: string): FakeTurnScript {
     ],
   };
 }
+
+/** Happy-path turn whose success result also carries structured_output. */
+export function structuredTurn(
+  sessionId: string,
+  text: string,
+  structuredOutput: unknown,
+): FakeTurnScript {
+  return {
+    messages: [
+      { type: "system", subtype: "init", session_id: sessionId, model: "claude-test" },
+      { type: "assistant", parent_tool_use_id: null, message: { content: [{ type: "text", text }] } },
+      {
+        type: "result", subtype: "success", result: text, structured_output: structuredOutput,
+        usage: { input_tokens: 1, output_tokens: 1 }, total_cost_usd: 0.01, num_turns: 1,
+        session_id: sessionId,
+      },
+    ],
+  };
+}

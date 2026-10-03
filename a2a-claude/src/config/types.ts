@@ -68,6 +68,16 @@ export type ClaudeThinkingConfig =
   | { type: "disabled" };
 
 /**
+ * Structured output configuration. Maps 1:1 onto SDK `Options.outputFormat`.
+ * `type: "json_schema"` is the only value the SDK supports; `schema` is a JSON
+ * Schema object the model's output is constrained to match.
+ */
+export type ClaudeOutputFormat = {
+  type: "json_schema";
+  schema: Record<string, unknown>;
+};
+
+/**
  * Claude Agent SDK connection and execution settings.
  * Fields map 1:1 onto @anthropic-ai/claude-agent-sdk Options (see spec §3.1).
  */
@@ -86,6 +96,13 @@ export interface ClaudeConfig {
   effort?: ClaudeEffortLevel;
   /** Extended thinking behavior. SDK default when omitted. */
   thinking?: ClaudeThinkingConfig;
+  /**
+   * Structured JSON output. When set, the model is constrained to return JSON
+   * matching `schema`; the parsed object is published as a data part on the
+   * `response` artifact alongside the text. SDK default (freeform text) when
+   * omitted. Maps 1:1 onto SDK `Options.outputFormat`.
+   */
+  outputFormat?: ClaudeOutputFormat;
   /**
    * Permission mode. "default" and "auto" are rejected — they require an
    * interactive approver / classifier, incompatible with headless A2A.

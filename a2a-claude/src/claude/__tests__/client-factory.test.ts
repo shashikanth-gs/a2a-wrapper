@@ -124,6 +124,17 @@ describe("buildQueryOptions", () => {
     expect(opts.effort).toBeUndefined();
   });
 
+  it("passes outputFormat through to the SDK options", () => {
+    const schema = { type: "object", properties: { answer: { type: "string" } } };
+    const opts = buildQueryOptions(cfg({ outputFormat: { type: "json_schema", schema } }), {});
+    expect(opts.outputFormat).toEqual({ type: "json_schema", schema });
+  });
+
+  it("omits outputFormat when unset", () => {
+    const opts = buildQueryOptions(cfg(), {});
+    expect(opts.outputFormat).toBeUndefined();
+  });
+
   // The SDK leaves `display` at "omitted", which yields thinking blocks with an
   // empty string — nothing for the sideband thinking events to carry.
   describe("thinking display defaulting", () => {

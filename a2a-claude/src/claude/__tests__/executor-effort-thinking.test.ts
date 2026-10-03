@@ -83,3 +83,36 @@ describe("thinking validation", () => {
     );
   });
 });
+
+describe("outputFormat validation", () => {
+  const validSchema = { type: "object", properties: { answer: { type: "string" } } };
+
+  it("accepts a valid json_schema outputFormat", async () => {
+    config.claude.outputFormat = { type: "json_schema", schema: validSchema };
+    await expect(executor().initialize()).resolves.toBeUndefined();
+  });
+
+  it("accepts a config with no outputFormat set", async () => {
+    await expect(executor().initialize()).resolves.toBeUndefined();
+  });
+
+  it("rejects a non-object outputFormat", async () => {
+    config.claude.outputFormat = "json" as never;
+    await expect(executor().initialize()).rejects.toThrow(/claude\.outputFormat/);
+  });
+
+  it("rejects an unsupported outputFormat type", async () => {
+    config.claude.outputFormat = { type: "text", schema: validSchema } as never;
+    await expect(executor().initialize()).rejects.toThrow(/json_schema/);
+  });
+
+  it("rejects an outputFormat missing a schema object", async () => {
+    config.claude.outputFormat = { type: "json_schema" } as never;
+    await expect(executor().initialize()).rejects.toThrow(/schema/);
+  });
+
+  it("rejects an outputFormat whose schema is an array", async () => {
+    config.claude.outputFormat = { type: "json_schema", schema: [] as never } as never;
+    await expect(executor().initialize()).rejects.toThrow(/schema/);
+  });
+});

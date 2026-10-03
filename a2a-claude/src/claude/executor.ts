@@ -52,6 +52,7 @@ const log = logger.child("executor");
 const VALID_PERMISSION_MODES = new Set(["acceptEdits", "dontAsk", "plan", "bypassPermissions"]);
 const VALID_EFFORT_LEVELS = new Set(["low", "medium", "high", "xhigh", "max"]);
 const VALID_THINKING_TYPES = new Set(["adaptive", "enabled", "disabled"]);
+const VALID_OUTPUT_FORMAT_TYPES = new Set(["json_schema"]);
 
 export class ClaudeExecutor implements AgentExecutor {
   private readonly config: Required<AgentConfig>;
@@ -280,6 +281,9 @@ export class ClaudeExecutor implements AgentExecutor {
         // which must still be able to see a rate limit we already detected.
         let rateLimited: RateLimitSnapshot | null = null;
         let finalText = "";
+        // Structured output captured from the success result, published as a
+        // data part alongside finalText. Reset per round in lockstep with it.
+        let structuredOutput: unknown;
         let streamArtifactStarted = false;
         const streaming = this.config.features.streamArtifactChunks === true;
 
@@ -349,9 +353,9 @@ export class ClaudeExecutor implements AgentExecutor {
          */
         const publishRoundArtifact = (): void => {
           if (streaming && streamArtifactStarted) {
-            publishLastChunkMarker(bus, taskId, contextId, streamArtifactId(), finalText);
+            publishLastChunkMarker(bus, taskId, contextId, streamArtifactId(), finalText, structuredOutput);
           } else if (finalText) {
-            publishFinalArtifact(bus, taskId, contextId, finalText);
+            publishFinalArtifact(bus, taskId, contextId, finalText, structuredOutput);
           }
         };
 
@@ -427,6 +431,7 @@ export class ClaudeExecutor implements AgentExecutor {
             // ── A result message: decide whether this ends the A2A Task ──
             if (msg.subtype === "success" && typeof msg.result === "string") {
               finalText = msg.result;
+              structuredOutput = msg.structured_output;
             } else if (msg.subtype !== "success") {
               const reasons: Record<string, string> = {
                 error_max_turns: "Turn limit reached (max_turns).",
@@ -461,6 +466,7 @@ export class ClaudeExecutor implements AgentExecutor {
                 { backgroundTasks: backgroundTasks.snapshot() },
               );
               finalText = "";
+              structuredOutput = undefined;
               round += 1;
               continue;
             }
@@ -738,6 +744,34 @@ export class ClaudeExecutor implements AgentExecutor {
       ) {
         throw new Error(
           `claude.thinking.budgetTokens must be a positive integer (got ${JSON.stringify(thinking.budgetTokens)}).`,
+        );
+      }
+    }
+
+    // Config can arrive from an untyped JSON file, so outputFormat's shape is
+    // checked structurally rather than trusted from the type declaration.
+    const outputFormat = claude.outputFormat as
+      | { type?: unknown; schema?: unknown }
+      | undefined;
+    if (outputFormat !== undefined) {
+      if (
+        typeof outputFormat !== "object" ||
+        outputFormat === null ||
+        Array.isArray(outputFormat) ||
+        typeof outputFormat.type !== "string" ||
+        !VALID_OUTPUT_FORMAT_TYPES.has(outputFormat.type)
+      ) {
+        throw new Error(
+          'claude.outputFormat must be an object whose "type" is "json_schema".',
+        );
+      }
+      if (
+        typeof outputFormat.schema !== "object" ||
+        outputFormat.schema === null ||
+        Array.isArray(outputFormat.schema)
+      ) {
+        throw new Error(
+          "claude.outputFormat.schema must be a JSON Schema object.",
         );
       }
     }

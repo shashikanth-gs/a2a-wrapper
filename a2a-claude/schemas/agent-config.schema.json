@@ -224,6 +224,10 @@
           "description": "Model (e.g. \"claude-sonnet-5\"). Supports ${CLAUDE_MODEL}. SDK default when omitted.",
           "type": "string"
         },
+        "outputFormat": {
+          "$ref": "#/definitions/ClaudeOutputFormat",
+          "description": "Structured JSON output. When set, the model is constrained to return JSON matching `schema`; the parsed object is published as a data part on the `response` artifact alongside the text. SDK default (freeform text) when omitted. Maps 1:1 onto SDK `Options.outputFormat`."
+        },
         "permissionMode": {
           "$ref": "#/definitions/ClaudePermissionMode",
           "default": "acceptEdits",
@@ -295,6 +299,25 @@
       },
       "required": [
         "source"
+      ],
+      "type": "object"
+    },
+    "ClaudeOutputFormat": {
+      "additionalProperties": false,
+      "description": "Structured output configuration. Maps 1:1 onto SDK `Options.outputFormat`. `type: \"json_schema\"` is the only value the SDK supports; `schema` is a JSON Schema object the model's output is constrained to match.",
+      "properties": {
+        "schema": {
+          "additionalProperties": {},
+          "type": "object"
+        },
+        "type": {
+          "const": "json_schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "schema"
       ],
       "type": "object"
     },

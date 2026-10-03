@@ -194,6 +194,26 @@ export function publishStatus(
 // ─── Artifact Updates ───────────────────────────────────────────────────────
 
 /**
+ * Build the `parts` array for a response artifact: the text part, plus — when
+ * `structuredData` is a non-null, non-array object — a JSON data part. Keeps
+ * the text part first so text-only A2A clients are unaffected.
+ */
+function responseParts(
+  text: string,
+  structuredData?: unknown,
+): Array<Record<string, unknown>> {
+  const parts: Array<Record<string, unknown>> = [{ text }];
+  if (
+    typeof structuredData === "object" &&
+    structuredData !== null &&
+    !Array.isArray(structuredData)
+  ) {
+    parts.push({ data: structuredData, metadata: { mimeType: "application/json" } });
+  }
+  return parts;
+}
+
+/**
  * Publish a single, complete artifact in buffered (non-appending) mode.
  *
  * Constructs a {@link TaskArtifactUpdateEvent} with `append: false` and
@@ -204,10 +224,14 @@ export function publishStatus(
  * streaming is disabled — one artifact-update equals one chat bubble in
  * the A2A Inspector.
  *
- * @param bus       - The {@link ExecutionEventBus} for the current task execution.
- * @param taskId    - The A2A task identifier.
- * @param contextId - The A2A context identifier for the conversation.
- * @param text      - The complete response text to publish.
+ * @param bus            - The {@link ExecutionEventBus} for the current task execution.
+ * @param taskId         - The A2A task identifier.
+ * @param contextId      - The A2A context identifier for the conversation.
+ * @param text           - The complete response text to publish.
+ * @param structuredData - Optional structured data to publish alongside the text
+ *                         as an additive JSON data part. When it is a non-null,
+ *                         non-array object, it is appended after the text part;
+ *                         otherwise the artifact remains text-only.
  *
  * @example
  * ```ts
@@ -221,6 +245,7 @@ export function publishFinalArtifact(
   taskId: string,
   contextId: string,
   text: string,
+  structuredData?: unknown,
 ): void {
   const event = TaskArtifactUpdateEvent.fromJSON({
     taskId,
@@ -230,7 +255,7 @@ export function publishFinalArtifact(
     artifact: {
       artifactId: `response-${uuidv4()}`,
       name: "response",
-      parts: [{ text }],
+      parts: responseParts(text, structuredData),
     },
   });
   publishArtifactEvent(bus, event);
@@ -293,12 +318,16 @@ export function publishStreamingChunk(
  * accumulated response text, allowing consumers that missed earlier chunks
  * to reconstruct the full artifact from this single event.
  *
- * @param bus        - The {@link ExecutionEventBus} for the current task execution.
- * @param taskId     - The A2A task identifier.
- * @param contextId  - The A2A context identifier for the conversation.
- * @param artifactId - The same stable artifact ID used for all preceding
- *                     streaming chunks.
- * @param fullText   - The complete accumulated response text.
+ * @param bus            - The {@link ExecutionEventBus} for the current task execution.
+ * @param taskId         - The A2A task identifier.
+ * @param contextId      - The A2A context identifier for the conversation.
+ * @param artifactId     - The same stable artifact ID used for all preceding
+ *                         streaming chunks.
+ * @param fullText       - The complete accumulated response text.
+ * @param structuredData - Optional structured data to publish alongside the text
+ *                         as an additive JSON data part. When it is a non-null,
+ *                         non-array object, it is appended after the text part;
+ *                         otherwise the artifact remains text-only.
  *
  * @example
  * ```ts
@@ -314,6 +343,7 @@ export function publishLastChunkMarker(
   contextId: string,
   artifactId: string,
   fullText: string,
+  structuredData?: unknown,
 ): void {
   const event = TaskArtifactUpdateEvent.fromJSON({
     taskId,
@@ -323,7 +353,7 @@ export function publishLastChunkMarker(
     artifact: {
       artifactId,
       name: "response",
-      parts: [{ text: fullText }],
+      parts: responseParts(fullText, structuredData),
     },
   });
   publishArtifactEvent(bus, event);
