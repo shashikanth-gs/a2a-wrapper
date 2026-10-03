@@ -1,5 +1,12 @@
 # a2a-codex
 
+## 1.7.3
+
+### Patch Changes
+
+- Updated dependencies [98d2027]
+  - @a2a-wrapper/core@2.1.2
+
 ## 1.7.2
 
 ### Patch Changes
