@@ -1,5 +1,12 @@
 # a2a-antigravity
 
+## 0.2.3
+
+### Patch Changes
+
+- Updated dependencies [98d2027]
+  - @a2a-wrapper/core@2.1.2
+
 ## 0.2.2
 
 ### Patch Changes

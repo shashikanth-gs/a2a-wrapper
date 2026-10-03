@@ -1,5 +1,25 @@
 # a2a-claude
 
+## 0.5.0
+
+### Minor Changes
+
+- 98d2027: Add `claude.outputFormat` to request structured JSON output from the Claude
+  session. Maps 1:1 onto the Claude Agent SDK's `Options.outputFormat`
+  (`{ type: "json_schema", schema }`) and is validated at startup. When set, the
+  SDK's `structured_output` is published as an `application/json` data part on the
+  `response` artifact, alongside the existing text part — text-only clients are
+  unaffected, and behaviour is unchanged when `outputFormat` is omitted.
+
+  The core change adds an optional, backward-compatible `structuredData` parameter
+  to `publishFinalArtifact` / `publishLastChunkMarker`.
+
+### Patch Changes
+
+- c721a74: Follow Anthropic's Agent SDK branding guidelines: describe the package as built on the Claude Agent SDK rather than "Claude Code", update package metadata, and drop the documented subscription-credential Docker mount in favour of API key (or Bedrock / Vertex) authentication.
+- Updated dependencies [98d2027]
+  - @a2a-wrapper/core@2.1.2
+
 ## 0.4.1
 
 ### Patch Changes

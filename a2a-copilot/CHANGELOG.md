@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.8.3
+
+### Patch Changes
+
+- Updated dependencies [98d2027]
+  - @a2a-wrapper/core@2.1.2
+
 ## 1.8.2
 
 ### Patch Changes
