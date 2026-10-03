@@ -1,15 +1,23 @@
-## What and why
+## What changed and why?
 
-<!-- What does this change, and why? Link the issue if there is one. -->
+<!-- Briefly explain the problem and your solution. Link an issue if one exists. -->
 
-## Packages touched
+## Scope
 
-- [ ] `@a2a-wrapper/core`
-- [ ] `a2a-claude` / `a2a-codex` / `a2a-copilot` / `a2a-opencode` / `a2a-antigravity`
-- [ ] examples / docs only
+<!-- Check all that apply. Name the wrapper(s) you changed. -->
+
+- [ ] Core (`@a2a-wrapper/core`)
+- [ ] Wrapper(s): <!-- e.g. a2a-codex, a2a-claude -->
+- [ ] Documentation or examples
+- [ ] CI, releases, or repository tooling
+
+## How was this tested?
+
+<!-- List the commands or manual checks you ran. If not tested, explain why. -->
 
 ## Checklist
 
-- [ ] `npm run build && npm test` pass
-- [ ] Added a changeset (`npm run changeset`) if a published package changed
-- [ ] Updated docs / README if behaviour or config changed
+- [ ] Relevant build, typecheck, and tests pass (`npx turbo run build typecheck test`)
+- [ ] Tests were added or updated for behavior changes
+- [ ] A changeset was added for published package changes (`npx changeset`)
+- [ ] Documentation or config examples were updated for user-facing changes
