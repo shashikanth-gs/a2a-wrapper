@@ -22,7 +22,12 @@ import {
   type TaskInvocationKind,
 } from "./attributes.js";
 import { extractA2ATraceContext, runWithTaskOtelStore, type TaskOtelStore } from "./context.js";
-import { resolveOtelEmissionPolicy, type OtelConfig } from "./types.js";
+import {
+  resolveOtelEmissionPolicy,
+  type OtelConfig,
+  type OtelSpanContextLike,
+  type OtelSpanLinkLike,
+} from "./types.js";
 
 export interface InstrumentExecutorOptions {
   /** Optional otel block from agent config. */
@@ -36,6 +41,8 @@ export interface InstrumentExecutorOptions {
 
 /** In-process execute() counts keyed by taskId (retries / continue). */
 const taskInvocationCounts = new Map<string, number>();
+/** Prior span contexts for optional span links on continue/retry. */
+const lastSpanContexts = new Map<string, OtelSpanContextLike>();
 
 function nextInvocation(taskId: string): number {
   const n = (taskInvocationCounts.get(taskId) ?? 0) + 1;
@@ -43,9 +50,31 @@ function nextInvocation(taskId: string): number {
   // Bound memory: drop after a large number of distinct tasks.
   if (taskInvocationCounts.size > 10_000) {
     const first = taskInvocationCounts.keys().next().value;
-    if (first !== undefined) taskInvocationCounts.delete(first);
+    if (first !== undefined) {
+      taskInvocationCounts.delete(first);
+      lastSpanContexts.delete(first);
+    }
   }
   return n;
+}
+
+function linkToPriorAttempt(
+  taskId: string,
+  invocation: number,
+  kind: TaskInvocationKind,
+): OtelSpanLinkLike[] | undefined {
+  if (invocation <= 1) return undefined;
+  const prev = lastSpanContexts.get(taskId);
+  if (!prev) return undefined;
+  return [
+    {
+      context: prev,
+      attributes: {
+        "a2a.task.link_reason": kind,
+        "a2a.task.prior_invocation": invocation - 1,
+      },
+    },
+  ];
 }
 
 function resolveInvocationKind(
@@ -117,18 +146,26 @@ export function instrumentExecutor(
       return runWithTaskOtelStore(store, () => executor.execute(ctx, bus));
     }
 
-    return withSpan("a2a.task.execute", attrs, async (span) => {
-      const store: TaskOtelStore = {
-        span,
-        policy,
-        taskId,
-        contextId,
-        agentId,
-        agentName,
-        toolSpans: new Map(),
-      };
-      return runWithTaskOtelStore(store, () => executor.execute(ctx, bus));
-    });
+    const links = linkToPriorAttempt(taskId, invocation, invocationKind);
+    return withSpan(
+      "a2a.task.execute",
+      attrs,
+      async (span) => {
+        const sc = span?.spanContext?.();
+        if (sc?.traceId && sc?.spanId) lastSpanContexts.set(taskId, sc);
+        const store: TaskOtelStore = {
+          span,
+          policy,
+          taskId,
+          contextId,
+          agentId,
+          agentName,
+          toolSpans: new Map(),
+        };
+        return runWithTaskOtelStore(store, () => executor.execute(ctx, bus));
+      },
+      links ? { links } : undefined,
+    );
   };
 
   const wrappedCancel = executor.cancelTask

@@ -346,7 +346,7 @@ Wrappers run coding agents behind an HTTP endpoint. Read the [Security Guide](do
 
 ## Roadmap
 
-- **OpenTelemetry observability** — optional distributed tracing for the A2A task lifecycle via `@opentelemetry/api` (optional peer; no-op until a host registers a TracerProvider / OTLP exporter). Core hooks ship in `@a2a-wrapper/core`; backend CLI passthrough (Copilot / Claude) is follow-up work. See [Observability](docs/observability.md).
+- **OpenTelemetry observability** — optional distributed tracing (`a2a.task.execute` + backend passthrough). Optional peers for `@opentelemetry/api` / SDK; CLI auto-bootstraps when `otel.exporter.endpoint` is set. Demo stack: [`examples/otel-stack`](examples/otel-stack). See [Observability](docs/observability.md).
 
 ## Contributing
 

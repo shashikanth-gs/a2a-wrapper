@@ -25,6 +25,8 @@ function fakeTracer() {
   const events: string[] = [];
   const attrs: Array<{ key: string; value: string | number | boolean }> = [];
   const spans: OtelSpanLike[] = [];
+  const linksSeen: number[] = [];
+  let spanSeq = 0;
   const tracer: OtelTracerLike = {
     startSpan(name, options) {
       if (options?.attributes) {
@@ -32,6 +34,9 @@ function fakeTracer() {
           attrs.push({ key, value });
         }
       }
+      linksSeen.push(options?.links?.length ?? 0);
+      spanSeq += 1;
+      const id = spanSeq;
       const span: OtelSpanLike = {
         setAttribute(key, value) {
           attrs.push({ key, value });
@@ -41,6 +46,13 @@ function fakeTracer() {
         addEvent(n) {
           events.push(n);
         },
+        spanContext() {
+          return {
+            traceId: `trace-${id}`,
+            spanId: `span-${id}`,
+            traceFlags: 1,
+          };
+        },
         end() {
           ended.push(name);
         },
@@ -49,7 +61,7 @@ function fakeTracer() {
       return span;
     },
   };
-  return { tracer, ended, events, spans, attrs };
+  return { tracer, ended, events, spans, attrs, linksSeen };
 }
 
 describe("resolveOtelEmissionPolicy", () => {
@@ -164,7 +176,7 @@ describe("instrumentExecutor", () => {
   });
 
   it("marks continue vs retry on re-entry (still one span per request)", async () => {
-    const { tracer, ended, attrs } = fakeTracer();
+    const { tracer, ended, attrs, linksSeen } = fakeTracer();
     setOtelTracer(tracer);
     const inner: A2AExecutor = {
       async initialize() {},
@@ -201,6 +213,8 @@ describe("instrumentExecutor", () => {
     expect(kinds).toEqual(["new", "continue", "retry"]);
     expect(attrs.some((a) => a.key === "a2a.message.id" && a.value === "m2")).toBe(true);
     expect(attrs.some((a) => a.key === "gen_ai.conversation.id" && a.value === "conv-1")).toBe(true);
+    // First attempt: no link; continue/retry link to prior span context.
+    expect(linksSeen).toEqual([0, 1, 1]);
   });
 });
 

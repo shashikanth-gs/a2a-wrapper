@@ -9,7 +9,12 @@
  */
 
 import { createRequire } from "node:module";
-import type { OtelSpanLike, OtelTracerLike } from "./types.js";
+import type { OtelSpanLike, OtelSpanLinkLike, OtelTracerLike } from "./types.js";
+
+export interface WithSpanOptions {
+  /** Span links (e.g. prior attempt of the same A2A task). */
+  links?: OtelSpanLinkLike[];
+}
 
 const require = createRequire(import.meta.url);
 
@@ -60,6 +65,7 @@ export async function withSpan<T>(
   name: string,
   attributes: Record<string, string | number | boolean>,
   block: (span: OtelSpanLike | undefined) => Promise<T>,
+  options?: WithSpanOptions,
 ): Promise<T> {
   const tracer = getOtelTracer();
   if (!tracer) {
@@ -70,7 +76,10 @@ export async function withSpan<T>(
     return block(undefined);
   }
 
-  const span = tracer.startSpan(name, { attributes });
+  const span = tracer.startSpan(name, {
+    attributes,
+    ...(options?.links?.length ? { links: options.links } : {}),
+  });
 
   const run = async (): Promise<T> => {
     try {
@@ -89,21 +98,32 @@ export async function withSpan<T>(
     }
   };
 
-  try {
-    const api = require("@opentelemetry/api") as {
-      context: {
-        active: () => unknown;
-        with: <R>(ctx: unknown, fn: () => R) => R;
-      };
-      trace: { setSpan: (ctx: unknown, s: unknown) => unknown };
+  // Bind active context when possible so Hook F parent-link works.
+  // Only catch failures while *building* the context — never catch `run()`
+  // errors (that would fall through and invoke the block a second time).
+  type Api = {
+    context: {
+      active: () => unknown;
+      with: <R>(ctx: unknown, fn: () => R) => R;
     };
-    const maybeReal = span as OtelSpanLike & { spanContext?: () => unknown };
-    if (typeof maybeReal.spanContext === "function") {
-      const ctx = api.trace.setSpan(api.context.active(), span);
-      return await api.context.with(ctx, run);
-    }
+    trace: { setSpan: (ctx: unknown, s: unknown) => unknown };
+  };
+
+  let api: Api | undefined;
+  try {
+    api = require("@opentelemetry/api") as Api;
   } catch {
-    /* API missing or span not activatable — run without context bind */
+    api = undefined;
+  }
+
+  if (api && typeof span.spanContext === "function") {
+    let ctx: unknown;
+    try {
+      ctx = api.trace.setSpan(api.context.active(), span);
+    } catch {
+      return run();
+    }
+    return await api.context.with(ctx, run);
   }
 
   return run();

@@ -1,0 +1,22 @@
+# Local OpenTelemetry collector + Jaeger for a2a-* wrapper demos.
+#
+#   docker compose -f examples/otel-stack/docker-compose.yml up -d
+#   open http://localhost:16686
+#
+# Point wrappers at:
+#   otel.exporter.endpoint = "http://127.0.0.1:4318"
+#   otel.backend.copilot.otlpEndpoint = "http://127.0.0.1:4318"   # or inherit exporter
+#
+# Jaeger all-in-one accepts OTLP HTTP (:4318) and gRPC (:4317).
+
+services:
+  jaeger:
+    image: jaegertracing/all-in-one:1.57
+    container_name: a2a-otel-jaeger
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "4317:4317"   # OTLP gRPC  (Claude / generic)
+      - "4318:4318"   # OTLP HTTP  (Copilot + NodeSDK — preferred)
+      - "16686:16686" # Jaeger UI
+    restart: unless-stopped

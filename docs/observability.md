@@ -36,7 +36,25 @@ await sdk.start();
 setOtelTracer(trace.getTracer("a2a-wrapper"));
 ```
 
-Point your collector (or Grafana Alloy) at OTLP HTTP `:4318` and/or gRPC `:4317`.
+### CLI bootstrap (Phase 4)
+
+Wrapper CLIs call `bootstrapOtelSdkFromConfig` when `otel.enabled` and
+`otel.exporter.endpoint` are set. That **dynamically imports** optional peers
+(`@opentelemetry/sdk-node`, `@opentelemetry/exporter-trace-otlp-http`). If they
+are missing, the process continues with no-op spans.
+
+```bash
+npm install @opentelemetry/api @opentelemetry/sdk-node @opentelemetry/exporter-trace-otlp-http
+```
+
+### Local demo stack
+
+```bash
+docker compose -f examples/otel-stack/docker-compose.yml up -d
+# UI: http://localhost:16686
+```
+
+Point your collector (or Grafana Alloy / Langfuse OTLP) at OTLP HTTP `:4318` and/or gRPC `:4317`.
 
 ## Agent config
 
@@ -108,6 +126,8 @@ The wrapper **cannot stop** the orchestrator (or another agent) from calling aga
 | Client retry after failure | Same task id, often no `ctx.task` yet | New span, same ids, `invocation_kind=retry` |
 
 So: **still one span per request** — never a multi-purpose span factory. Platforms join those spans via the stable IDs (session/conversation view), not by forcing one eternal parent across human wait time.
+
+When a prior in-process attempt exists, the new span also gets an OTel **span link** (`a2a.task.link_reason=continue|retry`) for Tempo/Jaeger. Langfuse/Datadog still primarily group on `gen_ai.conversation.id`.
 
 ### Phase 3 — Backend passthrough (Hook F)
 

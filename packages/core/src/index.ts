@@ -164,12 +164,15 @@ export type {
   OtelEmissionPolicy,
   OtelTracerLike,
   OtelSpanLike,
+  OtelSpanContextLike,
+  OtelSpanLinkLike,
   W3cTraceContext,
   A2ATraceContext,
   TaskOtelStore,
   InstrumentExecutorOptions,
   CreateExecutionObservabilityOptions,
   ExecutionObservability,
+  WithSpanOptions,
 } from "./telemetry/index.js";
 
 export {
@@ -178,6 +181,8 @@ export {
   getOtelTracer,
   tryGetGlobalTracer,
   withSpan,
+  bootstrapOtelSdkFromConfig,
+  shutdownOtelSdk,
   extractA2ATraceContext,
   getW3cTraceContext,
   injectW3cTraceHeaders,

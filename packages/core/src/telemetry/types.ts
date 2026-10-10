@@ -117,10 +117,25 @@ export interface OtelEmissionPolicy {
  * Structural tracer surface — subset of `@opentelemetry/api` Tracer.
  * Hosts inject a real tracer; tests inject fakes. Keeps the API package optional.
  */
+/** Minimal span context for span links (continue/retry across traces). */
+export interface OtelSpanContextLike {
+  traceId: string;
+  spanId: string;
+  traceFlags?: number;
+}
+
+export interface OtelSpanLinkLike {
+  context: OtelSpanContextLike;
+  attributes?: Record<string, string | number | boolean>;
+}
+
 export interface OtelTracerLike {
   startSpan(
     name: string,
-    options?: { attributes?: Record<string, string | number | boolean> },
+    options?: {
+      attributes?: Record<string, string | number | boolean>;
+      links?: OtelSpanLinkLike[];
+    },
   ): OtelSpanLike;
 }
 
@@ -129,6 +144,7 @@ export interface OtelSpanLike {
   setStatus?(status: { code: number; message?: string }): void;
   recordException?(exception: unknown): void;
   addEvent?(name: string, attributes?: Record<string, string | number | boolean>): void;
+  spanContext?(): OtelSpanContextLike;
   end(): void;
 }
 

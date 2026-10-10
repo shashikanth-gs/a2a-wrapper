@@ -9,11 +9,24 @@ export type {
   OtelEmissionPolicy,
   OtelTracerLike,
   OtelSpanLike,
+  OtelSpanContextLike,
+  OtelSpanLinkLike,
   W3cTraceContext,
 } from "./types.js";
 export { resolveOtelEmissionPolicy } from "./types.js";
 
-export { setOtelTracer, getOtelTracer, tryGetGlobalTracer, withSpan } from "./api.js";
+export {
+  setOtelTracer,
+  getOtelTracer,
+  tryGetGlobalTracer,
+  withSpan,
+  type WithSpanOptions,
+} from "./api.js";
+
+export {
+  bootstrapOtelSdkFromConfig,
+  shutdownOtelSdk,
+} from "./cli-bootstrap.js";
 
 export {
   extractA2ATraceContext,
