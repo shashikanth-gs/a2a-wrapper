@@ -4,7 +4,6 @@
 
 import { existsSync, statSync } from "node:fs";
 import type { AgentExecutor, ExecutionEventBus, RequestContext } from "@a2a-js/sdk/server";
-import { v4 as uuidv4 } from "uuid";
 
 import type { AgentConfig, McpStdioServerConfig } from "../config/types.js";
 import { BridgeClient } from "./bridge-client.js";
@@ -13,7 +12,6 @@ import { EventMapper, sanitizeMessage, usageToCallRecord } from "./event-mapper.
 import { validateMcpServers, toAntigravityMcpEntry } from "./mcp-adapter.js";
 import { ANTIGRAVITY_BACKEND_PATHS } from "./backend-paths.js";
 import {
-  AgentEventEmitter,
   bootstrapSubAgents,
   extractUserText,
   LlmUsageAccumulator,
@@ -24,7 +22,8 @@ import {
   publishStreamingChunk,
   publishTask,
   publishTraceArtifact,
-  resolveTransport,
+  createExecutionObservability,
+  applyUsageSummaryToActiveSpan,
 } from "@a2a-wrapper/core";
 import type {
   EventTransport,
@@ -114,19 +113,12 @@ export class AntigravityExecutor implements AgentExecutor {
     const { taskId, contextId, userMessage, task } = ctx;
     await this.initialize();
 
-    const agentId = this.config.agentCard.name.toLowerCase().replace(/\s+/g, "-");
-    const transport = resolveTransport(
-      this.config.events,
-      bus,
-      taskId,
-      contextId,
-      this.customTransport,
-    );
-    const emitter = new AgentEventEmitter({
-      agentId,
+    const { emitter } = createExecutionObservability({
       agentName: this.config.agentCard.name,
-      traceId: contextId || uuidv4(),
-      transport,
+      ctx,
+      bus,
+      events: this.config.events,
+      customTransport: this.customTransport,
     });
     const mapper = new EventMapper(emitter, this.config);
     const accumulator = new LlmUsageAccumulator();
@@ -222,6 +214,8 @@ export class AntigravityExecutor implements AgentExecutor {
           } else {
             publishFinalArtifact(bus, taskId, contextId, finalText);
           }
+          const usageSummary = accumulator.summary();
+          applyUsageSummaryToActiveSpan(usageSummary);
           publishStatus(
             bus,
             taskId,
@@ -229,7 +223,7 @@ export class AntigravityExecutor implements AgentExecutor {
             "completed",
             undefined,
             true,
-            { "x-usage": accumulator.summary() },
+            { "x-usage": usageSummary },
           );
           bus.finished();
           return;

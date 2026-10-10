@@ -160,6 +160,10 @@
           "$ref": "#/definitions/OpenCodeConfig",
           "description": "OpenCode connection settings"
         },
+        "otel": {
+          "$ref": "#/definitions/OtelConfig",
+          "description": "Optional OpenTelemetry settings (see docs/observability.md)."
+        },
         "server": {
           "$ref": "#/definitions/ServerConfig",
           "description": "Network / server settings"
@@ -422,6 +426,136 @@
             "append",
             "replace"
           ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "OtelConfig": {
+      "additionalProperties": false,
+      "description": "Optional OpenTelemetry settings on an agent config.\n\nWhen omitted or `enabled: false`, core instrumentation is a no-op unless a host has already registered a tracer via  {@link  setOtelTracer  } .",
+      "properties": {
+        "annotateUsageCalls": {
+          "default": false,
+          "description": "Emit per-LLM-call span **events** (`a2a.llm.call`) on the task span when the wrapper is the sole OTel token source. Off by default (noisy).",
+          "type": "boolean"
+        },
+        "backend": {
+          "additionalProperties": false,
+          "description": "Backend runtime OTel passthrough (Hook F). Presence of a configured backend block turns on de-dupe (no wrapper tool / gen_ai.usage duplicate).",
+          "properties": {
+            "claude": {
+              "additionalProperties": false,
+              "properties": {
+                "enableTelemetry": {
+                  "type": "boolean"
+                },
+                "otlpEndpoint": {
+                  "type": "string"
+                },
+                "otlpProtocol": {
+                  "type": "string"
+                },
+                "propagateTraceContext": {
+                  "default": "true when Claude telemetry is enabled",
+                  "type": "boolean"
+                }
+              },
+              "type": "object"
+            },
+            "codex": {
+              "additionalProperties": {},
+              "description": "Merged into Codex `configOverrides.otel` (CLI `[otel]` shape).",
+              "type": "object"
+            },
+            "copilot": {
+              "additionalProperties": false,
+              "properties": {
+                "captureContent": {
+                  "type": "boolean"
+                },
+                "exporterType": {
+                  "type": "string"
+                },
+                "filePath": {
+                  "type": "string"
+                },
+                "otlpEndpoint": {
+                  "type": "string"
+                },
+                "otlpProtocol": {
+                  "enum": [
+                    "http/json",
+                    "http/protobuf"
+                  ],
+                  "type": "string"
+                },
+                "propagateTraceContext": {
+                  "default": "true when Copilot OTel is configured",
+                  "type": "boolean"
+                },
+                "sourceName": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "opencode": {
+              "additionalProperties": false,
+              "description": "OpenCode server-side experimental flag. The wrapper does not start OpenCode's exporter; set this so de-dupe policy matches your server.",
+              "properties": {
+                "openTelemetry": {
+                  "type": "boolean"
+                }
+              },
+              "type": "object"
+            }
+          },
+          "type": "object"
+        },
+        "emitOverlappingBackendSpans": {
+          "default": false,
+          "description": "Unsafe escape hatch: allow wrapper tool/LLM spans even when backend OTel is configured (duplicates Copilot/Claude tool spans in the collector).",
+          "type": "boolean"
+        },
+        "enabled": {
+          "default": false,
+          "description": "Master switch for wrapper-owned OTel instrumentation.",
+          "type": "boolean"
+        },
+        "exporter": {
+          "additionalProperties": false,
+          "description": "Shared OTLP exporter hint for wrapper hosts and backend passthrough. Backends inherit `endpoint` / `protocol` when their own fields are omitted.",
+          "properties": {
+            "endpoint": {
+              "description": "e.g. `http://127.0.0.1:6006` (Phoenix) or `http://127.0.0.1:4318`",
+              "type": "string"
+            },
+            "protocol": {
+              "description": "OTLP encoding for CLI bootstrap.\n- `http/protobuf` (default) — `@opentelemetry/exporter-trace-otlp-proto`   (Phoenix accepts only protobuf over HTTP)\n- `http/json` — `@opentelemetry/exporter-trace-otlp-http`",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "mirrorAgentEvents": {
+          "default": false,
+          "description": "When true, map `AgentEvent` tool calls into wrapper OTel child spans. Defaults to false. Forced off when a backend OTel block is present unless  {@link  emitOverlappingBackendSpans }  is true.",
+          "type": "boolean"
+        },
+        "serviceName": {
+          "default": "derived from agent card / wrapper name",
+          "description": "Service name resource attribute for wrapper spans.",
+          "type": "string"
+        },
+        "taskUsageRollup": {
+          "default": true,
+          "description": "Stamp per-request usage rollups (`a2a.task.usage.*`, and `gen_ai.usage.*` when the wrapper is the sole OTel source) via  {@link  applyUsageSummaryToActiveSpan  } .\n\nDefault `true` when `enabled`. Sideband `x-usage` is unaffected. Set `false` only to debug de-dupe / cardinality — rarely needed because the whole bridge is already a no-op when `enabled` is false.",
+          "type": "boolean"
+        },
+        "tracerName": {
+          "default": "a2a-wrapper",
+          "description": "Instrumentation scope name passed to `getTracer`.",
           "type": "string"
         }
       },

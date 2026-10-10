@@ -1,0 +1,58 @@
+{
+  "agentCard": {
+    "name": "Copilot BYOK Cookout",
+    "description": "a2a-copilot against mock Ollama + Phoenix OTel",
+    "version": "1.0.0",
+    "protocolVersion": "0.3.0",
+    "streaming": true,
+    "defaultInputModes": ["text"],
+    "defaultOutputModes": ["text"],
+    "skills": []
+  },
+  "server": {
+    "port": 3101,
+    "hostname": "127.0.0.1",
+    "advertiseHost": "127.0.0.1",
+    "advertiseProtocol": "http"
+  },
+  "copilot": {
+    "model": "mock-ollama",
+    "streaming": true,
+    "systemPromptMode": "replace",
+    "systemPrompt": "Reply briefly. You are a cookout test agent.",
+    "workspaceDirectory": "/tmp/a2a-cookout-copilot-ws",
+    "provider": {
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:11434/v1",
+      "apiKey": "ollama",
+      "wireApi": "responses"
+    }
+  },
+  "features": {
+    "streamArtifactChunks": false,
+    "trackUsage": true
+  },
+  "timeouts": {
+    "prompt": 60000
+  },
+  "logging": {
+    "level": "info"
+  },
+  "events": {
+    "enabled": false
+  },
+  "otel": {
+    "enabled": true,
+    "serviceName": "a2a-copilot-byok-cookout",
+    "taskUsageRollup": true,
+    "exporter": {
+      "endpoint": "http://127.0.0.1:6006",
+      "protocol": "http/protobuf"
+    },
+    "backend": {
+      "copilot": {
+        "propagateTraceContext": true
+      }
+    }
+  }
+}

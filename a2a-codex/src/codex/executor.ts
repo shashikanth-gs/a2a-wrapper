@@ -10,7 +10,6 @@
 import { existsSync, statSync } from "node:fs";
 import { readFile as fsReadFile } from "node:fs/promises";
 import { join, resolve as resolvePath } from "node:path";
-import { v4 as uuidv4 } from "uuid";
 
 import type { Message as A2AMessage } from "@a2a-js/sdk";
 import type { AgentExecutor, RequestContext, ExecutionEventBus } from "@a2a-js/sdk/server";
@@ -25,8 +24,6 @@ import { CODEX_BACKEND_PATHS } from "./backend-paths.js";
 import { extractUserText } from "./prompt-builder.js";
 
 import {
-  resolveTransport,
-  AgentEventEmitter,
   materializeMemory,
   bootstrapSubAgents,
   publishTask,
@@ -34,16 +31,42 @@ import {
   publishFinalArtifact,
   publishStreamingChunk,
   publishLastChunkMarker,
+  createExecutionObservability,
+  LlmUsageAccumulator,
+  applyUsageSummaryToActiveSpan,
+  applyUsageCallToActiveSpan,
 } from "@a2a-wrapper/core";
 import type {
   EventTransport,
   EventTransportFn,
   SynthesizedMcpDescriptor,
+  UsageCallRecord,
 } from "@a2a-wrapper/core";
 
 import { logger } from "../utils/logger.js";
 
 const log = logger.child("executor");
+
+/** Map Codex turn.completed usage → core UsageCallRecord. */
+function codexUsageToCallRecord(
+  usage: Record<string, unknown>,
+  modelFallback: string | undefined,
+): UsageCallRecord {
+  const num = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+  return {
+    model: (typeof usage.model === "string" ? usage.model : undefined) || modelFallback || "",
+    inputTokens: num(usage.input_tokens),
+    outputTokens: num(usage.output_tokens),
+    cacheReadTokens: num(usage.cached_input_tokens),
+    cacheWriteTokens: 0,
+    reasoningTokens: num(usage.reasoning_output_tokens),
+    durationMs: 0,
+    timeToFirstTokenMs: null,
+    cost: null,
+    apiEndpoint: null,
+    initiator: "codex",
+  };
+}
 
 export class CodexExecutor implements AgentExecutor {
   private readonly config: Required<AgentConfig>;
@@ -134,19 +157,12 @@ export class CodexExecutor implements AgentExecutor {
     const { taskId, contextId, userMessage, task } = ctx;
     await this.initialize();
 
-    const agentId = this.config.agentCard.name.toLowerCase().replace(/\s+/g, "-");
-    const transport = resolveTransport(
-      this.config.events,
-      bus,
-      taskId,
-      contextId,
-      this.customTransport,
-    );
-    const emitter = new AgentEventEmitter({
-      agentId,
+    const { emitter } = createExecutionObservability({
       agentName: this.config.agentCard.name,
-      traceId: contextId || uuidv4(),
-      transport,
+      ctx,
+      bus,
+      events: this.config.events,
+      customTransport: this.customTransport,
     });
     const mapper = new EventMapper(emitter, this.config);
 
@@ -172,6 +188,7 @@ export class CodexExecutor implements AgentExecutor {
       this.sessionManager!.trackExecution(taskId, contextId, abortController);
 
       const turnFn = async (): Promise<void> => {
+        const accumulator = new LlmUsageAccumulator();
         try {
           publishStatus(bus, taskId, contextId, "working", "Processing request...");
 
@@ -218,6 +235,16 @@ export class CodexExecutor implements AgentExecutor {
               }
             }
 
+            if (event.type === "turn.completed" && event.usage) {
+              const call = codexUsageToCallRecord(
+                event.usage as Record<string, unknown>,
+                this.config.codex.model,
+              );
+              accumulator.record(call);
+              // Optional: otel.annotateUsageCalls — per-call span events (noisy; off by default).
+              applyUsageCallToActiveSpan(call);
+            }
+
             mapper.handleEvent(event);
           }
 
@@ -228,7 +255,17 @@ export class CodexExecutor implements AgentExecutor {
             publishFinalArtifact(bus, taskId, contextId, finalText);
           }
 
-          publishStatus(bus, taskId, contextId, "completed", undefined, true);
+          const usageSummary = accumulator.summary();
+          applyUsageSummaryToActiveSpan(usageSummary);
+          publishStatus(
+            bus,
+            taskId,
+            contextId,
+            "completed",
+            undefined,
+            true,
+            { "x-usage": usageSummary },
+          );
           bus.finished();
 
         } catch (err) {

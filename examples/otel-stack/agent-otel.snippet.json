@@ -1,0 +1,24 @@
+{
+  "otel": {
+    "enabled": true,
+    "serviceName": "a2a-wrapper-demo",
+    "taskUsageRollup": true,
+    "annotateUsageCalls": false,
+    "exporter": {
+      "endpoint": "http://127.0.0.1:6006",
+      "protocol": "http/protobuf"
+    },
+    "backend": {
+      "copilot": {
+        "propagateTraceContext": true
+      },
+      "claude": {
+        "enableTelemetry": true,
+        "propagateTraceContext": true
+      },
+      "codex": {
+        "environment": "local"
+      }
+    }
+  }
+}

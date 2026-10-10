@@ -157,6 +157,56 @@ export {
 export type { UsageCallRecord, UsageTelemetryData, ContextWindowSnapshot } from "./events/usage.js";
 export { LlmUsageAccumulator } from "./events/usage.js";
 
+// ─── OpenTelemetry (optional @opentelemetry/api peer) ───────────────────────
+
+export type {
+  OtelConfig,
+  OtelEmissionPolicy,
+  OtelTracerLike,
+  OtelSpanLike,
+  OtelSpanContextLike,
+  OtelSpanLinkLike,
+  W3cTraceContext,
+  A2ATraceContext,
+  TaskOtelStore,
+  InstrumentExecutorOptions,
+  CreateExecutionObservabilityOptions,
+  ExecutionObservability,
+  WithSpanOptions,
+} from "./telemetry/index.js";
+
+export {
+  resolveOtelEmissionPolicy,
+  setOtelTracer,
+  getOtelTracer,
+  tryGetGlobalTracer,
+  withSpan,
+  bootstrapOtelSdkFromConfig,
+  shutdownOtelSdk,
+  extractA2ATraceContext,
+  getW3cTraceContext,
+  injectW3cTraceHeaders,
+  getTaskOtelStore,
+  runWithTaskOtelStore,
+  buildTaskSpanAttributes,
+  slugAgentId,
+  agentIdentityFromCard,
+  getCorePackageVersion,
+  readPackageIdentity,
+  instrumentExecutor,
+  observeAgentEvent,
+  applyUsageSummaryToActiveSpan,
+  applyUsageCallToActiveSpan,
+  createExecutionObservability,
+  annotateSessionOnTaskSpan,
+  resolveOtlpEndpoint,
+  buildCopilotTelemetryOptions,
+  shouldPropagateCopilotTraceContext,
+  createCopilotTraceContextProvider,
+  buildClaudeOtelEnv,
+  mergeCodexOtelOverrides,
+  isOpenCodeBackendOtelEnabled,
+} from "./telemetry/index.js";
 // ─── A2A SDK Type Re-exports ────────────────────────────────────────────────
 //
 // Core-owned aliases for commonly used A2A SDK types. Wrapper projects

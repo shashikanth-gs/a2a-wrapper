@@ -10,6 +10,7 @@
  */
 
 import { Codex } from "@openai/codex-sdk";
+import { mergeCodexOtelOverrides } from "@a2a-wrapper/core";
 import type { AgentConfig } from "../config/types.js";
 import { buildMcpConfig } from "./mcp-adapter.js";
 
@@ -80,8 +81,9 @@ export function createCodexClient(config: Required<AgentConfig>): CodexClientLik
   const codexCfg = config.codex;
   const mcpServers = buildMcpConfig(config.mcp ?? {});
 
+  // Hook F — fold otel.backend.codex into CLI `[otel]` overrides.
   const sdkConfig: Record<string, unknown> = {
-    ...(codexCfg.configOverrides ?? {}),
+    ...(mergeCodexOtelOverrides(config.otel, codexCfg.configOverrides) ?? {}),
   };
 
   if (Object.keys(mcpServers).length > 0) {

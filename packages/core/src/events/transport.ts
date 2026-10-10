@@ -36,6 +36,7 @@ import { TaskArtifactUpdateEvent } from "@a2a-js/sdk";
 import type { ExecutionEventBus } from "@a2a-js/sdk/server";
 import type { EventsConfig } from "../config/types.js";
 import { TRACE_EXTENSION_URI } from "../server/agent-card.js";
+import { observeAgentEvent } from "../telemetry/emitter-bridge.js";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -408,5 +409,7 @@ export class AgentEventEmitter {
     } catch (e) {
       console.warn(`[emitter] Failed to emit ${eventType}: ${(e as Error).message}`);
     }
+    // OTel annotation / optional tool spans — never affects sideband delivery.
+    observeAgentEvent(eventType, data);
   }
 }

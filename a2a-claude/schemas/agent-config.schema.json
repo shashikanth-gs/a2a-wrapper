@@ -36,6 +36,7 @@
         },
         "protocolVersion": {
           "default": "0.3.0",
+          "deprecated": "Superseded by A2A v1.0's per-interface `protocolVersion`\n(see `AgentCard.supportedInterfaces[]`, built by `buildAgentCard`).\nKept for backward compatibility with existing config files only —\nthe agent card builder no longer reads this value.",
           "description": "A2A protocol version this agent supports.",
           "type": "string"
         },
@@ -62,6 +63,34 @@
           "description": "Whether the agent supports push notifications.",
           "type": "boolean"
         },
+        "signing": {
+          "additionalProperties": false,
+          "description": "Optional Signed Agent Card support (A2A v1.0, JWS per RFC 7515). Off by default. When enabled, the private key is read from the environment variable named by `privateKeyJwkEnvVar`, whose value must be a JSON-serialized JWK — never store key material in the config file itself.",
+          "properties": {
+            "algorithm": {
+              "description": "JWS algorithm (e.g. `\"RS256\"`, `\"ES256\"`).",
+              "type": "string"
+            },
+            "enabled": {
+              "default": false,
+              "type": "boolean"
+            },
+            "keyId": {
+              "description": "Key ID (`kid`) to embed in the JWS protected header.",
+              "type": "string"
+            },
+            "privateKeyJwkEnvVar": {
+              "description": "Name of the env var holding the signing private key as a JSON JWK.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "privateKeyJwkEnvVar",
+            "keyId",
+            "algorithm"
+          ],
+          "type": "object"
+        },
         "skills": {
           "description": "Skills this agent exposes to callers. Each skill represents a discrete capability advertised in the agent card.",
           "items": {
@@ -71,7 +100,7 @@
         },
         "stateTransitionHistory": {
           "default": false,
-          "deprecated": "This capability is not implemented in the A2A v1.0 spec and\nwas removed. Kept for backward compatibility only \u2014 value is ignored.\nThe agent card builder always sets this to `false`.",
+          "deprecated": "This capability is not implemented in the A2A v1.0 spec and\nwas removed. Kept for backward compatibility only — value is ignored.\nThe agent card builder always sets this to `false`.",
           "description": "Enable state transition history capability advertisement.",
           "type": "boolean"
         },
@@ -94,7 +123,7 @@
     },
     "AgentConfig": {
       "additionalProperties": false,
-      "description": "Complete agent configuration.\n\nThis is what a JSON config file (e.g. `agents/example/config.json`) maps to. All fields except `agentCard` are optional \u2014 sensible secure defaults are applied.",
+      "description": "Complete agent configuration.\n\nThis is what a JSON config file (e.g. `agents/example/config.json`) maps to. All fields except `agentCard` are optional — sensible secure defaults are applied.",
       "properties": {
         "agentCard": {
           "$ref": "#/definitions/AgentCardConfig"
@@ -125,6 +154,10 @@
         },
         "memory": {
           "$ref": "#/definitions/MemoryConfig"
+        },
+        "otel": {
+          "$ref": "#/definitions/OtelConfig",
+          "description": "Optional OpenTelemetry settings (see docs/observability.md)."
         },
         "server": {
           "$ref": "#/definitions/ServerConfig"
@@ -194,7 +227,7 @@
           "additionalProperties": {
             "type": "boolean"
           },
-          "description": "Plugins to enable, keyed `\"<plugin-id>@<marketplace-id>\"`, where the marketplace id must appear in `marketplaces`. Maps to the SDK's `settings.enabledPlugins`. Startup fails if an enabled plugin does not load \u2014 see the plugin preflight in the executor.",
+          "description": "Plugins to enable, keyed `\"<plugin-id>@<marketplace-id>\"`, where the marketplace id must appear in `marketplaces`. Maps to the SDK's `settings.enabledPlugins`. Startup fails if an enabled plugin does not load — see the plugin preflight in the executor.",
           "type": "object"
         },
         "executablePathOverride": {
@@ -209,7 +242,7 @@
           "additionalProperties": {
             "$ref": "#/definitions/ClaudeMarketplaceConfig"
           },
-          "description": "Plugin marketplaces to register for the session, keyed by marketplace id. Maps to the SDK's `settings.extraKnownMarketplaces`, so the SDK fetches and installs the plugins itself \u2014 no pre-baked plugin directories required. Pin every marketplace by `ref` or `sha`: plugin hooks and bundled MCP servers execute at the session's permission mode.",
+          "description": "Plugin marketplaces to register for the session, keyed by marketplace id. Maps to the SDK's `settings.extraKnownMarketplaces`, so the SDK fetches and installs the plugins itself — no pre-baked plugin directories required. Pin every marketplace by `ref` or `sha`: plugin hooks and bundled MCP servers execute at the session's permission mode.",
           "type": "object"
         },
         "maxBudgetUsd": {
@@ -231,7 +264,7 @@
         "permissionMode": {
           "$ref": "#/definitions/ClaudePermissionMode",
           "default": "acceptEdits",
-          "description": "Permission mode. \"default\" and \"auto\" are rejected \u2014 they require an interactive approver / classifier, incompatible with headless A2A."
+          "description": "Permission mode. \"default\" and \"auto\" are rejected — they require an interactive approver / classifier, incompatible with headless A2A."
         },
         "sandbox": {
           "additionalProperties": {},
@@ -293,7 +326,7 @@
       "additionalProperties": {},
       "properties": {
         "source": {
-          "description": "Source kind \u2014 e.g. \"github\", \"git\", \"url\", \"npm\", \"directory\".",
+          "description": "Source kind — e.g. \"github\", \"git\", \"url\", \"npm\", \"directory\".",
           "type": "string"
         }
       },
@@ -389,11 +422,11 @@
           "type": "object"
         }
       ],
-      "description": "Extended thinking behavior. Maps to SDK `Options.thinking`.\n\n- \"adaptive\" \u2014 Claude decides when and how much to think (newer models)\n- \"enabled\"  \u2014 fixed thinking token budget (older models)\n- \"disabled\" \u2014 no extended thinking"
+      "description": "Extended thinking behavior. Maps to SDK `Options.thinking`.\n\n- \"adaptive\" — Claude decides when and how much to think (newer models)\n- \"enabled\"  — fixed thinking token budget (older models)\n- \"disabled\" — no extended thinking"
     },
     "EventsConfig": {
       "additionalProperties": false,
-      "description": "Event transport configuration for sideband observability events.\n\nControls how trace events (MCP tool calls, agent reasoning, lifecycle) are delivered. Only the two built-in transports are configurable via JSON config \u2014 for custom transports (Kafka, Redis, DB, etc.), use the programmatic API and pass a transport function to `createA2AServer()`.",
+      "description": "Event transport configuration for sideband observability events.\n\nControls how trace events (MCP tool calls, agent reasoning, lifecycle) are delivered. Only the two built-in transports are configurable via JSON config — for custom transports (Kafka, Redis, DB, etc.), use the programmatic API and pass a transport function to `createA2AServer()`.",
       "properties": {
         "enabled": {
           "default": true,
@@ -418,7 +451,7 @@
         },
         "transport": {
           "default": "a2a",
-          "description": "Built-in transport type.\n\n- `\"a2a\"` \u2014 publish as sideband trace artifacts on the A2A   ExecutionEventBus (default, zero dependencies).\n- `\"http\"` \u2014 POST events as JSON to  {@link  httpUrl } .\n\nFor custom transports, leave this unset and provide a transport function via the programmatic `createA2AServer()` API.",
+          "description": "Built-in transport type.\n\n- `\"a2a\"` — publish as sideband trace artifacts on the A2A   ExecutionEventBus (default, zero dependencies).\n- `\"http\"` — POST events as JSON to  {@link  httpUrl } .\n\nFor custom transports, leave this unset and provide a transport function via the programmatic `createA2AServer()` API.",
           "enum": [
             "a2a",
             "http"
@@ -456,7 +489,7 @@
           "type": "boolean"
         },
         "holdTaskForBackgroundWork": {
-          "description": "Hold the A2A Task open in `working` while Claude has background work in flight, completing it only once a turn ends with nothing left running. Default: true. Set false to complete the Task at the first SDK result, as before. Governs the completion decision only — queries use streaming input either way.",
+          "description": "Hold the A2A Task open in `working` while Claude has background work in flight, completing it only once a turn ends with nothing left running. Default: true. Set false to complete the Task at the first SDK result, as before.\n\nThis governs the completion decision only. Queries are issued in streaming-input mode either way — that is what keeps the CLI subprocess alive past the first result, and it is not switchable.",
           "type": "boolean"
         },
         "streamArtifactChunks": {
@@ -587,7 +620,7 @@
     },
     "MemoryConfig": {
       "additionalProperties": false,
-      "description": "Optional memory configuration section in agent config.json.\n\nDeclares instructions and skills to materialize into the agent's workspace at startup. Both fields are optional \u2014 operators can declare instructions only, skills only, or both.\n\nPaths are resolved relative to the directory containing config.json (Config_Directory) unless they are absolute.",
+      "description": "Optional memory configuration section in agent config.json.\n\nDeclares instructions and skills to materialize into the agent's workspace at startup. Both fields are optional — operators can declare instructions only, skills only, or both.\n\nPaths are resolved relative to the directory containing config.json (Config_Directory) unless they are absolute.",
       "properties": {
         "instructions": {
           "description": "Path to a markdown instructions file. Resolved relative to Config_Directory when relative, used as-is when absolute.",
@@ -599,6 +632,136 @@
             "type": "string"
           },
           "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "OtelConfig": {
+      "additionalProperties": false,
+      "description": "Optional OpenTelemetry settings on an agent config.\n\nWhen omitted or `enabled: false`, core instrumentation is a no-op unless a host has already registered a tracer via  {@link  setOtelTracer  } .",
+      "properties": {
+        "annotateUsageCalls": {
+          "default": false,
+          "description": "Emit per-LLM-call span **events** (`a2a.llm.call`) on the task span when the wrapper is the sole OTel token source. Off by default (noisy).",
+          "type": "boolean"
+        },
+        "backend": {
+          "additionalProperties": false,
+          "description": "Backend runtime OTel passthrough (Hook F). Presence of a configured backend block turns on de-dupe (no wrapper tool / gen_ai.usage duplicate).",
+          "properties": {
+            "claude": {
+              "additionalProperties": false,
+              "properties": {
+                "enableTelemetry": {
+                  "type": "boolean"
+                },
+                "otlpEndpoint": {
+                  "type": "string"
+                },
+                "otlpProtocol": {
+                  "type": "string"
+                },
+                "propagateTraceContext": {
+                  "default": "true when Claude telemetry is enabled",
+                  "type": "boolean"
+                }
+              },
+              "type": "object"
+            },
+            "codex": {
+              "additionalProperties": {},
+              "description": "Merged into Codex `configOverrides.otel` (CLI `[otel]` shape).",
+              "type": "object"
+            },
+            "copilot": {
+              "additionalProperties": false,
+              "properties": {
+                "captureContent": {
+                  "type": "boolean"
+                },
+                "exporterType": {
+                  "type": "string"
+                },
+                "filePath": {
+                  "type": "string"
+                },
+                "otlpEndpoint": {
+                  "type": "string"
+                },
+                "otlpProtocol": {
+                  "enum": [
+                    "http/json",
+                    "http/protobuf"
+                  ],
+                  "type": "string"
+                },
+                "propagateTraceContext": {
+                  "default": "true when Copilot OTel is configured",
+                  "type": "boolean"
+                },
+                "sourceName": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "opencode": {
+              "additionalProperties": false,
+              "description": "OpenCode server-side experimental flag. The wrapper does not start OpenCode's exporter; set this so de-dupe policy matches your server.",
+              "properties": {
+                "openTelemetry": {
+                  "type": "boolean"
+                }
+              },
+              "type": "object"
+            }
+          },
+          "type": "object"
+        },
+        "emitOverlappingBackendSpans": {
+          "default": false,
+          "description": "Unsafe escape hatch: allow wrapper tool/LLM spans even when backend OTel is configured (duplicates Copilot/Claude tool spans in the collector).",
+          "type": "boolean"
+        },
+        "enabled": {
+          "default": false,
+          "description": "Master switch for wrapper-owned OTel instrumentation.",
+          "type": "boolean"
+        },
+        "exporter": {
+          "additionalProperties": false,
+          "description": "Shared OTLP exporter hint for wrapper hosts and backend passthrough. Backends inherit `endpoint` / `protocol` when their own fields are omitted.",
+          "properties": {
+            "endpoint": {
+              "description": "e.g. `http://127.0.0.1:6006` (Phoenix) or `http://127.0.0.1:4318`",
+              "type": "string"
+            },
+            "protocol": {
+              "description": "OTLP encoding for CLI bootstrap.\n- `http/protobuf` (default) — `@opentelemetry/exporter-trace-otlp-proto`   (Phoenix accepts only protobuf over HTTP)\n- `http/json` — `@opentelemetry/exporter-trace-otlp-http`",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "mirrorAgentEvents": {
+          "default": false,
+          "description": "When true, map `AgentEvent` tool calls into wrapper OTel child spans. Defaults to false. Forced off when a backend OTel block is present unless  {@link  emitOverlappingBackendSpans }  is true.",
+          "type": "boolean"
+        },
+        "serviceName": {
+          "default": "derived from agent card / wrapper name",
+          "description": "Service name resource attribute for wrapper spans.",
+          "type": "string"
+        },
+        "taskUsageRollup": {
+          "default": true,
+          "description": "Stamp per-request usage rollups (`a2a.task.usage.*`, and `gen_ai.usage.*` when the wrapper is the sole OTel source) via  {@link  applyUsageSummaryToActiveSpan  } .\n\nDefault `true` when `enabled`. Sideband `x-usage` is unaffected. Set `false` only to debug de-dupe / cardinality — rarely needed because the whole bridge is already a no-op when `enabled` is false.",
+          "type": "boolean"
+        },
+        "tracerName": {
+          "default": "a2a-wrapper",
+          "description": "Instrumentation scope name passed to `getTracer`.",
+          "type": "string"
         }
       },
       "type": "object"
@@ -631,7 +794,8 @@
       "additionalProperties": false,
       "properties": {
         "cleanupInterval": {
-          "description": "How often the background sweep reclaims expired sessions, in ms. Only ever runs when ttl > 0; 0 or less disables it, leaving expiry to the lazy check in getOrCreate (default: 0).",
+          "default": 0,
+          "description": "How often the background sweep reclaims expired sessions, in ms. The sweep only ever runs when `ttl > 0`; 0 or less disables it, leaving expiry to the lazy check in `getOrCreate`. Defaults to 0 to match `ttl` — set both if you want expired sessions reclaimed without waiting for the context to be looked up again.",
           "type": "number"
         },
         "reuseByContext": {
@@ -642,7 +806,8 @@
           "type": "string"
         },
         "ttl": {
-          "description": "Session TTL in ms, measured from session creation \u2014 not from last use. 0 or less disables expiry entirely (default: 0 \u2014 sessions never expire).",
+          "default": 0,
+          "description": "Session TTL in ms, measured from when the session was created — not from last use. 0 or less disables session expiry entirely, so a contextId keeps resuming the same Claude session indefinitely.",
           "type": "number"
         }
       },
@@ -754,7 +919,7 @@
           "description": "Outbound credentials the bridge presents when calling this sub-agent. Forwarded verbatim into the bridge config.\n\nOmitting this field is equivalent to `{ mode: \"none\" }`."
         },
         "endpointUrlOverride": {
-          "description": "Optional override for the URL the bridge probes. Useful when the agent card declares an endpoint that differs from where the agent is actually reachable (NAT, port-forward, internal vs external).\n\nWhen set, this URL is passed to the bridge instead of  {@link  agentCardUrl } . The bridge still resolves a card from this URL \u2014 point it at a card URL or a base URL it can probe under `/.well-known/`. Must use the `http:` or `https:` protocol.",
+          "description": "Optional override for the URL the bridge probes. Useful when the agent card declares an endpoint that differs from where the agent is actually reachable (NAT, port-forward, internal vs external).\n\nWhen set, this URL is passed to the bridge instead of  {@link  agentCardUrl } . The bridge still resolves a card from this URL — point it at a card URL or a base URL it can probe under `/.well-known/`. Must use the `http:` or `https:` protocol.",
           "type": "string"
         },
         "name": {
@@ -808,7 +973,7 @@
           "type": "string"
         },
         "syncBudgetMs": {
-          "description": "Sync budget in milliseconds passed to `a2a-mcp-skillmap` via the bridge config. Controls how long the bridge waits for an A2A agent to respond before switching to async task-handle mode.\n\nWhen the budget expires the bridge immediately returns a `taskId` to the MCP client; the A2A dispatch continues in the background. The LLM can then poll via the built-in `task_result` / `task_status` tools which actively re-query the remote agent before responding.\n\n- Set lower (e.g. `10000`) for interactive use where you want fast   task-handle responses.\n- Set to `0` to wait indefinitely (no async fallback).\n- Defaults to `30000` (30 s) when unset \u2014 skillmap's own default.",
+          "description": "Sync budget in milliseconds passed to `a2a-mcp-skillmap` via the bridge config. Controls how long the bridge waits for an A2A agent to respond before switching to async task-handle mode.\n\nWhen the budget expires the bridge immediately returns a `taskId` to the MCP client; the A2A dispatch continues in the background. The LLM can then poll via the built-in `task_result` / `task_status` tools which actively re-query the remote agent before responding.\n\n- Set lower (e.g. `10000`) for interactive use where you want fast   task-handle responses.\n- Set to `0` to wait indefinitely (no async fallback).\n- Defaults to `30000` (30 s) when unset — skillmap's own default.",
           "type": "number"
         }
       },
@@ -818,7 +983,7 @@
       "additionalProperties": false,
       "properties": {
         "prompt": {
-          "description": "Timeout for a single prompt in ms (default: 600_000 = 10 min). Set to 0 (or any value <= 0) to disable the timeout entirely.",
+          "description": "Timeout for a single prompt in ms (default: 600_000 = 10 min). Set to `0` (or any value <= 0) to disable the timeout entirely, letting a turn run until it completes. See the README for the caveat about turns being serialized per context.",
           "type": "number"
         }
       },

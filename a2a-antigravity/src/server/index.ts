@@ -7,6 +7,7 @@
  * antigravity-specific executor and startup banner.
  */
 
+import { createRequire } from "node:module";
 import { createA2AServer as coreCreateA2AServer } from "@a2a-wrapper/core";
 import type { ServerHandle as CoreServerHandle } from "@a2a-wrapper/core";
 
@@ -15,6 +16,9 @@ import { AntigravityExecutor } from "../antigravity/executor.js";
 import { logger } from "../utils/logger.js";
 
 const log = logger.child("server");
+const { name: WRAPPER_SDK, version: WRAPPER_SDK_VERSION } = createRequire(import.meta.url)(
+  "../../package.json",
+) as { name: string; version: string };
 
 export interface ServerHandle extends Omit<CoreServerHandle, "executor"> {
   executor: AntigravityExecutor;
@@ -23,6 +27,8 @@ export interface ServerHandle extends Omit<CoreServerHandle, "executor"> {
 export async function createA2AServer(config: Required<AgentConfig>): Promise<ServerHandle> {
   const handle = await coreCreateA2AServer<Required<AgentConfig>>(config, (cfg) => new AntigravityExecutor(cfg), {
     protocolVersion: "1.0",
+    wrapperName: WRAPPER_SDK,
+    wrapperVersion: WRAPPER_SDK_VERSION,
     onListening: ({ port, hostname, advertiseHost, advertiseProtocol }) => {
       log.info("A2A server started", {
         bind: hostname,

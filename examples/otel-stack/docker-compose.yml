@@ -1,0 +1,24 @@
+# Optional: run Phoenix via Docker instead of `pip install arize-phoenix`.
+# Prefer the pip/uv path in README.md when Docker is unavailable.
+#
+#   docker compose -f examples/otel-stack/docker-compose.yml up -d
+#   open http://localhost:6006
+#
+# Point wrappers at:
+#   otel.exporter.endpoint = "http://127.0.0.1:6006"
+
+services:
+  phoenix:
+    image: arizephoenix/phoenix:latest
+    container_name: a2a-otel-phoenix
+    ports:
+      - "6006:6006"   # UI + OTLP HTTP (/v1/traces)
+      - "4317:4317"   # OTLP gRPC
+    environment:
+      PHOENIX_WORKING_DIR: /data
+    volumes:
+      - phoenix-data:/data
+    restart: unless-stopped
+
+volumes:
+  phoenix-data:
