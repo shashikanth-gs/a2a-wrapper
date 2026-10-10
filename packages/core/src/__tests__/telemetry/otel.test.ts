@@ -22,7 +22,12 @@ function fakeTracer() {
   const attrs: Array<{ key: string; value: string | number | boolean }> = [];
   const spans: OtelSpanLike[] = [];
   const tracer: OtelTracerLike = {
-    startSpan(name) {
+    startSpan(name, options) {
+      if (options?.attributes) {
+        for (const [key, value] of Object.entries(options.attributes)) {
+          attrs.push({ key, value });
+        }
+      }
       const span: OtelSpanLike = {
         setAttribute(key, value) {
           attrs.push({ key, value });
@@ -143,11 +148,55 @@ describe("instrumentExecutor", () => {
       wrapperName: "a2a-copilot",
     });
     await ex.execute(
-      { taskId: "t1", contextId: "c1" } as unknown as RequestContext,
+      {
+        taskId: `t-single-${Date.now()}`,
+        contextId: "c1",
+        userMessage: { messageId: "m-1" },
+      } as unknown as RequestContext,
       {} as ExecutionEventBus,
     );
     expect(ran).toBe(true);
     expect(ended).toEqual(["a2a.task.execute"]);
+  });
+
+  it("marks continue vs retry on re-entry (still one span per request)", async () => {
+    const { tracer, ended, attrs } = fakeTracer();
+    setOtelTracer(tracer);
+    const inner: A2AExecutor = {
+      async initialize() {},
+      async shutdown() {},
+      async execute() {},
+    };
+    const ex = instrumentExecutor(inner, {
+      otel: { enabled: true },
+      agentName: "Example Agent",
+    });
+    const taskId = `t-reentry-${Date.now()}-${Math.random()}`;
+    const bus = {} as ExecutionEventBus;
+
+    await ex.execute(
+      { taskId, contextId: "conv-1", userMessage: { messageId: "m1" } } as unknown as RequestContext,
+      bus,
+    );
+    await ex.execute(
+      {
+        taskId,
+        contextId: "conv-1",
+        task: { id: taskId },
+        userMessage: { messageId: "m2" },
+      } as unknown as RequestContext,
+      bus,
+    );
+    await ex.execute(
+      { taskId, contextId: "conv-1", userMessage: { messageId: "m3" } } as unknown as RequestContext,
+      bus,
+    );
+
+    expect(ended).toEqual(["a2a.task.execute", "a2a.task.execute", "a2a.task.execute"]);
+    const kinds = attrs.filter((a) => a.key === "a2a.task.invocation_kind").map((a) => a.value);
+    expect(kinds).toEqual(["new", "continue", "retry"]);
+    expect(attrs.some((a) => a.key === "a2a.message.id" && a.value === "m2")).toBe(true);
+    expect(attrs.some((a) => a.key === "gen_ai.conversation.id" && a.value === "conv-1")).toBe(true);
   });
 });
 

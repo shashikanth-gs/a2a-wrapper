@@ -2,7 +2,13 @@
  * Executor instrumentation — Hook A.
  *
  * Wraps `execute` / `cancelTask` once in {@link createA2AServer} so every
- * provider gets `a2a.task.*` spans without duplicating OTel in wrappers.
+ * provider gets **one** `a2a.task.execute` span per inbound request
+ * (~99% case). We do not invent multi-span trees for “purposes.”
+ *
+ * Re-entry / retry (orchestrator calls again — the wrapper cannot block that):
+ * still **one new span per request**, same `a2a.task.id` /
+ * `gen_ai.conversation.id`, plus `a2a.task.invocation` /
+ * `a2a.task.invocation_kind` so Langfuse/Datadog/Phoenix can join turns.
  *
  * @module telemetry/instrument
  */
@@ -10,7 +16,11 @@
 import type { RequestContext, ExecutionEventBus } from "@a2a-js/sdk/server";
 import type { A2AExecutor } from "../executor/types.js";
 import { withSpan } from "./api.js";
-import { buildTaskSpanAttributes, slugAgentId } from "./attributes.js";
+import {
+  buildTaskSpanAttributes,
+  slugAgentId,
+  type TaskInvocationKind,
+} from "./attributes.js";
 import { extractA2ATraceContext, runWithTaskOtelStore, type TaskOtelStore } from "./context.js";
 import { resolveOtelEmissionPolicy, type OtelConfig } from "./types.js";
 
@@ -22,6 +32,41 @@ export interface InstrumentExecutorOptions {
   wrapperVersion?: string;
   protocolVersion?: string;
   agentName: string;
+}
+
+/** In-process execute() counts keyed by taskId (retries / continue). */
+const taskInvocationCounts = new Map<string, number>();
+
+function nextInvocation(taskId: string): number {
+  const n = (taskInvocationCounts.get(taskId) ?? 0) + 1;
+  taskInvocationCounts.set(taskId, n);
+  // Bound memory: drop after a large number of distinct tasks.
+  if (taskInvocationCounts.size > 10_000) {
+    const first = taskInvocationCounts.keys().next().value;
+    if (first !== undefined) taskInvocationCounts.delete(first);
+  }
+  return n;
+}
+
+function resolveInvocationKind(
+  invocation: number,
+  hasExistingTask: boolean,
+): TaskInvocationKind {
+  if (invocation === 1) return "new";
+  if (hasExistingTask) return "continue";
+  return "retry";
+}
+
+function extractMessageId(ctx: RequestContext): string | undefined {
+  try {
+    const msg = ctx.userMessage as { messageId?: string } | undefined;
+    if (msg?.messageId) return msg.messageId;
+    const req = (ctx as unknown as { request?: { params?: { message?: { messageId?: string } } } })
+      .request;
+    return req?.params?.message?.messageId;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -40,6 +85,10 @@ export function instrumentExecutor(
     const taskId = ctx.taskId;
     const contextId = ctx.contextId;
     const trace = extractA2ATraceContext(ctx);
+    const invocation = nextInvocation(taskId);
+    const hasExistingTask = Boolean(ctx.task);
+    const invocationKind = resolveInvocationKind(invocation, hasExistingTask);
+    const messageId = extractMessageId(ctx);
     const attrs = buildTaskSpanAttributes({
       taskId,
       contextId,
@@ -50,6 +99,9 @@ export function instrumentExecutor(
       protocolVersion: options.protocolVersion,
       parentAgentId: trace.parentAgentId,
       orchestratorTraceId: trace.traceId,
+      messageId,
+      invocation,
+      invocationKind,
     });
 
     if (!policy.enabled) {

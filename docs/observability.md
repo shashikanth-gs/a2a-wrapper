@@ -63,18 +63,47 @@ Point your collector (or Grafana Alloy) at OTLP HTTP `:4318` and/or gRPC `:4317`
 | `otel.backend.copilot` | Copilot CLI will export its own OTLP spans — wrapper **will not** duplicate tool spans |
 | `otel.emitOverlappingBackendSpans` | Unsafe; allow duplicates (debug only) |
 
-### What appears in Tempo / Jaeger / Langfuse
+### Mental model (keep this simple)
 
-One **trace**, parent/child spans (not one merged span):
+**~99% of traffic: one inbound A2A request → one wrapper span** (`a2a.task.execute`).
+We do **not** invent a span tree “for every purpose.” Either:
+
+1. open that one wrapper span and parent-link the backend (Copilot/Claude/…) into the same trace, **or**
+2. just **pass the same correlation IDs** through (`gen_ai.conversation.id`, `a2a.task.id`, `a2a.message.id`) so Langfuse / Datadog / Phoenix can group turns even when `trace_id` changes.
+
+A2A OTel conventions are still evolving ([semantic-conventions-genai#254](https://github.com/open-telemetry/semantic-conventions-genai/issues/254)). Context propagation is **not** the only join key — platforms group multi-turn work by **session/conversation attributes**.
+
+| ID | Typical source | Lifespan |
+|---|---|---|
+| `gen_ai.conversation.id` | A2A `contextId` (or gateway conversation id) | Whole chatbot thread |
+| `a2a.task.id` | A2A task | Logical unit of work (may span `input-required` + resume) |
+| `a2a.message.id` | Inbound A2A message | One request / one turn |
+| `trace_id` / `traceparent` | W3C context | **Usually one request**; new UI call ⇒ often a new trace |
+
+### What appears in Tempo / Jaeger / Langfuse (happy path)
+
+One **request** = one wrapper span + backend children (not one merged span):
 
 ```
-a2a.task.execute          ← wrapper (Node), attributes include gen_ai.agent.name from agentCard.name
-  └─ Copilot / Claude …   ← backend CLI/runtime (separate process), same collector
+a2a.task.execute          ← wrapper (Node), one per inbound request
+  └─ Copilot / Claude …   ← backend CLI/runtime (same collector, parent-linked when configured)
 ```
 
-- **Copilot:** configure `telemetry.otlpEndpoint` (wired from `otel.backend.copilot` in a follow-up) and `onGetTraceContext` for parent linking.
-- **Claude Agent SDK:** TypeScript host spawns Claude Code; enable runtime OTel via env (`CLAUDE_CODE_ENABLE_TELEMETRY`, `OTEL_*`) and pass `TRACEPARENT` for parent linking.
-- **Antigravity:** no backend OTel today — enable `otel.enabled` and set `mirrorAgentEvents: true` if you want tool detail in OTLP from the wrapper.
+### Re-entry, resume, retries (the ~1% the wrapper must handle)
+
+The wrapper **cannot stop** the orchestrator (or another agent) from calling again:
+
+| Case | What happens | How we mark it |
+|---|---|---|
+| First `execute` for a task | New request, no prior `ctx.task` | `a2a.task.invocation=1`, `invocation_kind=new` |
+| Follow-up / `input-required` resume | Orchestrator sends another message; SDK sets `ctx.task` | New span, **same** `a2a.task.id` + conversation id, `invocation_kind=continue` |
+| Client retry after failure | Same task id, often no `ctx.task` yet | New span, same ids, `invocation_kind=retry` |
+
+So: **still one span per request** — never a multi-purpose span factory. Platforms join those spans via the stable IDs (session/conversation view), not by forcing one eternal parent across human wait time.
+
+- **Copilot:** configure `telemetry.otlpEndpoint` (wired from `otel.backend.copilot` in a follow-up) and `onGetTraceContext` for parent linking **within** a request.
+- **Claude Agent SDK:** enable runtime OTel via env + `TRACEPARENT` for parent linking within a request.
+- **Antigravity:** no backend OTel today — `mirrorAgentEvents: true` if you want tool detail from the wrapper.
 
 Use the **same collector** for wrapper and backend exporters. Prefer OTLP HTTP `:4318` when mixing Copilot with the Node SDK.
 
@@ -83,11 +112,15 @@ Use the **same collector** for wrapper and backend exporters. Prefer OTLP HTTP `
 | Attribute | Source |
 |---|---|
 | `a2a.task.id` / `a2a.context.id` | A2A task / context |
+| `a2a.message.id` | Inbound A2A `userMessage.messageId` when present |
+| `a2a.task.invocation` / `a2a.task.invocation_kind` | In-process execute count: `new` / `continue` / `retry` |
 | `gen_ai.agent.name` / `a2a.agent.name` | `agentCard.name` |
-| `gen_ai.conversation.id` | A2A `contextId` |
+| `gen_ai.conversation.id` | A2A `contextId` (platform session join key) |
 | `a2a.wrapper.name` | Server option / package name |
-| `a2a.task.usage.*` | Task rollup from `LlmUsageAccumulator` (always when OTel on) |
-| `gen_ai.usage.*` on task span | **Only when backend OTel is off** |
+| `a2a.task.usage.*` | Per-**request** rollup from `LlmUsageAccumulator` (when OTel on) |
+| `gen_ai.usage.*` on task span | **Only when backend OTel is off** (fallback sole source) |
+
+**Ownership reminder:** wrapper owns A2A/protocol + correlation IDs. Backend owns per-call `gen_ai.usage.*` on LLM spans when its OTel is on. Do not treat the wrapper as the universal owner of GenAI token attrs ([#254](https://github.com/open-telemetry/semantic-conventions-genai/issues/254) is still drafting A2A shape).
 
 ## Usage / tokens — do not double-count
 

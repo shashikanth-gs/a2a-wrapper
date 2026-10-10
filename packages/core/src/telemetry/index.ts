@@ -25,7 +25,12 @@ export {
   type TaskOtelStore,
 } from "./context.js";
 
-export { buildTaskSpanAttributes, slugAgentId, agentIdentityFromCard } from "./attributes.js";
+export {
+  buildTaskSpanAttributes,
+  slugAgentId,
+  agentIdentityFromCard,
+  type TaskInvocationKind,
+} from "./attributes.js";
 
 export { instrumentExecutor, type InstrumentExecutorOptions } from "./instrument.js";
 

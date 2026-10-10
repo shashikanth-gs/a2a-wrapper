@@ -1,10 +1,24 @@
 /**
  * Attribute builders for wrapper-owned spans.
  *
+ * Default model (see docs/observability.md): **one wrapper span per inbound
+ * request**. Correlation across turns / retries is via stable IDs
+ * (`gen_ai.conversation.id`, `a2a.task.id`, `a2a.message.id`), not by
+ * inventing extra span trees.
+ *
  * @module telemetry/attributes
  */
 
 import type { A2ATraceContext } from "./context.js";
+
+/** How this `execute` relates to the A2A task lifecycle. */
+export type TaskInvocationKind =
+  /** First wrapper span for this taskId in this process. */
+  | "new"
+  /** Orchestrator called again with an existing task (follow-up / input-required resume). */
+  | "continue"
+  /** Same task seen again without prior task object — typically client retry after failure. */
+  | "retry";
 
 export function slugAgentId(agentName: string): string {
   return agentName.toLowerCase().replace(/\s+/g, "-");
@@ -20,6 +34,11 @@ export function buildTaskSpanAttributes(opts: {
   protocolVersion?: string;
   parentAgentId?: string | null;
   orchestratorTraceId?: string;
+  /** A2A inbound message id when present. */
+  messageId?: string | null;
+  /** 1-based count of wrapper execute() calls for this taskId in-process. */
+  invocation?: number;
+  invocationKind?: TaskInvocationKind;
 }): Record<string, string | number | boolean> {
   const agentId = opts.agentId ?? slugAgentId(opts.agentName);
   const attrs: Record<string, string | number | boolean> = {
@@ -29,6 +48,8 @@ export function buildTaskSpanAttributes(opts: {
     "a2a.agent.name": opts.agentName,
     "gen_ai.agent.name": opts.agentName,
     "gen_ai.agent.id": agentId,
+    // Platforms (Langfuse/Datadog/Phoenix) group multi-turn work by this id —
+    // not by assuming one eternal parent span.
     "gen_ai.conversation.id": opts.contextId,
   };
   if (opts.wrapperName) attrs["a2a.wrapper.name"] = opts.wrapperName;
@@ -36,6 +57,9 @@ export function buildTaskSpanAttributes(opts: {
   if (opts.protocolVersion) attrs["a2a.protocol.version"] = opts.protocolVersion;
   if (opts.parentAgentId) attrs["a2a.parent_agent.id"] = opts.parentAgentId;
   if (opts.orchestratorTraceId) attrs["a2a.orchestrator.trace_id"] = opts.orchestratorTraceId;
+  if (opts.messageId) attrs["a2a.message.id"] = opts.messageId;
+  if (opts.invocation !== undefined) attrs["a2a.task.invocation"] = opts.invocation;
+  if (opts.invocationKind) attrs["a2a.task.invocation_kind"] = opts.invocationKind;
   return attrs;
 }
 
