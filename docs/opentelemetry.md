@@ -53,15 +53,20 @@ The SDK intentionally does **not** depend on `@opentelemetry/api`. Instead:
 
 **Wrapper implication:** `a2a-copilot` should (1) accept OTel config in agent JSON / env, (2) pass `telemetry` into the client, (3) implement `onGetTraceContext` from the active OTel context created for the A2A task span, (4) when Copilot backend OTel is on, **suppress** wrapper-synthesized OTel spans for tools/LLM that Copilot already emits — only keep A2A-unique spans (task/session/delegation) and still emit A2A sideband for the orchestrator.
 
-#### Claude — env-driven runtime OTel
+#### Claude — TypeScript SDK, but OTel lives in a **subprocess** (like Copilot)
 
-Claude Code / Agent SDK ships an internal OTLP stack (metrics, logs, traces; `OTEL_*` and `CLAUDE_CODE_OTEL_*` knobs). Enabling it is an **environment / managed-settings** concern, not a TS method call.
+`@anthropic-ai/claude-agent-sdk` is a **TypeScript** package, but it is **not** “pure in-process TS OTel.” It **spawns the Claude Code executable** (platform optionalDeps / `pathToClaudeCodeExecutable` / `spawnClaudeCodeProcess`). Options include `env` that replaces or shapes the **subprocess** environment.
 
-**Wrapper implication:** `a2a-claude` already can forward env into the SDK when marketplaces are used (`syncPluginInstallEnv`). For OTel we should:
+OTel is implemented **inside that Claude Code runtime**, enabled with e.g. `CLAUDE_CODE_ENABLE_TELEMETRY=1` + `OTEL_*` (see Anthropic monitoring docs). The npm package does **not** take `@opentelemetry/api` as a dependency for host-side instrumentation.
 
-- Document the env vars operators set on the wrapper process.
-- Optionally add a small `claude.otel` / shared `otel` config block that *translates* into those env vars when spawning/query options are built — without importing the Anthropic OTel stack ourselves.
-- Always emit **wrapper** spans for the A2A task lifecycle regardless of whether Claude’s exporter is on.
+Parent-link for Agent SDK / `-p` sessions: set **`TRACEPARENT` / `TRACESTATE` in the subprocess env** so `claude_code.interaction` becomes a child of the caller’s span (`parent.source=env`). That is Claude’s analogue of Copilot’s `onGetTraceContext`.
+
+**Wrapper implication:** `a2a-claude` should:
+
+- Keep **wrapper** `a2a.task.execute` spans via core Hooks A/D (`@opentelemetry/api` only).
+- When `otel.backend.claude` (or env) is on: pass `CLAUDE_CODE_ENABLE_TELEMETRY`, shared `OTEL_EXPORTER_OTLP_*`, and inject **`TRACEPARENT` from core `getW3cTraceContext()`** into `query({ options: { env } })` — without bundling Anthropic’s OTel stack.
+- Apply the same de-dupe rule as Copilot: no wrapper tool child spans when Claude runtime OTel is on.
+- Note: Claude often defaults docs to **gRPC `:4317`**; Copilot docs use **HTTP `:4318`**. Collector should expose both, or standardize HTTP for mixed fleets.
 
 #### Codex — config-driven CLI OTel
 
@@ -75,9 +80,19 @@ The TypeScript SDK is a thin launcher; OTel lives in `codex-rs/otel`. Configurat
 
 **Wrapper implication:** expose the flag; still rely on core wrapper spans for A2A-level visibility. Revisit when OpenCode documents OTLP export + context propagation.
 
-#### Antigravity — wrapper-only for now
+#### Antigravity — **no backend OTel** → wrapper is the entire OTLP story
 
-Node side talks to a managed Python subprocess. Until that bridge emits OTel (or accepts a trace context), all spans/metrics are owned by `a2a-antigravity` + core.
+`a2a-antigravity` is Node A2A + a **private Python** `google-antigravity` subprocess (JSONL bridge). There is **no** documented OTel/OTLP surface on that bridge today.
+
+**Implication (this is fine with API-only core):**
+
+| Signal | Who emits to OTLP |
+|---|---|
+| `a2a.task.execute`, session, delegation, errors | **Core Hook A** (same as every wrapper) |
+| Tool / thinking / lifecycle detail | **Core Hook D** via `AgentEventEmitter` — for Antigravity, `backendOtelOn=false`, so `mirrorAgentEvents` / tool child spans **may be enabled** (fallback). Sideband `trace.*` still always on. |
+| Python SDK internal spans | **None** until Google adds them; we do not invent a Python exporter in v1 |
+
+No special OpenTelemetry npm packages for Antigravity. No version conflict with a backend SDK. When/if the Python side later supports OTLP + context, flip `backendOtelOn` and stop mirroring overlapping tool spans — same policy machine as Copilot/Claude.
 
 ---
 
