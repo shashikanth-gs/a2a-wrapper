@@ -226,6 +226,119 @@ Hook points already exist: `AgentEventEmitter.emit`, executors, session managers
 
 Backend spans remain owned by the vendor runtimes. Wrapper spans supply the **A2A meaning** those runtimes do not know about.
 
+### 3.2 Collector endpoint, protocols, and “one trace” (not one span)
+
+#### Mental model (important)
+
+We do **not** merge the Copilot span and the wrapper span into a single span.
+
+We create **one distributed trace** (same `trace_id`) with a **parent/child span tree**:
+
+```
+trace_id = abc123
+│
+├─ span: a2a.task.execute              ← wrapper process (Node)
+│    attributes: a2a.task.id, gen_ai.agent.name=agentCard.name, …
+│    │
+│    ├─ span: <copilot session/message>  ← Copilot CLI process
+│    │    └─ span: execute_tool / …      ← Copilot CLI
+│    │
+│    └─ (optional) a2a.delegation        ← wrapper only
+```
+
+- **Same trace** ⇒ Grafana Tempo / Jaeger / Langfuse show one waterfall for the A2A task.
+- **Different spans** ⇒ each operation keeps its own timing, status, and attributes.
+- **Different processes** ⇒ wrapper Node process and Copilot CLI each export OTLP independently to the **same collector**.
+
+Correlation glue: Copilot’s `onGetTraceContext` injects the active W3C `traceparent` from the wrapper’s `a2a.task.execute` span into the CLI. Without that, you get two unrelated traces in Tempo even if both hit the same endpoint.
+
+#### Configure one collector for everyone
+
+Recommended local shape:
+
+```yaml
+# otel-collector (or Grafana Alloy) listens on BOTH:
+#   4317 = OTLP gRPC
+#   4318 = OTLP HTTP
+```
+
+Shared agent config (sketch):
+
+```json
+{
+  "otel": {
+    "enabled": true,
+    "serviceName": "a2a-copilot",
+    "exporter": {
+      "protocol": "http/protobuf",
+      "endpoint": "http://127.0.0.1:4318"
+    },
+    "backend": {
+      "copilot": {
+        "otlpEndpoint": "http://127.0.0.1:4318",
+        "exporterType": "otlp-http",
+        "propagateTraceContext": true
+      }
+    }
+  }
+}
+```
+
+Rules:
+
+1. **Wrapper exporter endpoint** and **Copilot `telemetry.otlpEndpoint`** must target the **same collector** (same host/deployment). That is how they “go together.”
+2. **Protocol need not be identical wire format**, but for least surprise use the **same protocol both support**.
+   - Copilot SDK today: **OTLP HTTP** only in public `TelemetryConfig` (`exporterType: "otlp-http"`, example `http://localhost:4318`).
+   - Claude Code: gRPC (`4317`) or HTTP (`4318`) via `OTEL_EXPORTER_OTLP_PROTOCOL`.
+   - Wrapper NodeSDK: can do either; default recommendation for Copilot monorepo path = **HTTP `4318`**.
+3. A collector that only opens gRPC `4317` will accept Claude easily but **miss Copilot** unless Copilot also speaks gRPC (it doesn’t via the documented SDK config). Prefer collector with **both receivers**, or standardize on HTTP for Copilot+wrapper.
+4. Optional env bootstrap for CLI mode:
+   - `OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318`
+   - `OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf`
+   - Wrapper maps the same values into Copilot `telemetry.otlpEndpoint`.
+
+#### How a span actually leaves the process
+
+| Emitter | Process | Export path |
+|---|---|---|
+| Wrapper `a2a.task.execute` | `a2a-copilot` Node | `@opentelemetry/sdk-trace-node` → OTLP exporter → collector `:4318/v1/traces` |
+| Copilot tool/LLM spans | Copilot CLI child | CLI built-in OTel (env from SDK `telemetry`) → same collector `:4318` |
+| A2A sideband `trace.mcp` | Node | **Not OTLP** — stays on A2A EventBus / HTTP transport for orchestrators |
+
+Collector batches → backend exporter (Tempo, Jaeger, Langfuse OTel endpoint, Honeycomb, …).
+
+#### What you see in Grafana Tempo / Langfuse / Jaeger
+
+Search/open by `trace_id` (or by attribute `a2a.task.id` / `gen_ai.agent.name`):
+
+```
+[======== a2a.task.execute ==============================]  service=a2a-copilot
+   [=== copilot message/turn ===]                            service=copilot-cli (or COPILOT_OTEL_SOURCE_NAME)
+      [= execute_tool Read =]
+      [= execute_tool Bash =]
+   [== a2a.delegation =]   (only if wrapper called a sub-agent)
+```
+
+UI details:
+
+| Product | What “together” means |
+|---|---|
+| **Grafana Tempo** + Explore / TraceQL | One trace waterfall; filter `resource.service.name` or `{span.a2a.task.id="…"}` |
+| **Jaeger** | Same: one Trace ID, multiple Spans/Services |
+| **Langfuse** (OTel ingestion) | Maps OTLP spans into a Langfuse trace/observations tree; parent/child preserved if `traceparent` was correct |
+
+You will **not** see a single span that contains both Copilot tool attrs and `a2a.*` attrs. You see **related spans** in one tree. Put A2A identity (`gen_ai.agent.name` ← `agentCard.name`, `a2a.task.id`, …) on the **wrapper parent**; leave tool detail on **Copilot children**.
+
+#### Failure modes (architecture tests)
+
+| Misconfig | Symptom in Tempo |
+|---|---|
+| Wrapper and Copilot point at different collectors | Two traces; no parent/child |
+| Copilot `telemetry` set but `propagateTraceContext` / `onGetTraceContext` missing | Two traces (or siblings under different roots), same collector |
+| Wrapper also mirrors `tool_call_*` into OTel | Duplicate tool spans under the task |
+| Collector only `:4317` gRPC, Copilot on HTTP `:4318` | Wrapper maybe OK if gRPC; Copilot spans missing |
+| Sideband disabled expecting OTel to replace it | Orchestrator loses `trace.mcp` (different channel) |
+
 ---
 
 ## 4. Wrapper-level span attributes
