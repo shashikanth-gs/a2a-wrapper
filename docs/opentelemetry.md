@@ -643,44 +643,42 @@ Agree attribute dictionary, no-op policy, “sideband stays” rule, **ownership
 
 ### Phase 2 — Wrapper attributes + usage mapping
 
-- Each executor sets `a2a.*` + summary `gen_ai.*` on the task span.
-- Map `LlmUsageAccumulator` records onto **task span attributes** / metrics (not duplicate LLM spans when backend GenAI spans exist).
-- Propagate context on sub-agent HTTP calls.
+- Hook E: `applyUsageToActiveSpan` from accumulator / final status path.
+- Propagate W3C context on sub-agent HTTP calls via core helper.
+- Migrate executors to `createExecutionObservability()` (Hook B) — mechanical, shared.
 
-### Phase 3 — Backend passthrough
+### Phase 3 — Backend passthrough (Hook F only in wrappers)
 
-- **Copilot first** (best API): config → `telemetry` + `onGetTraceContext`; when `backend.copilot` is set, automatically suppress overlapping wrapper tool/LLM spans.
-- Claude env mapping + docs (same suppression when Claude telemetry env is enabled via config).
-- Codex `configOverrides.otel`.
-- OpenCode `openTelemetry` flag.
-- Antigravity: evaluate Python-side later; until then `mirrorAgentEvents` may be the fallback for tools.
+- **Copilot first**: `telemetry` + `onGetTraceContext` → core `getW3cTraceContext()`; shared exporter endpoint from `otel.exporter`.
+- Claude env mapping; Codex `configOverrides.otel`; OpenCode flag; Antigravity later.
 
 ### Phase 4 — Polish
 
-- Example docker-compose with Collector + Jaeger.
-- Canary metrics dashboards / semconv compliance review.
-- Optional CLI exporter bootstrap in each `a2a-*` bin.
+- Example docker-compose with Collector + Tempo/Jaeger.
+- Semconv compliance review against [otel-genai-attribute-matrix.md](./otel-genai-attribute-matrix.md).
+- Optional CLI exporter bootstrap via `createCli` dynamic import.
 
 ---
 
-## 7. What we will *not* do
+## 8. What we will *not* do
 
 - Make `@opentelemetry/sdk-*` or OTLP exporters a hard dependency of `@a2a-wrapper/core`.
 - Replace A2A `trace.*` sideband artifacts with OTel.
 - Enable prompt/content capture by default.
 - Assume every backend SDK’s spans are sufficient — wrapper spans remain mandatory for A2A task/session/delegation semantics.
 - **Mirror sideband tool/LLM events into OTel while Copilot (or any backend) telemetry is also exporting those same operations** — that is the double-emit bug this design forbids by default.
+- **Add OTel start/end logic inside each provider’s EventMapper / executor** — that is the duplication this plumbing plan forbids; use Hooks A/D in core instead.
 
 ---
 
-## 8. Suggested first implementation slice
+## 9. Suggested first implementation slice
 
-Smallest useful PR after this design:
+Smallest useful PR after this plumbing analysis:
 
-1. `packages/core` optional OTel facade + `OtelEmissionPolicy` + tests (including de-dupe cases).
-2. Task span via `AsyncLocalStorage`; AgentEvents may add **events/attributes** on that span, but tool **child spans** only when policy allows.
-3. `a2a-copilot`: `otel.backend.copilot` → SDK `telemetry` + `onGetTraceContext`; overlapping tool spans suppressed.
-4. README roadmap bullet → link here; mark “Phase 1 in progress” when code lands.
+1. `packages/core/src/telemetry/*` — facade + ALS + `OtelEmissionPolicy` + `extractA2ATraceContext` + tests.
+2. Hook A in `createA2AServer` (`instrumentExecutor`) + Hook D in `AgentEventEmitter.emit`.
+3. Only then: `a2a-copilot` Hook F (`telemetry` + `onGetTraceContext`).
+4. No OTel code in Claude/Codex/OpenCode/Antigravity mappers in that PR.
 
 ---
 
