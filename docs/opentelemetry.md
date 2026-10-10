@@ -3,11 +3,12 @@
 Status: **proposal** (roadmap item — not yet implemented in this repo)  
 Related: existing A2A sideband `trace.*` artifacts, `LlmUsageAccumulator` (OTel GenAI field alignment), sibling bridge [`a2a-mcp-skillmap`](https://github.com/shashikanth-gs/a2a-mcp-skillmap) (`setOtelTracer` / `withSpan`)
 
-This document answers three questions:
+This document answers four questions:
 
 1. Do the backend SDKs already speak OpenTelemetry, and can we reuse that?
 2. Even when they do (or don’t), what must `@a2a-wrapper/core` and each `a2a-*` wrapper emit themselves?
 3. What wrapper-specific attributes belong on those spans, beyond what the SDKs know about?
+4. How do we avoid emitting the **same** tool/LLM work twice when the backend already exports OTel **and** we already have A2A sideband events?
 
 ---
 
@@ -21,7 +22,9 @@ This document answers three questions:
 | **Distributed context** | Orchestrator `trace_id` / `parent_agent_id` in A2A metadata (e.g. Copilot `extractTraceContext`) | Not W3C `traceparent` / OTel `Context`; not linked to an OTel `TracerProvider` |
 | **Roadmap** | README: optional OTel via `@opentelemetry/api`, no-op by default | Not implemented |
 
-**Important separation:** keep A2A sideband traces and OpenTelemetry as **parallel** channels. Sideband stays the in-band protocol for orchestrators; OTel is for platform collectors (Jaeger, Tempo, Honeycomb, Datadog, …). Bridging them (optional “mirror `AgentEvent` → span events/attributes”) is fine; replacing sideband with OTel is not.
+**Important separation:** keep A2A sideband traces and OpenTelemetry as **parallel** channels. Sideband stays the in-band protocol for orchestrators; OTel is for platform collectors (Jaeger, Tempo, Honeycomb, Datadog, …). Replacing sideband with OTel is not a goal.
+
+**Anti-duplication rule:** sideband `tool_call_*` / `trace.mcp` events must **not** automatically become a second OTel tool span when the backend CLI already exports one. See [§3.1 Span ownership & de-duplication](#31-span-ownership--de-duplication).
 
 ---
 
@@ -47,7 +50,7 @@ The SDK intentionally does **not** depend on `@opentelemetry/api`. Instead:
 - `onGetTraceContext?: TraceContextProvider` lets the host inject the current W3C context so app spans and CLI spans share one distributed trace.
 - Inbound `traceparent` / `tracestate` appear on tool invocations.
 
-**Wrapper implication:** `a2a-copilot` should (1) accept OTel config in agent JSON / env, (2) pass `telemetry` into the client, (3) implement `onGetTraceContext` from the active OTel context created for the A2A task span.
+**Wrapper implication:** `a2a-copilot` should (1) accept OTel config in agent JSON / env, (2) pass `telemetry` into the client, (3) implement `onGetTraceContext` from the active OTel context created for the A2A task span, (4) when Copilot backend OTel is on, **suppress** wrapper-synthesized OTel spans for tools/LLM that Copilot already emits — only keep A2A-unique spans (task/session/delegation) and still emit A2A sideband for the orchestrator.
 
 #### Claude — env-driven runtime OTel
 
@@ -89,11 +92,88 @@ Node side talks to a managed Python subprocess. Until that bridge emits OTel (or
    ┌──────┴──────┐         ┌───────┴────────┐       ┌───────┴────────┐
    │ Wrapper     │         │ Backend SDK/   │       │ Optional HTTP  │
    │ spans       │         │ CLI OTel       │       │ auto-instr.    │
-   │ (core API)  │         │ (if enabled)   │       │                │
+   │ (A2A-only   │         │ (tools/LLM     │       │                │
+   │  when BE on)│         │  when enabled) │       │                │
    └──────┬──────┘         └───────▲────────┘       └────────────────┘
           │                        │ parent context / env / telemetry cfg
           └────────────────────────┘
-          A2A sideband (unchanged) ──► orchestrator
+          A2A sideband (always, unchanged) ──► orchestrator
+```
+
+### 3.1 Span ownership & de-duplication
+
+This is the Copilot case (and the general rule for any backend with native OTel).
+
+#### The failure mode
+
+For one MCP tool call you can accidentally get **three** representations:
+
+1. **Copilot CLI OTel span** — e.g. execute_tool / GenAI tool span exported via `telemetry.otlpEndpoint`
+2. **A2A sideband** — `tool_call_start` / `tool_call_end` → `trace.mcp` artifact on the EventBus (orchestrator)
+3. **Wrapper-mirrored OTel span** — if we naïvely turn every `AgentEvent` into an OTel span
+
+(1) and (3) both land in the same collector → **duplicate tool spans**, double latency, broken dashboards.  
+(2) is a different channel (A2A protocol) and is **not** a duplicate of (1)/(3); orchestrators still need it.
+
+#### Ownership matrix (who emits what to OTLP)
+
+| Signal | Backend OTel **off** | Backend OTel **on** (e.g. Copilot `telemetry` set) |
+|---|---|---|
+| A2A task / cancel / session / delegation | Wrapper OTel span | Wrapper OTel span (**always** — backends don’t know A2A) |
+| MCP / shell / builtin tool calls | Wrapper may emit `a2a.mcp.tool` (fallback) | **Backend only** — wrapper does **not** create a tool span |
+| LLM / model call spans | Wrapper may attach usage attrs / fallback span | **Backend only** |
+| Thinking / token streams as spans | Usually span **events** on task span, or omit | Prefer omit or single event on task span — never a second tool-like span |
+| A2A sideband `trace.*` | Always (orchestrator) | Always (orchestrator) — independent of OTel |
+
+#### Defaults (hard rules for implementation)
+
+1. **`mirrorAgentEvents` defaults to `false`.** Turning AgentEvents into OTel child spans is opt-in and intended for backends *without* native OTel (or for debugging).
+2. **When `otel.backend.copilot` (or equivalent) is configured, force `emitOverlappingBackendSpans: false`.** Even if someone sets `mirrorAgentEvents: true`, tool/`trace.mcp` / LLM-overlapping events must not open wrapper OTel spans. Log a one-shot warning if both were requested.
+3. **Link, don’t clone.** Copilot’s `onGetTraceContext` makes CLI spans **children of** `a2a.task.execute`. That is correlation, not duplication. Do not also open `a2a.mcp.tool` for the same call.
+4. **Sideband stays on.** Disabling wrapper OTel tool spans must never disable `AgentEventEmitter` → A2A/`HttpTransport` sideband.
+5. **Usage:** put token totals on the **task span attributes** (from `UsageCallRecord`) rather than emitting a parallel `a2a.llm.usage` span when the backend already emits GenAI spans. Optional metric counters are OK if cardinality-safe.
+6. **Same collector assumption.** Copilot CLI and the wrapper process should export to the **same** OTLP endpoint when both are enabled; otherwise you get split traces, which tempts people to “fix” it by mirroring — don’t.
+
+#### Copilot-specific wiring
+
+```
+HTTP / A2A request
+  └─ span: a2a.task.execute          ← wrapper (A2A attrs)
+       ├─ span: a2a.session.*        ← wrapper (optional)
+       ├─ span: a2a.delegation       ← wrapper only when we call sub-agents
+       └─ (via onGetTraceContext)
+            └─ Copilot CLI spans     ← tools, model calls (backend)
+                 execute_tool / gen_ai.*
+```
+
+What we **do not** add under `a2a.task.execute` when Copilot telemetry is on:
+
+- another span per `tool_call_start`/`tool_call_end`
+- another span per `trace.usage` artifact
+
+What we **still** do:
+
+- emit sideband `trace.mcp` / `trace.usage` for the A2A client
+- set `a2a.*` (+ summary `gen_ai.usage.*` if useful) on `a2a.task.execute`
+- propagate W3C context into Copilot so CLI spans nest under the task
+
+#### Config knobs
+
+| Knob | Default | Meaning |
+|---|---|---|
+| `otel.enabled` | `false` | Wrapper OTel facade active |
+| `otel.mirrorAgentEvents` | `false` | Map AgentEvents → wrapper OTel spans/events |
+| `otel.emitOverlappingBackendSpans` | `false` | Allow tool/LLM spans even if backend OTel is on (**unsafe**; debug only) |
+| `otel.backend.copilot` present | — | Implies backend OTel on → overlapping wrapper spans suppressed |
+
+Pseudo-policy:
+
+```ts
+const backendOtelOn = Boolean(otel.backend?.copilot /* or claude/codex/… */);
+const emitToolSpans =
+  otel.enabled &&
+  (otel.mirrorAgentEvents ?? false) &&
+  (!backendOtelOn || otel.emitOverlappingBackendSpans === true);
 ```
 
 ### Layer A — `@a2a-wrapper/core` (always)
@@ -123,15 +203,15 @@ Instrument the shared lifecycle every wrapper already has:
 
 | Span / metric | When | Notes |
 |---|---|---|
-| `a2a.task.execute` | `AgentExecutor.execute` | Root wrapper span for the task |
+| `a2a.task.execute` | `AgentExecutor.execute` | Root wrapper span for the task — **always** when OTel enabled |
 | `a2a.task.cancel` | `cancelTask` | Link to prior execute if possible |
 | `a2a.session.get_or_create` | Session manager | Reuse vs create attribute |
-| `a2a.mcp.tool` | Tool start/end (from event mapper / hooks) | Child of task; may overlap SDK tool spans — use links/attributes, don’t double-bill metrics |
-| `a2a.delegation` | Sub-agent call | Child task id / agent URL |
-| `a2a.llm.usage` (event or span attrs) | When `UsageCallRecord` is recorded | Map existing fields → `gen_ai.*` attributes |
+| `a2a.mcp.tool` | Tool start/end (from event mapper / hooks) | **Only if** backend OTel is off (or unsafe override). Never alongside Copilot `telemetry` |
+| `a2a.delegation` | Sub-agent call | Child task id / agent URL — wrapper-owned (backends don’t emit A2A delegation) |
+| Task-span `gen_ai.usage.*` attrs | When `UsageCallRecord` is recorded | Prefer attributes on the task span over a second LLM span when backend GenAI spans exist |
 | Counters/histograms | task outcome, duration, tokens | Optional phase 2 |
 
-Hook points already exist: `AgentEventEmitter.emit`, executors, session managers, MCP hooks/event mappers. Prefer **one** bridge in core that listens to `AgentEvent` (or wraps `emit`) so five wrappers don’t each reinvent span open/close.
+Hook points already exist: `AgentEventEmitter.emit`, executors, session managers, MCP hooks/event mappers. Prefer **one** bridge in core that applies the ownership matrix above so five wrappers don’t each reinvent de-dupe logic.
 
 ### Layer C — Backend SDK passthrough (best-effort per wrapper)
 
@@ -177,6 +257,8 @@ Use OTel GenAI conventions where they fit; namespace A2A-specific fields under `
 
 ### MCP / tools
 
+Used on wrapper `a2a.mcp.tool` spans **only when** the emission policy allows them (backend OTel off). When Copilot/backend owns tool spans, put A2A-only extras on the **task** span or on delegation spans — do not re-create the tool span just to attach these.
+
 | Attribute | Source |
 |---|---|
 | `a2a.tool.name` | tool name |
@@ -217,7 +299,8 @@ Shared block on every agent config (core `BaseAgentConfig`), optional:
     "enabled": true,
     "serviceName": "a2a-copilot",
     "tracerName": "a2a-wrapper",
-    "mirrorAgentEvents": true,
+    "mirrorAgentEvents": false,
+    "emitOverlappingBackendSpans": false,
     "backend": {
       "copilot": {
         "otlpEndpoint": "${OTEL_EXPORTER_OTLP_ENDPOINT}",
@@ -243,6 +326,8 @@ Shared block on every agent config (core `BaseAgentConfig`), optional:
 }
 ```
 
+With the Copilot block present, collectors should see **one** tool span (from Copilot) under `a2a.task.execute`, plus A2A sideband `trace.mcp` for the orchestrator — not a second OTel tool span from the wrapper.
+
 CLI / library mode:
 
 - **Library:** host calls `NodeSDK.start()` then `setOtelTracer(trace.getTracer("a2a-wrapper"))` (or we auto-detect global provider).
@@ -254,29 +339,30 @@ CLI / library mode:
 
 ### Phase 0 — Design (this doc)
 
-Agree attribute dictionary, no-op policy, and “sideband stays” rule.
+Agree attribute dictionary, no-op policy, “sideband stays” rule, and **ownership / anti-duplication** matrix.
 
 ### Phase 1 — Core bridge (MVP)
 
 - Add optional `@opentelemetry/api` peer + `packages/core/src/telemetry/otel.ts` (`setOtelTracer` / `withSpan` / attribute helpers).
 - Instrument `createA2AServer` request path lightly **or** document that HTTP instr is host-owned (`@opentelemetry/instrumentation-express` / `http`).
-- Wrap / hook `AgentEventEmitter` so `agent_started`/`finished`/`error` and tool events open/close or annotate spans when a tracer is set.
-- Unit tests with a fake tracer (skillmap-style).
-- Docs: how to register a provider; security note on content capture.
+- Add an `OtelEmissionPolicy` (or equivalent) shared by all wrappers: given `mirrorAgentEvents` + `backendOtelOn` + `emitOverlappingBackendSpans`, decide whether an `AgentEvent` may open a wrapper span.
+- Hook `AgentEventEmitter` only through that policy — default: lifecycle annotations on the task span, **no** tool child spans when backend OTel is on.
+- Unit tests: fake tracer + cases for (backend off / on / override) proving tool events do not double-span.
+- Docs: how to register a provider; security note on content capture; Copilot de-dupe example.
 
 ### Phase 2 — Wrapper attributes + usage mapping
 
-- Each executor sets `a2a.*` + `gen_ai.*` on the task span.
-- Map `LlmUsageAccumulator` records onto span attributes / metrics.
+- Each executor sets `a2a.*` + summary `gen_ai.*` on the task span.
+- Map `LlmUsageAccumulator` records onto **task span attributes** / metrics (not duplicate LLM spans when backend GenAI spans exist).
 - Propagate context on sub-agent HTTP calls.
 
 ### Phase 3 — Backend passthrough
 
-- **Copilot first** (best API): config → `telemetry` + `onGetTraceContext`.
-- Claude env mapping + docs.
+- **Copilot first** (best API): config → `telemetry` + `onGetTraceContext`; when `backend.copilot` is set, automatically suppress overlapping wrapper tool/LLM spans.
+- Claude env mapping + docs (same suppression when Claude telemetry env is enabled via config).
 - Codex `configOverrides.otel`.
 - OpenCode `openTelemetry` flag.
-- Antigravity: evaluate Python-side later.
+- Antigravity: evaluate Python-side later; until then `mirrorAgentEvents` may be the fallback for tools.
 
 ### Phase 4 — Polish
 
@@ -292,6 +378,7 @@ Agree attribute dictionary, no-op policy, and “sideband stays” rule.
 - Replace A2A `trace.*` sideband artifacts with OTel.
 - Enable prompt/content capture by default.
 - Assume every backend SDK’s spans are sufficient — wrapper spans remain mandatory for A2A task/session/delegation semantics.
+- **Mirror sideband tool/LLM events into OTel while Copilot (or any backend) telemetry is also exporting those same operations** — that is the double-emit bug this design forbids by default.
 
 ---
 
@@ -299,9 +386,9 @@ Agree attribute dictionary, no-op policy, and “sideband stays” rule.
 
 Smallest useful PR after this design:
 
-1. `packages/core` optional OTel facade + tests.
-2. Hook `AgentEventEmitter.emit` → span events / status on task span stored in `AsyncLocalStorage`.
-3. One wrapper (`a2a-copilot`) wires task-span + Copilot `telemetry`/`onGetTraceContext` behind `otel.enabled`.
+1. `packages/core` optional OTel facade + `OtelEmissionPolicy` + tests (including de-dupe cases).
+2. Task span via `AsyncLocalStorage`; AgentEvents may add **events/attributes** on that span, but tool **child spans** only when policy allows.
+3. `a2a-copilot`: `otel.backend.copilot` → SDK `telemetry` + `onGetTraceContext`; overlapping tool spans suppressed.
 4. README roadmap bullet → link here; mark “Phase 1 in progress” when code lands.
 
 ---
