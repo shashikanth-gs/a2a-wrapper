@@ -50,6 +50,11 @@ export function tryGetGlobalTracer(name = "a2a-wrapper", version?: string): Otel
 /**
  * Run `block` under a span when a tracer is available; otherwise run plainly.
  * Always ends the span (including on throw).
+ *
+ * When `@opentelemetry/api` is installed and the span looks like a real API
+ * span (`spanContext()`), the span is set as the active context so
+ * {@link getW3cTraceContext} / Copilot `onGetTraceContext` / Claude
+ * `TRACEPARENT` see this span as parent (Hook F).
  */
 export async function withSpan<T>(
   name: string,
@@ -66,18 +71,40 @@ export async function withSpan<T>(
   }
 
   const span = tracer.startSpan(name, { attributes });
-  try {
-    return await block(span);
-  } catch (err) {
+
+  const run = async (): Promise<T> => {
     try {
-      span.recordException?.(err);
-      // SpanStatusCode.ERROR === 2 in @opentelemetry/api
-      span.setStatus?.({ code: 2, message: err instanceof Error ? err.message : String(err) });
-    } catch {
-      /* ignore span status failures */
+      return await block(span);
+    } catch (err) {
+      try {
+        span.recordException?.(err);
+        // SpanStatusCode.ERROR === 2 in @opentelemetry/api
+        span.setStatus?.({ code: 2, message: err instanceof Error ? err.message : String(err) });
+      } catch {
+        /* ignore span status failures */
+      }
+      throw err;
+    } finally {
+      span.end();
     }
-    throw err;
-  } finally {
-    span.end();
+  };
+
+  try {
+    const api = require("@opentelemetry/api") as {
+      context: {
+        active: () => unknown;
+        with: <R>(ctx: unknown, fn: () => R) => R;
+      };
+      trace: { setSpan: (ctx: unknown, s: unknown) => unknown };
+    };
+    const maybeReal = span as OtelSpanLike & { spanContext?: () => unknown };
+    if (typeof maybeReal.spanContext === "function") {
+      const ctx = api.trace.setSpan(api.context.active(), span);
+      return await api.context.with(ctx, run);
+    }
+  } catch {
+    /* API missing or span not activatable — run without context bind */
   }
+
+  return run();
 }

@@ -48,13 +48,44 @@ export interface OtelConfig {
   emitOverlappingBackendSpans?: boolean;
 
   /**
-   * Hint that a backend runtime will export its own OTLP spans (Copilot CLI,
-   * Claude Code subprocess, Codex, …). Used by the emission policy.
+   * Shared OTLP exporter hint for wrapper hosts and backend passthrough.
+   * Backends inherit `endpoint` / `protocol` when their own fields are omitted.
+   */
+  exporter?: {
+    /** e.g. `http://127.0.0.1:4318` */
+    endpoint?: string;
+    /** e.g. `http/protobuf` (preferred with Copilot) or `grpc` */
+    protocol?: string;
+  };
+
+  /**
+   * Backend runtime OTel passthrough (Hook F). Presence of a configured
+   * backend block turns on de-dupe (no wrapper tool / gen_ai.usage duplicate).
    */
   backend?: {
-    copilot?: { otlpEndpoint?: string; exporterType?: string; propagateTraceContext?: boolean };
-    claude?: { enableTelemetry?: boolean };
+    copilot?: {
+      otlpEndpoint?: string;
+      exporterType?: string;
+      otlpProtocol?: "http/json" | "http/protobuf";
+      sourceName?: string;
+      captureContent?: boolean;
+      filePath?: string;
+      /** @default true when Copilot OTel is configured */
+      propagateTraceContext?: boolean;
+    };
+    claude?: {
+      enableTelemetry?: boolean;
+      otlpEndpoint?: string;
+      otlpProtocol?: string;
+      /** @default true when Claude telemetry is enabled */
+      propagateTraceContext?: boolean;
+    };
+    /** Merged into Codex `configOverrides.otel` (CLI `[otel]` shape). */
     codex?: Record<string, unknown>;
+    /**
+     * OpenCode server-side experimental flag. The wrapper does not start
+     * OpenCode's exporter; set this so de-dupe policy matches your server.
+     */
     opencode?: { openTelemetry?: boolean };
   };
 }

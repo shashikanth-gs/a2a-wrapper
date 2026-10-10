@@ -45,6 +45,10 @@ Point your collector (or Grafana Alloy) at OTLP HTTP `:4318` and/or gRPC `:4317`
   "otel": {
     "enabled": true,
     "mirrorAgentEvents": false,
+    "exporter": {
+      "endpoint": "http://127.0.0.1:4318",
+      "protocol": "http/protobuf"
+    },
     "backend": {
       "copilot": {
         "otlpEndpoint": "http://127.0.0.1:4318",
@@ -59,8 +63,12 @@ Point your collector (or Grafana Alloy) at OTLP HTTP `:4318` and/or gRPC `:4317`
 | Field | Meaning |
 |---|---|
 | `otel.enabled` | Emit wrapper spans such as `a2a.task.execute` |
+| `otel.exporter.endpoint` | Shared OTLP hint inherited by backends when their own endpoint is omitted |
 | `otel.mirrorAgentEvents` | Also turn sideband tool events into wrapper OTel tool spans (default `false`) |
-| `otel.backend.copilot` | Copilot CLI will export its own OTLP spans — wrapper **will not** duplicate tool spans |
+| `otel.backend.copilot` | Hook F: Copilot CLI OTLP + `onGetTraceContext` parent-link |
+| `otel.backend.claude` | Hook F: `CLAUDE_CODE_ENABLE_TELEMETRY` + `OTEL_*` + `TRACEPARENT` in subprocess env |
+| `otel.backend.codex` | Hook F: merged into Codex `configOverrides.otel` |
+| `otel.backend.opencode` | Declares OpenCode server OTel on (de-dupe); enable the flag on the OpenCode server itself |
 | `otel.emitOverlappingBackendSpans` | Unsafe; allow duplicates (debug only) |
 
 ### Mental model (keep this simple)
@@ -101,11 +109,23 @@ The wrapper **cannot stop** the orchestrator (or another agent) from calling aga
 
 So: **still one span per request** — never a multi-purpose span factory. Platforms join those spans via the stable IDs (session/conversation view), not by forcing one eternal parent across human wait time.
 
-- **Copilot:** configure `telemetry.otlpEndpoint` (wired from `otel.backend.copilot` in a follow-up) and `onGetTraceContext` for parent linking **within** a request.
-- **Claude Agent SDK:** enable runtime OTel via env + `TRACEPARENT` for parent linking within a request.
-- **Antigravity:** no backend OTel today — `mirrorAgentEvents: true` if you want tool detail from the wrapper.
+### Phase 3 — Backend passthrough (Hook F)
 
-Use the **same collector** for wrapper and backend exporters. Prefer OTLP HTTP `:4318` when mixing Copilot with the Node SDK.
+Wired in wrappers today:
+
+| Wrapper | Config | What happens |
+|---|---|---|
+| **Copilot** | `otel.backend.copilot` | SDK `telemetry` on spawn + `onGetTraceContext` → active `a2a.task.execute` |
+| **Claude** | `otel.backend.claude.enableTelemetry` | Subprocess env: `CLAUDE_CODE_ENABLE_TELEMETRY`, `OTEL_*`, `TRACEPARENT` |
+| **Codex** | `otel.backend.codex` | Merged into CLI `[otel]` via `configOverrides` |
+| **OpenCode** | `otel.backend.opencode.openTelemetry` | Policy/de-dupe only — turn on OpenCode’s own server flag |
+| **Antigravity** | — | No backend OTel; use `mirrorAgentEvents: true` for tool detail |
+
+Notes:
+
+- Copilot `telemetry` env applies when the SDK **spawns** the CLI. With external `copilot.cliUrl`, set OTEL on that process yourself; `onGetTraceContext` still parent-links RPCs.
+- Prefer collector **OTLP HTTP `:4318`** when mixing Copilot + Node SDK (Claude can use HTTP or gRPC).
+- Hosts still register the wrapper `TracerProvider` (see above); Hook F only configures **backend** exporters + propagation.
 
 ## Wrapper span attributes (selected)
 

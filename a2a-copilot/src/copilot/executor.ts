@@ -31,6 +31,9 @@ import {
   createExecutionObservability,
   applyUsageSummaryToActiveSpan,
   annotateSessionOnTaskSpan,
+  buildCopilotTelemetryOptions,
+  shouldPropagateCopilotTraceContext,
+  createCopilotTraceContextProvider,
 } from "@a2a-wrapper/core";
 import type {
   EventTransport,
@@ -139,6 +142,21 @@ export class CopilotExecutor implements AgentExecutor {
       if (this.config.copilot.githubToken) {
         clientOpts.gitHubToken = this.config.copilot.githubToken;
       }
+    }
+
+    // Hook F — Copilot CLI OTel exporter + parent-link into a2a.task.execute.
+    // `telemetry` only affects SDK-spawned CLI env (not external cliUrl servers).
+    const telemetry = buildCopilotTelemetryOptions(this.config.otel);
+    if (telemetry) {
+      clientOpts.telemetry = telemetry;
+      log.info("Copilot CLI OTel telemetry configured", {
+        otlpEndpoint: telemetry.otlpEndpoint,
+        exporterType: telemetry.exporterType,
+        externalCli: Boolean(this.config.copilot.cliUrl),
+      });
+    }
+    if (shouldPropagateCopilotTraceContext(this.config.otel)) {
+      clientOpts.onGetTraceContext = createCopilotTraceContextProvider();
     }
 
     this.client = new CopilotClient(clientOpts as any);

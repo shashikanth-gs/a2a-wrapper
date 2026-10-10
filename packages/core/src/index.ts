@@ -192,6 +192,13 @@ export {
   applyUsageCallToActiveSpan,
   createExecutionObservability,
   annotateSessionOnTaskSpan,
+  resolveOtlpEndpoint,
+  buildCopilotTelemetryOptions,
+  shouldPropagateCopilotTraceContext,
+  createCopilotTraceContextProvider,
+  buildClaudeOtelEnv,
+  mergeCodexOtelOverrides,
+  isOpenCodeBackendOtelEnabled,
 } from "./telemetry/index.js";
 // ─── A2A SDK Type Re-exports ────────────────────────────────────────────────
 //

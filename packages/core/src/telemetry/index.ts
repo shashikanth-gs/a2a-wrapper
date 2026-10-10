@@ -47,3 +47,13 @@ export {
   type CreateExecutionObservabilityOptions,
   type ExecutionObservability,
 } from "./observability.js";
+
+export {
+  resolveOtlpEndpoint,
+  buildCopilotTelemetryOptions,
+  shouldPropagateCopilotTraceContext,
+  createCopilotTraceContextProvider,
+  buildClaudeOtelEnv,
+  mergeCodexOtelOverrides,
+  isOpenCodeBackendOtelEnabled,
+} from "./backend-passthrough.js";

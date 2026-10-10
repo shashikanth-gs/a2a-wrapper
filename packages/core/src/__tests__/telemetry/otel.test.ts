@@ -9,6 +9,10 @@ import {
   runWithTaskOtelStore,
   applyUsageSummaryToActiveSpan,
   createExecutionObservability,
+  buildCopilotTelemetryOptions,
+  shouldPropagateCopilotTraceContext,
+  buildClaudeOtelEnv,
+  mergeCodexOtelOverrides,
   type OtelTracerLike,
   type OtelSpanLike,
   type A2AExecutor,
@@ -339,5 +343,54 @@ describe("createExecutionObservability", () => {
     expect(traceContext.parentAgentId).toBe("parent-x");
     expect(emitter.traceId).toBe("orch-99");
     expect(emitter.parentAgentId).toBe("parent-x");
+  });
+});
+
+describe("Hook F backend passthrough helpers", () => {
+  it("builds Copilot telemetry from backend.copilot + shared exporter", () => {
+    const t = buildCopilotTelemetryOptions({
+      enabled: true,
+      exporter: { endpoint: "http://127.0.0.1:4318" },
+      backend: { copilot: { propagateTraceContext: true } },
+    });
+    expect(t?.otlpEndpoint).toBe("http://127.0.0.1:4318");
+    expect(t?.exporterType).toBe("otlp-http");
+    expect(shouldPropagateCopilotTraceContext({
+      backend: { copilot: { otlpEndpoint: "http://x:4318" } },
+    })).toBe(true);
+  });
+
+  it("returns undefined Copilot telemetry when backend.copilot is absent", () => {
+    expect(buildCopilotTelemetryOptions({ enabled: true })).toBeUndefined();
+    expect(shouldPropagateCopilotTraceContext({ enabled: true })).toBe(false);
+  });
+
+  it("merges Claude OTel env when enableTelemetry is set", () => {
+    const env = buildClaudeOtelEnv(
+      {
+        enabled: true,
+        serviceName: "a2a-claude",
+        exporter: { endpoint: "http://127.0.0.1:4318", protocol: "http/protobuf" },
+        backend: { claude: { enableTelemetry: true } },
+      },
+      { KEEP: "1" },
+    );
+    expect(env?.["CLAUDE_CODE_ENABLE_TELEMETRY"]).toBe("1");
+    expect(env?.["OTEL_EXPORTER_OTLP_ENDPOINT"]).toBe("http://127.0.0.1:4318");
+    expect(env?.["KEEP"]).toBe("1");
+  });
+
+  it("merges Codex otel overrides under configOverrides.otel", () => {
+    const merged = mergeCodexOtelOverrides(
+      {
+        exporter: { endpoint: "http://127.0.0.1:4318" },
+        backend: { codex: { environment: "test" } },
+      },
+      { model: "o3" },
+    );
+    expect(merged?.model).toBe("o3");
+    expect((merged?.otel as Record<string, unknown>).endpoint).toBe("http://127.0.0.1:4318");
+    expect((merged?.otel as Record<string, unknown>).exporter).toBe("otlp");
+    expect((merged?.otel as Record<string, unknown>).environment).toBe("test");
   });
 });

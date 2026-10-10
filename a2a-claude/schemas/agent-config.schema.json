@@ -642,12 +642,22 @@
       "properties": {
         "backend": {
           "additionalProperties": false,
-          "description": "Hint that a backend runtime will export its own OTLP spans (Copilot CLI, Claude Code subprocess, Codex, …). Used by the emission policy.",
+          "description": "Backend runtime OTel passthrough (Hook F). Presence of a configured backend block turns on de-dupe (no wrapper tool / gen_ai.usage duplicate).",
           "properties": {
             "claude": {
               "additionalProperties": false,
               "properties": {
                 "enableTelemetry": {
+                  "type": "boolean"
+                },
+                "otlpEndpoint": {
+                  "type": "string"
+                },
+                "otlpProtocol": {
+                  "type": "string"
+                },
+                "propagateTraceContext": {
+                  "default": "true when Claude telemetry is enabled",
                   "type": "boolean"
                 }
               },
@@ -655,25 +665,44 @@
             },
             "codex": {
               "additionalProperties": {},
+              "description": "Merged into Codex `configOverrides.otel` (CLI `[otel]` shape).",
               "type": "object"
             },
             "copilot": {
               "additionalProperties": false,
               "properties": {
+                "captureContent": {
+                  "type": "boolean"
+                },
                 "exporterType": {
+                  "type": "string"
+                },
+                "filePath": {
                   "type": "string"
                 },
                 "otlpEndpoint": {
                   "type": "string"
                 },
+                "otlpProtocol": {
+                  "enum": [
+                    "http/json",
+                    "http/protobuf"
+                  ],
+                  "type": "string"
+                },
                 "propagateTraceContext": {
+                  "default": "true when Copilot OTel is configured",
                   "type": "boolean"
+                },
+                "sourceName": {
+                  "type": "string"
                 }
               },
               "type": "object"
             },
             "opencode": {
               "additionalProperties": false,
+              "description": "OpenCode server-side experimental flag. The wrapper does not start OpenCode's exporter; set this so de-dupe policy matches your server.",
               "properties": {
                 "openTelemetry": {
                   "type": "boolean"
@@ -693,6 +722,21 @@
           "default": false,
           "description": "Master switch for wrapper-owned OTel instrumentation.",
           "type": "boolean"
+        },
+        "exporter": {
+          "additionalProperties": false,
+          "description": "Shared OTLP exporter hint for wrapper hosts and backend passthrough. Backends inherit `endpoint` / `protocol` when their own fields are omitted.",
+          "properties": {
+            "endpoint": {
+              "description": "e.g. `http://127.0.0.1:4318`",
+              "type": "string"
+            },
+            "protocol": {
+              "description": "e.g. `http/protobuf` (preferred with Copilot) or `grpc`",
+              "type": "string"
+            }
+          },
+          "type": "object"
         },
         "mirrorAgentEvents": {
           "default": false,

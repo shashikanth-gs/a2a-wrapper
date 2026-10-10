@@ -519,15 +519,33 @@ export interface BaseAgentConfig<TBackend = Record<string, unknown>> {
    * Typed loosely here to avoid a hard import cycle with the telemetry
    * module; see {@link OtelConfig} in `@a2a-wrapper/core` exports.
    */
+  /**
+   * Optional OpenTelemetry settings. Prefer the exported {@link OtelConfig}
+   * type from `@a2a-wrapper/core` in wrapper configs.
+   */
   otel?: {
     enabled?: boolean;
     serviceName?: string;
     tracerName?: string;
     mirrorAgentEvents?: boolean;
     emitOverlappingBackendSpans?: boolean;
+    exporter?: { endpoint?: string; protocol?: string };
     backend?: {
-      copilot?: { otlpEndpoint?: string; exporterType?: string; propagateTraceContext?: boolean };
-      claude?: { enableTelemetry?: boolean };
+      copilot?: {
+        otlpEndpoint?: string;
+        exporterType?: string;
+        otlpProtocol?: string;
+        sourceName?: string;
+        captureContent?: boolean;
+        filePath?: string;
+        propagateTraceContext?: boolean;
+      };
+      claude?: {
+        enableTelemetry?: boolean;
+        otlpEndpoint?: string;
+        otlpProtocol?: string;
+        propagateTraceContext?: boolean;
+      };
       codex?: Record<string, unknown>;
       opencode?: { openTelemetry?: boolean };
     };
