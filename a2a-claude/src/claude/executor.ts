@@ -11,7 +11,6 @@
 import { existsSync, statSync } from "node:fs";
 import { readFile as fsReadFile, writeFile as fsWriteFile } from "node:fs/promises";
 import { join, resolve as resolvePath } from "node:path";
-import { v4 as uuidv4 } from "uuid";
 
 import type { AgentExecutor, RequestContext, ExecutionEventBus } from "@a2a-js/sdk/server";
 
@@ -32,8 +31,6 @@ import { extractUserText, promptStream } from "./prompt-builder.js";
 import { BackgroundTaskTracker } from "./background-tasks.js";
 
 import {
-  resolveTransport,
-  AgentEventEmitter,
   createDeferred,
   materializeMemory,
   bootstrapSubAgents,
@@ -42,6 +39,7 @@ import {
   publishFinalArtifact,
   publishStreamingChunk,
   publishLastChunkMarker,
+  createExecutionObservability,
 } from "@a2a-wrapper/core";
 import type { EventTransport, EventTransportFn, SynthesizedMcpDescriptor } from "@a2a-wrapper/core";
 
@@ -235,13 +233,12 @@ export class ClaudeExecutor implements AgentExecutor {
     const { taskId, contextId, userMessage, task } = ctx;
     await this.initialize();
 
-    const agentId = this.config.agentCard.name.toLowerCase().replace(/\s+/g, "-");
-    const transport = resolveTransport(this.config.events, bus, taskId, contextId, this.customTransport);
-    const emitter = new AgentEventEmitter({
-      agentId,
+    const { emitter } = createExecutionObservability({
       agentName: this.config.agentCard.name,
-      traceId: contextId || uuidv4(),
-      transport,
+      ctx,
+      bus,
+      events: this.config.events,
+      customTransport: this.customTransport,
     });
     const mapper = new EventMapper(emitter, this.config);
 

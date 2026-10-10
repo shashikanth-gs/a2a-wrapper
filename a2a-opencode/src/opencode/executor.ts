@@ -27,11 +27,10 @@ import {
   publishLastChunkMarker,
   publishTask,
   extractUserText,
-  resolveTransport,
-  AgentEventEmitter,
   materializeMemory,
   WELL_KNOWN_PATHS,
   bootstrapSubAgents,
+  createExecutionObservability,
 } from "@a2a-wrapper/core";
 import type {
   EventTransport,
@@ -349,24 +348,12 @@ export class OpenCodeExecutor implements AgentExecutor {
 
     let stream: EventStreamManager | null = null;
 
-    // Extract trace context propagated by the orchestrator via A2A metadata
-    const traceCtx = this.extractTraceContext(ctx);
-    const agentId = this.config.agentCard.name.toLowerCase().replace(/\s+/g, "-");
-    const agentName = this.config.agentCard.name;
-
-    // Resolve event transport and create per-execution emitter
-    const transport = resolveTransport(
-      this.config.events,
+    const { emitter } = createExecutionObservability({
+      agentName: this.config.agentCard.name,
+      ctx,
       bus,
-      taskId,
-      contextId,
-      this.customTransport,
-    );
-    const emitter = new AgentEventEmitter({
-      agentId,
-      agentName,
-      traceId: traceCtx.traceId,
-      transport,
+      events: this.config.events,
+      customTransport: this.customTransport,
     });
 
     try {
@@ -709,38 +696,6 @@ export class OpenCodeExecutor implements AgentExecutor {
       environment: descriptor.env,
       enabled: true,
       timeout: 30_000,
-    };
-  }
-
-  /**
-   * Extract trace context propagated by the orchestrator via A2A metadata.
-   */
-  private extractTraceContext(ctx: RequestContext): {
-    traceId: string;
-    parentAgentId: string | null;
-    metadata: Record<string, unknown>;
-  } {
-    const raw = ctx as unknown as Record<string, unknown>;
-    const meta =
-      (raw.metadata as Record<string, unknown>) ||
-      ((raw.task as Record<string, unknown>)?.metadata as Record<string, unknown>) ||
-      ((raw.task as Record<string, unknown>)?.configuration as Record<string, unknown>) ||
-      {};
-
-    return {
-      traceId:
-        (meta.trace_id as string) ||
-        (meta.traceId as string) ||
-        ctx.contextId ||
-        uuidv4(),
-      parentAgentId:
-        (meta.parent_agent_id as string) ||
-        (meta.parentAgentId as string) ||
-        null,
-      metadata:
-        (meta.propagated_metadata as Record<string, unknown>) ||
-        (meta.propagatedMetadata as Record<string, unknown>) ||
-        {},
     };
   }
 

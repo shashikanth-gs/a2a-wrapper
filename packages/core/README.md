@@ -470,6 +470,8 @@ if (this.config.subAgents?.agents?.length) {
 
 Optional distributed tracing for `a2a.task.execute` / `a2a.task.cancel`. Core peers on `@opentelemetry/api` only (optional); register a real SDK exporter in your host. See the monorepo [Observability guide](../../docs/observability.md).
 
+Usage tokens: call `applyUsageSummaryToActiveSpan(summary)` after `LlmUsageAccumulator.summary()`. When a backend OTel exporter is configured, core sets only `a2a.task.usage.*` on the task span (not `gen_ai.usage.*`) so Tempo SUMs do not double-count with vendor LLM spans.
+
 ```ts
 import { setOtelTracer, withSpan, extractA2ATraceContext } from "@a2a-wrapper/core";
 ```

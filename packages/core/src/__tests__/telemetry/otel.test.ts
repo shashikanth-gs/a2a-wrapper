@@ -7,20 +7,26 @@ import {
   instrumentExecutor,
   observeAgentEvent,
   runWithTaskOtelStore,
+  applyUsageSummaryToActiveSpan,
+  createExecutionObservability,
   type OtelTracerLike,
   type OtelSpanLike,
   type A2AExecutor,
+  type UsageTelemetryData,
 } from "../../index.js";
 import type { RequestContext, ExecutionEventBus } from "@a2a-js/sdk/server";
 
 function fakeTracer() {
   const ended: string[] = [];
   const events: string[] = [];
+  const attrs: Array<{ key: string; value: string | number | boolean }> = [];
   const spans: OtelSpanLike[] = [];
   const tracer: OtelTracerLike = {
     startSpan(name) {
       const span: OtelSpanLike = {
-        setAttribute() {},
+        setAttribute(key, value) {
+          attrs.push({ key, value });
+        },
         setStatus() {},
         recordException() {},
         addEvent(n) {
@@ -34,7 +40,7 @@ function fakeTracer() {
       return span;
     },
   };
-  return { tracer, ended, events, spans };
+  return { tracer, ended, events, spans, attrs };
 }
 
 describe("resolveOtelEmissionPolicy", () => {
@@ -65,6 +71,15 @@ describe("resolveOtelEmissionPolicy", () => {
       backend: { claude: { enableTelemetry: true } },
     });
     expect(p.emitToolSpans).toBe(true);
+    expect(p.emitGenAiUsageAttrs).toBe(true);
+  });
+
+  it("suppresses gen_ai.usage attrs on the task span when backend OTel is on", () => {
+    const p = resolveOtelEmissionPolicy({
+      enabled: true,
+      backend: { copilot: { otlpEndpoint: "http://127.0.0.1:4318" } },
+    });
+    expect(p.emitGenAiUsageAttrs).toBe(false);
   });
 });
 
@@ -190,5 +205,90 @@ describe("observeAgentEvent de-dupe", () => {
       },
     );
     expect(ended).toContain("a2a.mcp.tool Bash");
+  });
+});
+
+const sampleUsage: UsageTelemetryData = {
+  inputTokens: 10,
+  outputTokens: 5,
+  cacheReadTokens: 0,
+  cacheWriteTokens: 0,
+  reasoningTokens: 0,
+  durationMs: 100,
+  llmCalls: 1,
+  model: "gpt-4.1",
+  cost: 0.01,
+  calls: [],
+};
+
+describe("applyUsageSummaryToActiveSpan", () => {
+  afterEach(() => setOtelTracer(undefined));
+
+  it("sets a2a.task.usage.* but not gen_ai.usage.* when backend OTel is on", async () => {
+    const { tracer, attrs } = fakeTracer();
+    setOtelTracer(tracer);
+    const policy = resolveOtelEmissionPolicy({
+      enabled: true,
+      backend: { copilot: { otlpEndpoint: "http://127.0.0.1:4318" } },
+    });
+    await runWithTaskOtelStore(
+      {
+        policy,
+        taskId: "t",
+        contextId: "c",
+        agentId: "a",
+        agentName: "A",
+        toolSpans: new Map(),
+        span: tracer.startSpan("task"),
+      },
+      async () => {
+        applyUsageSummaryToActiveSpan(sampleUsage);
+      },
+    );
+    expect(attrs.some((a) => a.key === "a2a.task.usage.input_tokens" && a.value === 10)).toBe(true);
+    expect(attrs.some((a) => a.key === "gen_ai.usage.input_tokens")).toBe(false);
+  });
+
+  it("sets gen_ai.usage.* when wrapper is the sole OTel source", async () => {
+    const { tracer, attrs } = fakeTracer();
+    setOtelTracer(tracer);
+    const policy = resolveOtelEmissionPolicy({ enabled: true });
+    await runWithTaskOtelStore(
+      {
+        policy,
+        taskId: "t",
+        contextId: "c",
+        agentId: "a",
+        agentName: "A",
+        toolSpans: new Map(),
+        span: tracer.startSpan("task"),
+      },
+      async () => {
+        applyUsageSummaryToActiveSpan(sampleUsage);
+      },
+    );
+    expect(attrs.some((a) => a.key === "gen_ai.usage.input_tokens" && a.value === 10)).toBe(true);
+    expect(attrs.some((a) => a.key === "gen_ai.usage.output_tokens" && a.value === 5)).toBe(true);
+  });
+});
+
+describe("createExecutionObservability", () => {
+  it("builds an emitter with orchestrator trace id and parent agent", () => {
+    const bus = { publish: () => {} } as unknown as ExecutionEventBus;
+    const ctx = {
+      taskId: "t1",
+      contextId: "c1",
+      metadata: { trace_id: "orch-99", parent_agent_id: "parent-x" },
+    } as unknown as RequestContext;
+    const { emitter, agentId, traceContext } = createExecutionObservability({
+      agentName: "My Agent",
+      ctx,
+      bus,
+    });
+    expect(agentId).toBe("my-agent");
+    expect(traceContext.traceId).toBe("orch-99");
+    expect(traceContext.parentAgentId).toBe("parent-x");
+    expect(emitter.traceId).toBe("orch-99");
+    expect(emitter.parentAgentId).toBe("parent-x");
   });
 });

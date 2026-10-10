@@ -86,6 +86,26 @@ Use the **same collector** for wrapper and backend exporters. Prefer OTLP HTTP `
 | `gen_ai.agent.name` / `a2a.agent.name` | `agentCard.name` |
 | `gen_ai.conversation.id` | A2A `contextId` |
 | `a2a.wrapper.name` | Server option / package name |
+| `a2a.task.usage.*` | Task rollup from `LlmUsageAccumulator` (always when OTel on) |
+| `gen_ai.usage.*` on task span | **Only when backend OTel is off** |
+
+## Usage / tokens — do not double-count
+
+Backends (Copilot, Claude, Codex, …) already report tokens via SDK events. We keep that on the **A2A sideband** (`trace.usage`, `metadata["x-usage"]`) always — that is not OTLP.
+
+For **OpenTelemetry**:
+
+| Situation | What the wrapper puts on `a2a.task.execute` | What the backend puts on LLM spans |
+|---|---|---|
+| Wrapper OTel only | `a2a.task.usage.*` **and** `gen_ai.usage.*` | nothing |
+| Wrapper + backend OTel | `a2a.task.usage.*` only (A2A task total) | `gen_ai.usage.*` on vendor LLM spans |
+
+Rules:
+
+1. **Never** open a second LLM span just to carry usage.
+2. **Never** emit wrapper token **metrics** that sum with backend GenAI metrics (Phase 2 does not add counters).
+3. Dashboards: either sum `gen_ai.usage.*` on backend LLM spans **or** read `a2a.task.usage.*` on `a2a.task.execute` — not both.
+4. Copilot / Antigravity call `applyUsageSummaryToActiveSpan` today; Claude/Codex can adopt the same helper when they accumulate with `LlmUsageAccumulator`.
 
 ## Programmatic API
 

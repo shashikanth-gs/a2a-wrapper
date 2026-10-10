@@ -18,6 +18,7 @@ export { setOtelTracer, getOtelTracer, tryGetGlobalTracer, withSpan } from "./ap
 export {
   extractA2ATraceContext,
   getW3cTraceContext,
+  injectW3cTraceHeaders,
   getTaskOtelStore,
   runWithTaskOtelStore,
   type A2ATraceContext,
@@ -29,3 +30,15 @@ export { buildTaskSpanAttributes, slugAgentId, agentIdentityFromCard } from "./a
 export { instrumentExecutor, type InstrumentExecutorOptions } from "./instrument.js";
 
 export { observeAgentEvent } from "./emitter-bridge.js";
+
+export {
+  applyUsageSummaryToActiveSpan,
+  applyUsageCallToActiveSpan,
+} from "./usage-bridge.js";
+
+export {
+  createExecutionObservability,
+  annotateSessionOnTaskSpan,
+  type CreateExecutionObservabilityOptions,
+  type ExecutionObservability,
+} from "./observability.js";

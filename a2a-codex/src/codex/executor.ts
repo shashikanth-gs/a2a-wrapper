@@ -10,7 +10,6 @@
 import { existsSync, statSync } from "node:fs";
 import { readFile as fsReadFile } from "node:fs/promises";
 import { join, resolve as resolvePath } from "node:path";
-import { v4 as uuidv4 } from "uuid";
 
 import type { Message as A2AMessage } from "@a2a-js/sdk";
 import type { AgentExecutor, RequestContext, ExecutionEventBus } from "@a2a-js/sdk/server";
@@ -25,8 +24,6 @@ import { CODEX_BACKEND_PATHS } from "./backend-paths.js";
 import { extractUserText } from "./prompt-builder.js";
 
 import {
-  resolveTransport,
-  AgentEventEmitter,
   materializeMemory,
   bootstrapSubAgents,
   publishTask,
@@ -34,6 +31,7 @@ import {
   publishFinalArtifact,
   publishStreamingChunk,
   publishLastChunkMarker,
+  createExecutionObservability,
 } from "@a2a-wrapper/core";
 import type {
   EventTransport,
@@ -134,19 +132,12 @@ export class CodexExecutor implements AgentExecutor {
     const { taskId, contextId, userMessage, task } = ctx;
     await this.initialize();
 
-    const agentId = this.config.agentCard.name.toLowerCase().replace(/\s+/g, "-");
-    const transport = resolveTransport(
-      this.config.events,
-      bus,
-      taskId,
-      contextId,
-      this.customTransport,
-    );
-    const emitter = new AgentEventEmitter({
-      agentId,
+    const { emitter } = createExecutionObservability({
       agentName: this.config.agentCard.name,
-      traceId: contextId || uuidv4(),
-      transport,
+      ctx,
+      bus,
+      events: this.config.events,
+      customTransport: this.customTransport,
     });
     const mapper = new EventMapper(emitter, this.config);
 

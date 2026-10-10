@@ -152,6 +152,10 @@
         "memory": {
           "$ref": "#/definitions/MemoryConfig"
         },
+        "otel": {
+          "$ref": "#/definitions/OtelConfig",
+          "description": "Optional OpenTelemetry settings (see docs/observability.md)."
+        },
         "server": {
           "$ref": "#/definitions/ServerConfig"
         },
@@ -534,6 +538,82 @@
             "type": "string"
           },
           "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "OtelConfig": {
+      "additionalProperties": false,
+      "description": "Optional OpenTelemetry settings on an agent config.\n\nWhen omitted or `enabled: false`, core instrumentation is a no-op unless a host has already registered a tracer via  {@link  setOtelTracer  } .",
+      "properties": {
+        "backend": {
+          "additionalProperties": false,
+          "description": "Hint that a backend runtime will export its own OTLP spans (Copilot CLI, Claude Code subprocess, Codex, …). Used by the emission policy.",
+          "properties": {
+            "claude": {
+              "additionalProperties": false,
+              "properties": {
+                "enableTelemetry": {
+                  "type": "boolean"
+                }
+              },
+              "type": "object"
+            },
+            "codex": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "copilot": {
+              "additionalProperties": false,
+              "properties": {
+                "exporterType": {
+                  "type": "string"
+                },
+                "otlpEndpoint": {
+                  "type": "string"
+                },
+                "propagateTraceContext": {
+                  "type": "boolean"
+                }
+              },
+              "type": "object"
+            },
+            "opencode": {
+              "additionalProperties": false,
+              "properties": {
+                "openTelemetry": {
+                  "type": "boolean"
+                }
+              },
+              "type": "object"
+            }
+          },
+          "type": "object"
+        },
+        "emitOverlappingBackendSpans": {
+          "default": false,
+          "description": "Unsafe escape hatch: allow wrapper tool/LLM spans even when backend OTel is configured (duplicates Copilot/Claude tool spans in the collector).",
+          "type": "boolean"
+        },
+        "enabled": {
+          "default": false,
+          "description": "Master switch for wrapper-owned OTel instrumentation.",
+          "type": "boolean"
+        },
+        "mirrorAgentEvents": {
+          "default": false,
+          "description": "When true, map `AgentEvent` tool calls into wrapper OTel child spans. Defaults to false. Forced off when a backend OTel block is present unless  {@link  emitOverlappingBackendSpans }  is true.",
+          "type": "boolean"
+        },
+        "serviceName": {
+          "default": "derived from agent card / wrapper name",
+          "description": "Service name resource attribute for wrapper spans.",
+          "type": "string"
+        },
+        "tracerName": {
+          "default": "a2a-wrapper",
+          "description": "Instrumentation scope name passed to `getTracer`.",
+          "type": "string"
         }
       },
       "type": "object"

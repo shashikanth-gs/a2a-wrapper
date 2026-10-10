@@ -168,6 +168,8 @@ export type {
   A2ATraceContext,
   TaskOtelStore,
   InstrumentExecutorOptions,
+  CreateExecutionObservabilityOptions,
+  ExecutionObservability,
 } from "./telemetry/index.js";
 
 export {
@@ -178,6 +180,7 @@ export {
   withSpan,
   extractA2ATraceContext,
   getW3cTraceContext,
+  injectW3cTraceHeaders,
   getTaskOtelStore,
   runWithTaskOtelStore,
   buildTaskSpanAttributes,
@@ -185,8 +188,11 @@ export {
   agentIdentityFromCard,
   instrumentExecutor,
   observeAgentEvent,
+  applyUsageSummaryToActiveSpan,
+  applyUsageCallToActiveSpan,
+  createExecutionObservability,
+  annotateSessionOnTaskSpan,
 } from "./telemetry/index.js";
-
 // ─── A2A SDK Type Re-exports ────────────────────────────────────────────────
 //
 // Core-owned aliases for commonly used A2A SDK types. Wrapper projects

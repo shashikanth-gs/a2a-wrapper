@@ -71,6 +71,15 @@ export interface OtelEmissionPolicy {
   emitToolSpans: boolean;
   /** Annotate the active task span with lifecycle AgentEvents. */
   annotateLifecycleOnTaskSpan: boolean;
+  /**
+   * Set GenAI-standard `gen_ai.usage.*` on the wrapper task span.
+   *
+   * Off when backend OTel is on — Copilot/Claude/Codex already put tokens on
+   * their LLM spans; duplicating `gen_ai.usage.*` on the parent would make
+   * naive SUM queries double-count. Task rollups use `a2a.task.usage.*`
+   * instead (see {@link applyUsageSummaryToActiveSpan}).
+   */
+  emitGenAiUsageAttrs: boolean;
 }
 
 /**
@@ -114,11 +123,13 @@ export function resolveOtelEmissionPolicy(otel?: OtelConfig | null): OtelEmissio
   const mirror = otel?.mirrorAgentEvents ?? false;
   const overlap = otel?.emitOverlappingBackendSpans === true;
   const emitToolSpans = enabled && mirror && (!backendOtelOn || overlap);
+  const emitGenAiUsageAttrs = enabled && (!backendOtelOn || overlap);
 
   return {
     enabled,
     backendOtelOn,
     emitToolSpans,
     annotateLifecycleOnTaskSpan: enabled,
+    emitGenAiUsageAttrs,
   };
 }

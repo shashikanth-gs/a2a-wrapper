@@ -92,3 +92,19 @@ export function getW3cTraceContext(): W3cTraceContext {
     return {};
   }
 }
+
+/**
+ * Merge W3C `traceparent` / `tracestate` into outbound HTTP headers
+ * (sub-agent calls, skillmap bridge, etc.) without clobbering auth headers.
+ *
+ * Returns a **new** object. Empty when no active OTel context is injectable.
+ */
+export function injectW3cTraceHeaders(
+  headers: Record<string, string> = {},
+): Record<string, string> {
+  const w3c = getW3cTraceContext();
+  const out = { ...headers };
+  if (w3c.traceparent) out.traceparent = w3c.traceparent;
+  if (w3c.tracestate) out.tracestate = w3c.tracestate;
+  return out;
+}
