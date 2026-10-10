@@ -396,11 +396,14 @@ Smallest useful PR after this design:
 
 ## References
 
+- Attribute matrix: [otel-genai-attribute-matrix.md](./otel-genai-attribute-matrix.md)
 - Repo roadmap: [README.md § Roadmap](../README.md#roadmap)
 - Usage types: `packages/core/src/events/usage.ts`
 - Sideband transport: `packages/core/src/events/transport.ts`
 - Skillmap precedent: `a2a-mcp-skillmap` `src/core/telemetry.ts`
-- OTel GenAI semconv: https://opentelemetry.io/docs/specs/semconv/gen-ai/
+- OTel GenAI semconv (canonical repo): https://github.com/open-telemetry/semantic-conventions-genai
+- OTel GenAI HTML: https://opentelemetry.io/docs/specs/semconv/gen-ai/
 - Claude monitoring: https://docs.anthropic.com/en/docs/claude-code/monitoring-usage
 - Copilot SDK Telemetry section in `@github/copilot-sdk` README
 - Codex OTel crate: `codex-rs/otel` in https://github.com/openai/codex
+- AI SDK telemetry: https://sdk.vercel.ai/docs/ai-sdk-core/telemetry
