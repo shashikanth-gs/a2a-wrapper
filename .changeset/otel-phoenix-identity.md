@@ -14,4 +14,4 @@ feat(otel): Phoenix demo, package identity attrs, usage flags
 - Stamp `a2a.wrapper.core.version`, `a2a.wrapper.sdk`, `a2a.wrapper.sdk.version` on task spans
 - Wire all wrapper servers with package name/version
 - `otel.taskUsageRollup` (default true) + `otel.annotateUsageCalls` (default false; Claude/Codex per-call events)
-- Smoke script: `examples/otel-stack/smoke-export.mjs`
+- Smoke scripts: `examples/otel-stack/smoke-export.mjs` + `smoke-providers.mjs` (copilot/claude executor → Phoenix)

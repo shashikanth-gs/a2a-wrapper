@@ -53,17 +53,23 @@ npm install @opentelemetry/api @opentelemetry/sdk-node @opentelemetry/exporter-t
 # npm install @opentelemetry/exporter-trace-otlp-http
 ```
 
-## Smoke script (this repo)
+## Smoke scripts (this repo)
 
 With Phoenix already running:
 
 ```bash
+# Synthetic core span (bootstrap + attrs only)
 node examples/otel-stack/smoke-export.mjs
+
+# Real a2a-copilot + a2a-claude *executor* paths → Phoenix
+# (mocked/fake backends — this env has no Copilot policy access / Claude login)
+node examples/otel-stack/smoke-providers.mjs
 ```
 
-That boots the same CLI bootstrap path, emits one `a2a.task.execute`-shaped
-span (with `a2a.wrapper.core.version` + `a2a.wrapper.sdk*`), and prints the
-Phoenix projects API response so you can confirm ingest without a full agent.
+`smoke-providers.mjs` runs each wrapper’s `instrumentExecutor` + executor
+`execute()` so Phoenix gets authentic `a2a.wrapper.sdk=a2a-copilot|a2a-claude`
+spans with `a2a.task.usage.*`. It does **not** exercise live Copilot CLI /
+Claude Code child spans (needs working provider auth).
 
 ## What you should see
 
