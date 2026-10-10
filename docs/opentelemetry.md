@@ -198,6 +198,32 @@ await withSpan("a2a.task.execute", attrs, () => executor.execute(...));
 
 **Zero cost when unused** remains a hard requirement (roadmap wording).
 
+#### Dependency strategy: API vs SDK (version conflicts)
+
+We **instrument with OpenTelemetry**, but we deliberately split packages:
+
+| Package | Who depends on it | Role |
+|---|---|---|
+| `@opentelemetry/api` | **`@a2a-wrapper/core` as optional peer** | Stable façade: `trace`, `context`, `propagation`, no-op if no provider |
+| `@opentelemetry/sdk-trace-node`, `@opentelemetry/exporter-trace-otlp-http`, … | **Host app and/or `a2a-*` CLI only** — **not** a hard dependency of core | Real TracerProvider + OTLP export to collector |
+
+Why this avoids “transitive OpenTelemetry version hell”:
+
+1. **`@opentelemetry/api` is designed for multiple libraries to share one global provider.** Instrumentation libraries (us, HTTP instr, AI SDK, …) should depend on the **API**, not pin their own SDK. The host registers **one** `TracerProvider` for the process.
+2. **Core never bundles the SDK.** If Claude’s stack, an orchestrator, or Langfuse’s SDK pulls `@opentelemetry/sdk-*@2.x` while someone else wants `1.x`, that fight stays in the **host’s** dependency tree — not forced by `@a2a-wrapper/core`.
+3. **Copilot CLI OTel runs in a child process.** `@github/copilot-sdk` does not npm-depend on `@opentelemetry/*`; it sets env (`OTEL_EXPORTER_OTLP_ENDPOINT`, …) on the spawned CLI. That CLI’s OTel versions **cannot conflict** with our Node `node_modules` — separate process, separate install. They only must agree on **collector endpoint + W3C `traceparent`**.
+4. **Optional peer range** (proposed): `"@opentelemetry/api": ">=1.0.0 <2"` (or whatever current SDK peers allow, e.g. sdk-trace-node peers `>=1.0.0 <1.10.0` — **align our peer range to what we test**). Mark `peerDependenciesMeta["@opentelemetry/api"].optional = true` so installs without OTel stay clean.
+5. **No-op without the API package.** If the peer isn’t installed, dynamic `import()` / `require` fails soft → identity `withSpan` → zero behavior change.
+6. **CLI convenience exporter** (optional): `a2a-copilot` bin may *optionally* depend on OTLP HTTP exporter packages to honor `otel.exporter.endpoint` out of the box. Those versions are pinned **in that package**, not in core. Library embedders skip them and use their own SDK.
+
+**What we will not do:** add `@opentelemetry/sdk-node` as a dependency of `@a2a-wrapper/core`, or `npm package` multiple TracerProviders inside the wrapper.
+
+**Host checklist when versions disagree:**
+
+- Ensure a single `@opentelemetry/api` instance (npm/pnpm dedupe; avoid nesting two majors).
+- Register one provider early (`NodeSDK.start()` / `trace.setGlobalTracerProvider`).
+- Point wrapper + Copilot at the same collector; propagation via `onGetTraceContext` → core `getW3cTraceContext()`.
+
 ### Layer B — Wrapper executors (all `a2a-*`)
 
 Instrument the shared lifecycle every wrapper already has:
