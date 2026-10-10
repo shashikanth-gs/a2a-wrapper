@@ -53,23 +53,30 @@ npm install @opentelemetry/api @opentelemetry/sdk-node @opentelemetry/exporter-t
 # npm install @opentelemetry/exporter-trace-otlp-http
 ```
 
-## Smoke scripts (this repo)
+## Smoke / cookout scripts (this repo)
 
 With Phoenix already running:
 
 ```bash
-# Synthetic core span (bootstrap + attrs only)
+# 1) Synthetic core span (bootstrap + attrs only)
 node examples/otel-stack/smoke-export.mjs
 
-# Real a2a-copilot + a2a-claude *executor* paths → Phoenix
-# (mocked/fake backends — this env has no Copilot policy access / Claude login)
-node examples/otel-stack/smoke-providers.mjs
+# 2) Recommended: BYOK cookout via **fake Ollama** (no GPU, no cloud keys)
+#    - mock-ollama speaks OpenAI /v1/responses (Copilot) + Anthropic /v1/messages (Claude)
+#    - boots real a2a-copilot + a2a-claude CLIs against it
+#    - asserts Phoenix has a2a.wrapper.sdk spans + usage
+node examples/otel-stack/cookout-byok.mjs
 ```
 
-`smoke-providers.mjs` runs each wrapper’s `instrumentExecutor` + executor
-`execute()` so Phoenix gets authentic `a2a.wrapper.sdk=a2a-copilot|a2a-claude`
-spans with `a2a.task.usage.*`. It does **not** exercise live Copilot CLI /
-Claude Code child spans (needs working provider auth).
+Why fake Ollama? Copilot already supports BYOK → Ollama (`copilot.provider.baseUrl`),
+and Claude Code supports Ollama via `ANTHROPIC_BASE_URL` (Anthropic-compatible API).
+That is a more realistic cookout than stubbing the session manager.
+
+Optional lower-level script (executor + fake client, no CLI spawn):
+
+```bash
+node examples/otel-stack/smoke-providers.mjs
+```
 
 ## What you should see
 

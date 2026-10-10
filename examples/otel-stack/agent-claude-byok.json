@@ -1,0 +1,62 @@
+{
+  "agentCard": {
+    "name": "Claude BYOK Cookout",
+    "description": "a2a-claude against mock Ollama Anthropic API + Phoenix OTel",
+    "version": "1.0.0",
+    "protocolVersion": "0.3.0",
+    "streaming": true,
+    "defaultInputModes": ["text"],
+    "defaultOutputModes": ["text"],
+    "skills": []
+  },
+  "server": {
+    "port": 3102,
+    "hostname": "127.0.0.1",
+    "advertiseHost": "127.0.0.1",
+    "advertiseProtocol": "http"
+  },
+  "claude": {
+    "workingDirectory": "/tmp/a2a-cookout-claude-ws",
+    "model": "mock-ollama",
+    "permissionMode": "bypassPermissions",
+    "dangerouslyAllowBypassPermissions": true,
+    "settingSources": [],
+    "systemPromptAppend": "Reply briefly. You are a cookout test agent."
+  },
+  "session": {
+    "reuseByContext": true,
+    "ttl": 0
+  },
+  "features": {
+    "streamArtifactChunks": false,
+    "emitThinkingEvents": false,
+    "emitToolEvents": false,
+    "emitFileChangeEvents": false,
+    "emitTodoEvents": false,
+    "holdTaskForBackgroundWork": false
+  },
+  "timeouts": {
+    "prompt": 60000
+  },
+  "logging": {
+    "level": "info"
+  },
+  "events": {
+    "enabled": false
+  },
+  "otel": {
+    "enabled": true,
+    "serviceName": "a2a-claude-byok-cookout",
+    "taskUsageRollup": true,
+    "exporter": {
+      "endpoint": "http://127.0.0.1:6006",
+      "protocol": "http/protobuf"
+    },
+    "backend": {
+      "claude": {
+        "enableTelemetry": false,
+        "propagateTraceContext": true
+      }
+    }
+  }
+}

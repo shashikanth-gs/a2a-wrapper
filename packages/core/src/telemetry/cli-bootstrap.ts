@@ -81,24 +81,33 @@ export async function bootstrapOtelSdkFromConfig(
     // to be present at compile time (they are optionalPeers for CLI hosts).
     const sdkSpec = "@opentelemetry/sdk-node";
     const apiSpec = "@opentelemetry/api";
+    // SimpleSpanProcessor is in sdk-trace-base (pulled in by sdk-node).
+    const traceBaseSpec = "@opentelemetry/sdk-trace-base";
     const protocol = normalizeProtocol(otel.exporter?.protocol);
-    const [sdkMod, apiMod, exporter] = await Promise.all([
+    const [sdkMod, apiMod, exporter, traceBaseMod] = await Promise.all([
       import(sdkSpec) as Promise<Record<string, unknown>>,
       import(apiSpec) as Promise<Record<string, unknown>>,
       loadExporter(protocol),
+      import(traceBaseSpec) as Promise<Record<string, unknown>>,
     ]);
 
     const NodeSDK = sdkMod.NodeSDK as new (opts: Record<string, unknown>) => Shutdownable & {
       start: () => void | Promise<void>;
     };
+    const SimpleSpanProcessor = traceBaseMod.SimpleSpanProcessor as new (
+      exporter: unknown,
+    ) => unknown;
     const api = apiMod as {
       trace: { getTracer: (name: string, version?: string) => import("./types.js").OtelTracerLike };
     };
 
     const serviceName = otel.serviceName ?? "a2a-wrapper";
+    // CLI processes are short-lived — use SimpleSpanProcessor so spans export
+    // promptly (BatchSpanProcessor often loses the last flush on SIGTERM).
+    const traceExporter = new exporter.OTLPTraceExporter({ url: tracesUrl(endpoint) });
     const sdk = new NodeSDK({
       serviceName,
-      traceExporter: new exporter.OTLPTraceExporter({ url: tracesUrl(endpoint) }),
+      spanProcessors: [new SimpleSpanProcessor(traceExporter)],
     });
     await Promise.resolve(sdk.start());
     _sdk = sdk;
