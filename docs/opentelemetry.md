@@ -1,7 +1,8 @@
 # OpenTelemetry Design
 
 Status: **proposal** (roadmap item — not yet implemented in this repo)  
-Related: existing A2A sideband `trace.*` artifacts, `LlmUsageAccumulator` (OTel GenAI field alignment), sibling bridge [`a2a-mcp-skillmap`](https://github.com/shashikanth-gs/a2a-mcp-skillmap) (`setOtelTracer` / `withSpan`)
+Related: existing A2A sideband `trace.*` artifacts, `LlmUsageAccumulator` (OTel GenAI field alignment), sibling bridge [`a2a-mcp-skillmap`](https://github.com/shashikanth-gs/a2a-mcp-skillmap) (`setOtelTracer` / `withSpan`)  
+**Attribute emission matrix (latest GenAI std + vendors):** [otel-genai-attribute-matrix.md](./otel-genai-attribute-matrix.md)
 
 This document answers four questions:
 
