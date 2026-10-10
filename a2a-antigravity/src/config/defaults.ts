@@ -56,5 +56,6 @@ export const DEFAULTS: Required<AgentConfig> = {
   },
   memory: undefined as unknown as Required<AgentConfig>["memory"],
   subAgents: undefined as unknown as Required<AgentConfig>["subAgents"],
+  otel: undefined as unknown as Required<AgentConfig>["otel"],
   configDir: process.cwd(),
 };

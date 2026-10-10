@@ -508,4 +508,28 @@ export interface BaseAgentConfig<TBackend = Record<string, unknown>> {
    * Defaults to process.cwd() when no config file is specified.
    */
   configDir?: string;
+
+  /**
+   * Optional OpenTelemetry settings for wrapper-owned spans.
+   *
+   * Core only uses `@opentelemetry/api` (optional peer). Register a real
+   * TracerProvider / OTLP exporter in the host app or wrapper CLI — see
+   * `docs/observability.md`. When omitted, instrumentation is a no-op.
+   *
+   * Typed loosely here to avoid a hard import cycle with the telemetry
+   * module; see {@link OtelConfig} in `@a2a-wrapper/core` exports.
+   */
+  otel?: {
+    enabled?: boolean;
+    serviceName?: string;
+    tracerName?: string;
+    mirrorAgentEvents?: boolean;
+    emitOverlappingBackendSpans?: boolean;
+    backend?: {
+      copilot?: { otlpEndpoint?: string; exporterType?: string; propagateTraceContext?: boolean };
+      claude?: { enableTelemetry?: boolean };
+      codex?: Record<string, unknown>;
+      opencode?: { openTelemetry?: boolean };
+    };
+  };
 }

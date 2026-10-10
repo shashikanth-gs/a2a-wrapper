@@ -466,6 +466,16 @@ if (this.config.subAgents?.agents?.length) {
 }
 ```
 
+### OpenTelemetry
+
+Optional distributed tracing for `a2a.task.execute` / `a2a.task.cancel`. Core peers on `@opentelemetry/api` only (optional); register a real SDK exporter in your host. See the monorepo [Observability guide](../../docs/observability.md).
+
+```ts
+import { setOtelTracer, withSpan, extractA2ATraceContext } from "@a2a-wrapper/core";
+```
+
+`createA2AServer` wraps the executor automatically when `config.otel.enabled` is true **and** a tracer is registered (`setOtelTracer` or a global provider).
+
 ### A2A SDK Re-exports
 
 | Export | Source |

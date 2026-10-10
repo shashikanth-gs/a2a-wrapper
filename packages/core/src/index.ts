@@ -157,6 +157,36 @@ export {
 export type { UsageCallRecord, UsageTelemetryData, ContextWindowSnapshot } from "./events/usage.js";
 export { LlmUsageAccumulator } from "./events/usage.js";
 
+// ─── OpenTelemetry (optional @opentelemetry/api peer) ───────────────────────
+
+export type {
+  OtelConfig,
+  OtelEmissionPolicy,
+  OtelTracerLike,
+  OtelSpanLike,
+  W3cTraceContext,
+  A2ATraceContext,
+  TaskOtelStore,
+  InstrumentExecutorOptions,
+} from "./telemetry/index.js";
+
+export {
+  resolveOtelEmissionPolicy,
+  setOtelTracer,
+  getOtelTracer,
+  tryGetGlobalTracer,
+  withSpan,
+  extractA2ATraceContext,
+  getW3cTraceContext,
+  getTaskOtelStore,
+  runWithTaskOtelStore,
+  buildTaskSpanAttributes,
+  slugAgentId,
+  agentIdentityFromCard,
+  instrumentExecutor,
+  observeAgentEvent,
+} from "./telemetry/index.js";
+
 // ─── A2A SDK Type Re-exports ────────────────────────────────────────────────
 //
 // Core-owned aliases for commonly used A2A SDK types. Wrapper projects
