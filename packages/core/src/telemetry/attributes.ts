@@ -34,13 +34,25 @@ export function buildTaskSpanAttributes(opts: {
   protocolVersion?: string;
   parentAgentId?: string | null;
   orchestratorTraceId?: string;
+  /** Override for gen_ai.conversation.id (gateway conversation); defaults to contextId. */
+  conversationId?: string | null;
+  /** Phoenix / generic session.id when distinct from conversation. */
+  sessionId?: string | null;
   /** A2A inbound message id when present. */
   messageId?: string | null;
+  /** Draft #254 method name; default message/send for executor path. */
+  methodName?: string | null;
   /** 1-based count of wrapper execute() calls for this taskId in-process. */
   invocation?: number;
   invocationKind?: TaskInvocationKind;
+  gateway?: {
+    passkey?: string;
+    spectrumId?: string;
+    ticketId?: string;
+  };
 }): Record<string, string | number | boolean> {
   const agentId = opts.agentId ?? slugAgentId(opts.agentName);
+  const conversationId = opts.conversationId || opts.contextId;
   const attrs: Record<string, string | number | boolean> = {
     "a2a.task.id": opts.taskId,
     "a2a.context.id": opts.contextId,
@@ -50,8 +62,13 @@ export function buildTaskSpanAttributes(opts: {
     "gen_ai.agent.id": agentId,
     // Platforms (Langfuse/Datadog/Phoenix) group multi-turn work by this id —
     // not by assuming one eternal parent span.
-    "gen_ai.conversation.id": opts.contextId,
+    "gen_ai.conversation.id": conversationId,
+    // Draft semantic-conventions-genai#254 shared GenAI op for A2A invoke.
+    "gen_ai.operation.name": "invoke_agent",
+    "a2a.method.name": opts.methodName || "message/send",
   };
+  const sessionId = opts.sessionId || conversationId;
+  attrs["session.id"] = sessionId;
   if (opts.wrapperName) attrs["a2a.wrapper.name"] = opts.wrapperName;
   if (opts.wrapperVersion) attrs["a2a.wrapper.version"] = opts.wrapperVersion;
   if (opts.protocolVersion) attrs["a2a.protocol.version"] = opts.protocolVersion;
@@ -60,6 +77,9 @@ export function buildTaskSpanAttributes(opts: {
   if (opts.messageId) attrs["a2a.message.id"] = opts.messageId;
   if (opts.invocation !== undefined) attrs["a2a.task.invocation"] = opts.invocation;
   if (opts.invocationKind) attrs["a2a.task.invocation_kind"] = opts.invocationKind;
+  if (opts.gateway?.passkey) attrs["a2a.gateway.passkey"] = opts.gateway.passkey;
+  if (opts.gateway?.spectrumId) attrs["a2a.gateway.spectrum_id"] = opts.gateway.spectrumId;
+  if (opts.gateway?.ticketId) attrs["a2a.gateway.ticket_id"] = opts.gateway.ticketId;
   return attrs;
 }
 

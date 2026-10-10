@@ -162,6 +162,8 @@ Notes:
 
 **Ownership reminder:** wrapper owns A2A/protocol + correlation IDs. Backend owns per-call `gen_ai.usage.*` on LLM spans when its OTel is on. Do not treat the wrapper as the universal owner of GenAI token attrs ([#254](https://github.com/open-telemetry/semantic-conventions-genai/issues/254) is still drafting A2A shape).
 
+Full matrix + gateway metadata mapping: [otel-attribute-ownership.md](./otel-attribute-ownership.md).
+
 ## Usage / tokens — do not double-count
 
 Backends (Copilot, Claude, Codex, …) already report tokens via SDK events. We keep that on the **A2A sideband** (`trace.usage`, `metadata["x-usage"]`) always — that is not OTLP.
@@ -178,7 +180,7 @@ Rules:
 1. **Never** open a second LLM span just to carry usage.
 2. **Never** emit wrapper token **metrics** that sum with backend GenAI metrics (Phase 2 does not add counters).
 3. Dashboards: either sum `gen_ai.usage.*` on backend LLM spans **or** read `a2a.task.usage.*` on `a2a.task.execute` — not both.
-4. Copilot / Antigravity call `applyUsageSummaryToActiveSpan` today; Claude/Codex can adopt the same helper when they accumulate with `LlmUsageAccumulator`.
+4. Copilot, Antigravity, Claude, and Codex call `applyUsageSummaryToActiveSpan` on completed turns (per-request rollup).
 
 ## Programmatic API
 

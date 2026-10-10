@@ -136,11 +136,33 @@ describe("extractA2ATraceContext", () => {
     const t = extractA2ATraceContext(ctx);
     expect(t.traceId).toBe("orch-1");
     expect(t.parentAgentId).toBe("parent-a");
+    expect(t.conversationId).toBe("ctx-1");
   });
 
   it("falls back to contextId", () => {
     const ctx = { taskId: "t1", contextId: "ctx-99", metadata: {} } as unknown as RequestContext;
     expect(extractA2ATraceContext(ctx).traceId).toBe("ctx-99");
+    expect(extractA2ATraceContext(ctx).conversationId).toBe("ctx-99");
+  });
+
+  it("maps gateway conversation / session / passkey / spectrum ids", () => {
+    const ctx = {
+      taskId: "t1",
+      contextId: "ctx-1",
+      metadata: {
+        conversation_id: "conv-gateway",
+        session_id: "sess-ux",
+        passkey: "pk-9",
+        spectrum_id: "sp-1",
+        ticket_id: "tkt-2",
+      },
+    } as unknown as RequestContext;
+    const t = extractA2ATraceContext(ctx);
+    expect(t.conversationId).toBe("conv-gateway");
+    expect(t.sessionId).toBe("sess-ux");
+    expect(t.gateway.passkey).toBe("pk-9");
+    expect(t.gateway.spectrumId).toBe("sp-1");
+    expect(t.gateway.ticketId).toBe("tkt-2");
   });
 });
 

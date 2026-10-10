@@ -16,6 +16,19 @@ export interface A2ATraceContext {
   traceId: string;
   parentAgentId: string | null;
   metadata: Record<string, unknown>;
+  /**
+   * Stable conversation / thread id for platform session grouping.
+   * From metadata when provided; else A2A `contextId`.
+   */
+  conversationId: string;
+  /** Broader UX session id when the gateway distinguishes it from conversation. */
+  sessionId?: string;
+  /** Gateway business keys (passkey, spectrum, ticket, …) — correlation only. */
+  gateway: {
+    passkey?: string;
+    spectrumId?: string;
+    ticketId?: string;
+  };
 }
 
 export interface TaskOtelStore {
@@ -39,32 +52,65 @@ export function runWithTaskOtelStore<T>(store: TaskOtelStore, fn: () => Promise<
   return als.run(store, fn);
 }
 
+function pickString(...candidates: unknown[]): string | undefined {
+  for (const c of candidates) {
+    if (typeof c === "string" && c.length > 0) return c;
+  }
+  return undefined;
+}
+
+function collectMetadata(ctx: RequestContext): Record<string, unknown> {
+  const raw = ctx as unknown as Record<string, unknown>;
+  const fromRequest = (raw.request as { params?: { metadata?: Record<string, unknown> } } | undefined)
+    ?.params?.metadata;
+  const fromMessage = (ctx.userMessage as { metadata?: Record<string, unknown> } | undefined)?.metadata;
+  const fromCtx = raw.metadata as Record<string, unknown> | undefined;
+  const fromTask = (raw.task as Record<string, unknown> | undefined)?.metadata as
+    | Record<string, unknown>
+    | undefined;
+  const fromTaskConfig = (raw.task as Record<string, unknown> | undefined)?.configuration as
+    | Record<string, unknown>
+    | undefined;
+  return {
+    ...(fromTaskConfig ?? {}),
+    ...(fromTask ?? {}),
+    ...(fromCtx ?? {}),
+    ...(fromRequest ?? {}),
+    ...(fromMessage ?? {}),
+  };
+}
+
 /**
- * Extract orchestrator-propagated trace metadata from an A2A RequestContext.
+ * Extract orchestrator / gateway correlation ids from an A2A RequestContext.
  * Shared replacement for the Copilot/OpenCode private helpers.
+ *
+ * @see docs/otel-attribute-ownership.md
  */
 export function extractA2ATraceContext(ctx: RequestContext): A2ATraceContext {
-  const raw = ctx as unknown as Record<string, unknown>;
-  const meta =
-    (raw.metadata as Record<string, unknown>) ||
-    ((raw.task as Record<string, unknown>)?.metadata as Record<string, unknown>) ||
-    ((raw.task as Record<string, unknown>)?.configuration as Record<string, unknown>) ||
-    {};
+  const meta = collectMetadata(ctx);
+  const conversationId =
+    pickString(meta.conversation_id, meta.conversationId, meta["gen_ai.conversation.id"]) ||
+    ctx.contextId ||
+    uuidv4();
+  const sessionId = pickString(meta.session_id, meta.sessionId, meta["session.id"]);
 
   return {
     traceId:
-      (meta.trace_id as string) ||
-      (meta.traceId as string) ||
+      pickString(meta.trace_id, meta.traceId) ||
       ctx.contextId ||
       uuidv4(),
-    parentAgentId:
-      (meta.parent_agent_id as string) ||
-      (meta.parentAgentId as string) ||
-      null,
+    parentAgentId: pickString(meta.parent_agent_id, meta.parentAgentId) ?? null,
     metadata:
       (meta.propagated_metadata as Record<string, unknown>) ||
       (meta.propagatedMetadata as Record<string, unknown>) ||
       {},
+    conversationId,
+    sessionId,
+    gateway: {
+      passkey: pickString(meta.passkey, meta.pass_key, meta.passKey),
+      spectrumId: pickString(meta.spectrum_id, meta.spectrumId),
+      ticketId: pickString(meta.ticket_id, meta.ticketId),
+    },
   };
 }
 
