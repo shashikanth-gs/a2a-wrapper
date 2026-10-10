@@ -449,20 +449,197 @@ CLI / library mode:
 
 ---
 
-## 6. Phased delivery plan
+## 6. Plumbing inventory — core-centric (no per-provider duplication)
+
+Goal: **all shared OTel plumbing lives in `@a2a-wrapper/core`**. Wrappers only supply backend-specific passthrough (Copilot `telemetry`, Claude env, …). Surveyed 2026-10-10 against current `main` layout.
+
+### 6.1 What every wrapper already does the same way
+
+Every `*Executor.execute()` follows this pattern today:
+
+| Step | Core API used | Copilot | Claude | Codex | OpenCode | Antigravity |
+|---|---|---|---|---|---|---|
+| 1. Read `taskId` / `contextId` / message | A2A `RequestContext` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| 2. Resolve sideband transport | `resolveTransport(events, bus, …)` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| 3. Build `AgentEventEmitter` | `new AgentEventEmitter({ agentId, agentName, traceId, transport })` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| 4. `agentName` | `config.agentCard.name` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| 5. `agentId` | slug of `agentCard.name` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| 6. Publish submitted/working/… | `publishStatus` / `publishTask` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| 7. Session | `sessionManager.getOrCreate(contextId)` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| 8. Cancel | `cancelTask` + `publishStatus(canceled)` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| 9. Server entry | `createA2AServer` ← `createCli` / server index | ✓ | ✓ | ✓ | ✓ | ✓ |
+
+**Backend-only (must stay in wrappers):** client factories, event mappers / MCP hooks that translate vendor SDK events → `emitter.emit(...)`, Copilot/Claude/Codex OTel passthrough knobs.
+
+### 6.2 Duplication / gaps to fold into core
+
+| Concern | Today | Problem | Core home |
+|---|---|---|---|
+| Orchestrator metadata → `traceId` / `parentAgentId` | `extractTraceContext` **copied** in Copilot + OpenCode; Claude/Codex/Antigravity only use `contextId \|\| uuid` | Inconsistent parent linking | `extractA2ATraceContext(ctx)` in `packages/core/src/telemetry/` or `events/` |
+| Emitter bootstrap | 5× nearly identical ctor blocks | Easy to drift when adding OTel | `createAgentEventEmitter({ config, ctx, bus, transport? })` |
+| Task span lifecycle | **None** | Would be reimplemented 5× if added per executor | **Executor decorator** in `createA2AServer` (see §6.3) |
+| AgentEvent → OTel | **None** | Mappers would each grow OTel code | Hook inside `AgentEventEmitter.emit` + `OtelEmissionPolicy` |
+| Usage → span attrs | `LlmUsageAccumulator` in core; publish sites in Copilot/Antigravity | Mapping logic must not fork | `applyUsageToActiveSpan(summary \| record)` next to accumulator |
+| W3C carrier for backends | Only sketched for Copilot | Each wrapper might invent inject/extract | `getW3cTraceContext()` / `withActiveTaskSpan()` in core |
+| Config `otel` block | **None** | Would be copy-pasted into 5 `types.ts` | `OtelConfig` on `BaseAgentConfig` in `packages/core/src/config/types.ts` |
+| Exporter bootstrap | **None** | Must not enter core as hard dep | Optional helper used from `createCli` only; library hosts bring NodeSDK |
+
+### 6.3 Recommended attachment points (priority order)
+
+```
+createCli / host
+    │  (optional) start OTLP exporter from config.otel.exporter
+    ▼
+createA2AServer(config, executorFactory)
+    │  ★ HOOK A — wrap executor.execute / cancelTask once
+    │     start/end a2a.task.execute | a2a.task.cancel
+    │     ALS: store span + policy + agent attrs
+    ▼
+*Executor.execute (unchanged structure)
+    │  ★ HOOK B — createAgentEventEmitter() [core helper]
+    │     extractA2ATraceContext + agentCard → emitter
+    │     bind emitter to active task span
+    ├─ sessionManager.getOrCreate
+    │     ★ HOOK C — optional thin wrapper helper recordSessionSpanAttrs
+    │       (reuse|create) — called from helper or ALS annotation
+    ├─ EventMapper / mcp-hooks → emitter.emit(...)
+    │     ★ HOOK D — inside AgentEventEmitter.emit (core)
+    │       policy: lifecycle → span events/attrs
+    │               tool_* → child span ONLY if emitToolSpans
+    ├─ LlmUsageAccumulator.record / final x-usage
+    │     ★ HOOK E — applyUsageToActiveSpan (core)
+    └─ backend client (wrapper-only)
+          ★ HOOK F — passthrough only (Copilot telemetry + onGetTraceContext
+                     calling core getW3cTraceContext())
+```
+
+#### Hook A — `createA2AServer` executor decorator (highest leverage)
+
+In `packages/core/src/server/factory.ts`, after `executorFactory(config)`:
+
+- Wrap `execute` / `cancelTask` so **every** provider gets `a2a.task.*` spans with:
+  - `a2a.task.id`, `a2a.context.id`
+  - `gen_ai.agent.name` / `a2a.agent.name` ← `config.agentCard.name`
+  - `a2a.wrapper.name` ← from `ServerOptions` or config
+  - status/error from thrown errors / finalization
+- Uses `AsyncLocalStorage` so Hooks D/E see the active span without executors passing span objects around.
+- **No executor file changes required** for the parent task span.
+
+#### Hook B — shared emitter factory
+
+Replace the 5 copy-pasted blocks with one core helper used by executors (small mechanical change, or gradually adopted):
+
+```ts
+const { emitter, traceContext } = createExecutionObservability({
+  config, ctx, bus, customTransport,
+});
+```
+
+Internally: `extractA2ATraceContext` + slug agentId + `resolveTransport` + `AgentEventEmitter` + register emitter with ALS.
+
+#### Hook C — session
+
+Prefer annotating the **active task span** (`a2a.session.reused=true|false`) from a tiny core helper after `getOrCreate`, rather than forcing `BaseSessionManager` to know OTel. Session managers stay backend-specific.
+
+#### Hook D — `AgentEventEmitter.emit` (single chokepoint for sideband→OTel)
+
+All mappers already converge here:
+
+| Producer | Path into emitter |
+|---|---|
+| Claude `EventMapper` | `emitter.emit(tool_call_*\|agent_*\|thinking\|…)` |
+| Codex `EventMapper` | same |
+| Antigravity `EventMapper` | same |
+| Copilot `McpEvidenceHooks` | `tool_call_start/end` |
+| OpenCode executor inline | `tool_call_start/end` |
+| Antigravity executor | `agent_started` directly |
+
+So **do not** put OTel into each mapper. Put policy in `AgentEventEmitter`:
+
+- Always keep existing `transport.send` (sideband).
+- If ALS has an active task span + OTel enabled → apply `OtelEmissionPolicy`.
+
+#### Hook E — usage accumulator
+
+Keep recording in wrappers; **mapping to `gen_ai.usage.*` on the active span** is a core function called from Copilot/Antigravity (and others later) in one line — or from decorator finalization if we attach the accumulator to ALS later.
+
+#### Hook F — backend passthrough (thin, per wrapper)
+
+| Wrapper | File(s) | Core provides | Wrapper adds |
+|---|---|---|---|
+| Copilot | `executor.ts` client opts / session create | `getW3cTraceContext()`, shared `otel.exporter.endpoint` | `telemetry: { otlpEndpoint }`, `onGetTraceContext` |
+| Claude | `client-factory.ts` `env` | env helpers / policy `backendOtelOn` | `CLAUDE_CODE_ENABLE_TELEMETRY` + `OTEL_*` when configured |
+| Codex | `client-factory.ts` `config` | — | merge `otel` into `configOverrides` |
+| OpenCode | config → OpenCode client | — | `openTelemetry` flag |
+| Antigravity | — | mirrorAgentEvents fallback | none until Python OTel exists |
+
+### 6.4 What must NOT be duplicated in providers
+
+1. Tracer registry / `withSpan` / ALS task context  
+2. `OtelEmissionPolicy` (de-dupe rules)  
+3. Attribute dictionaries (`a2a.*`, GenAI mapping from `UsageCallRecord`)  
+4. `extractA2ATraceContext`  
+5. Parent `a2a.task.execute` span create/end  
+6. W3C inject helper for backends  
+
+Providers may only: call core helpers, and wire vendor SDKs (Hook F).
+
+### 6.5 Concrete new core modules (proposed)
+
+```
+packages/core/src/telemetry/
+  types.ts          # OtelConfig, OtelEmissionPolicy, A2ATraceContext
+  context.ts        # ALS + extractA2ATraceContext + getW3cTraceContext
+  api.ts            # setOtelTracer / withSpan / getOtelTracer (optional peer)
+  attributes.ts     # buildTaskSpanAttributes(agentCard, ctx, …)
+  usage-bridge.ts   # UsageCallRecord → gen_ai.usage.* on active span
+  instrument.ts     # instrumentExecutor(executor, config) used by factory
+  index.ts
+```
+
+Touch points in existing core files:
+
+| File | Change |
+|---|---|
+| `server/factory.ts` | Call `instrumentExecutor` before `DefaultRequestHandler` |
+| `events/transport.ts` | `AgentEventEmitter.emit` → policy hook (sideband unchanged) |
+| `config/types.ts` | Optional `otel?: OtelConfig` on `BaseAgentConfig` |
+| `config/loader.ts` | Env overrides for exporter endpoint / enabled |
+| `cli/scaffold.ts` | Optional exporter bootstrap when `otel.enabled` (dynamic import of SDK — **not** a hard core dep) |
+| `events/usage.ts` | Re-export / document mapping to latest GenAI names |
+| `index.ts` | Export telemetry public API |
+
+Wrapper diffs (minimal):
+
+| Package | Change |
+|---|---|
+| All executors (later) | Prefer `createExecutionObservability()` instead of hand-rolled emitter ctor |
+| `a2a-copilot` | Hook F: `telemetry` + `onGetTraceContext` from core helper |
+| Others | Config passthrough only when enabling their backend OTel |
+
+### 6.6 Validation checklist for “no duplication”
+
+- [ ] Adding a 6th wrapper gets task spans **only** by implementing `A2AExecutor` + `createA2AServer` (Hook A).
+- [ ] Tool double-emit tests live in **core** (`AgentEventEmitter` + policy), not in five packages.
+- [ ] `extractA2ATraceContext` has a single implementation and unit tests in core.
+- [ ] Grep for `OTEL_EXPORTER` / `startSpan` / `@opentelemetry` under `a2a-*/` returns only Hook F passthrough lines.
+
+---
+
+## 7. Phased delivery plan
 
 ### Phase 0 — Design (this doc)
 
-Agree attribute dictionary, no-op policy, “sideband stays” rule, and **ownership / anti-duplication** matrix.
+Agree attribute dictionary, no-op policy, “sideband stays” rule, **ownership / anti-duplication** matrix, and **plumbing inventory (§6)**.
 
 ### Phase 1 — Core bridge (MVP)
 
-- Add optional `@opentelemetry/api` peer + `packages/core/src/telemetry/otel.ts` (`setOtelTracer` / `withSpan` / attribute helpers).
-- Instrument `createA2AServer` request path lightly **or** document that HTTP instr is host-owned (`@opentelemetry/instrumentation-express` / `http`).
-- Add an `OtelEmissionPolicy` (or equivalent) shared by all wrappers: given `mirrorAgentEvents` + `backendOtelOn` + `emitOverlappingBackendSpans`, decide whether an `AgentEvent` may open a wrapper span.
-- Hook `AgentEventEmitter` only through that policy — default: lifecycle annotations on the task span, **no** tool child spans when backend OTel is on.
-- Unit tests: fake tracer + cases for (backend off / on / override) proving tool events do not double-span.
-- Docs: how to register a provider; security note on content capture; Copilot de-dupe example.
+- Add `packages/core/src/telemetry/*` as in §6.5 (optional `@opentelemetry/api` peer).
+- **Hook A:** `instrumentExecutor` inside `createA2AServer`.
+- **Hook D:** `AgentEventEmitter` + `OtelEmissionPolicy` (default: no tool child spans when backend OTel on).
+- **Hook B precursor:** `extractA2ATraceContext` + optional `createExecutionObservability`.
+- Unit tests with fake tracer (decorator + emitter policy + de-dupe).
+- Docs: provider registration; Copilot de-dupe; collector HTTP `:4318`.
 
 ### Phase 2 — Wrapper attributes + usage mapping
 
