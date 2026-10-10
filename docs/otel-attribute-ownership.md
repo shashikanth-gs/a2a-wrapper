@@ -47,7 +47,9 @@ This is the **who owns what** guide for `@a2a-wrapper/core` and the `a2a-*` wrap
 | `gen_ai.operation.name` | **W** | `invoke_agent` (aligned with #254 “existing shared”) |
 | `a2a.method.name` | **W** | `message/send` for executor path (draft #254) |
 | `a2a.protocol.version` | **W** | Server protocol version option |
-| `a2a.wrapper.name` / `.version` | **W** | Package identity |
+| `a2a.wrapper.core.version` | **W** | Installed `@a2a-wrapper/core` package.json version (auto) |
+| `a2a.wrapper.sdk` / `a2a.wrapper.sdk.version` | **W** | Which `a2a-*` package is serving the request + its version |
+| `a2a.wrapper.name` / `.version` | **W** | Legacy aliases of `a2a.wrapper.sdk` / `.sdk.version` |
 | `gen_ai.agent.name` / `gen_ai.agent.id` | **W** | From `agentCard.name` — interim until #243 settles acting vs target |
 | `a2a.agent.name` / `a2a.agent.id` | **W** | Same (A2A-local mirror) |
 
@@ -96,4 +98,4 @@ Until #254 / #243 merge:
 ## Related
 
 - Operator guide: [observability.md](./observability.md)
-- Demo stack: [examples/otel-stack](../examples/otel-stack)
+- Demo stack (Phoenix, no Docker required): [examples/otel-stack](../examples/otel-stack)

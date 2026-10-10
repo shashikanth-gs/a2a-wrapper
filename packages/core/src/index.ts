@@ -191,6 +191,8 @@ export {
   buildTaskSpanAttributes,
   slugAgentId,
   agentIdentityFromCard,
+  getCorePackageVersion,
+  readPackageIdentity,
   instrumentExecutor,
   observeAgentEvent,
   applyUsageSummaryToActiveSpan,

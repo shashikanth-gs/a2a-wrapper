@@ -472,7 +472,7 @@ Optional distributed tracing for `a2a.task.execute` / `a2a.task.cancel`. Core pe
 
 Usage tokens: call `applyUsageSummaryToActiveSpan(summary)` after `LlmUsageAccumulator.summary()`. When a backend OTel exporter is configured, core sets only `a2a.task.usage.*` on the task span (not `gen_ai.usage.*`) so Tempo SUMs do not double-count with vendor LLM spans.
 
-CLI bootstrap: with `otel.enabled` + `otel.exporter.endpoint`, `createCli` dynamically loads `@opentelemetry/sdk-node` + OTLP HTTP exporter when installed (optional peers). Local Jaeger demo: `examples/otel-stack`.
+CLI bootstrap: with `otel.enabled` + `otel.exporter.endpoint`, `createCli` dynamically loads `@opentelemetry/sdk-node` + `@opentelemetry/exporter-trace-otlp-proto` (default `http/protobuf`; optional peers). Local Phoenix demo (no Docker): `examples/otel-stack`.
 
 ```ts
 import { setOtelTracer, withSpan, extractA2ATraceContext } from "@a2a-wrapper/core";

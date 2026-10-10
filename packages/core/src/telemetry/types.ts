@@ -48,13 +48,37 @@ export interface OtelConfig {
   emitOverlappingBackendSpans?: boolean;
 
   /**
+   * Stamp per-request usage rollups (`a2a.task.usage.*`, and `gen_ai.usage.*`
+   * when the wrapper is the sole OTel source) via
+   * {@link applyUsageSummaryToActiveSpan}.
+   *
+   * Default `true` when `enabled`. Sideband `x-usage` is unaffected.
+   * Set `false` only to debug de-dupe / cardinality — rarely needed because
+   * the whole bridge is already a no-op when `enabled` is false.
+   * @default true
+   */
+  taskUsageRollup?: boolean;
+
+  /**
+   * Emit per-LLM-call span **events** (`a2a.llm.call`) on the task span when
+   * the wrapper is the sole OTel token source. Off by default (noisy).
+   * @default false
+   */
+  annotateUsageCalls?: boolean;
+
+  /**
    * Shared OTLP exporter hint for wrapper hosts and backend passthrough.
    * Backends inherit `endpoint` / `protocol` when their own fields are omitted.
    */
   exporter?: {
-    /** e.g. `http://127.0.0.1:4318` */
+    /** e.g. `http://127.0.0.1:6006` (Phoenix) or `http://127.0.0.1:4318` */
     endpoint?: string;
-    /** e.g. `http/protobuf` (preferred with Copilot) or `grpc` */
+    /**
+     * OTLP encoding for CLI bootstrap.
+     * - `http/protobuf` (default) — `@opentelemetry/exporter-trace-otlp-proto`
+     *   (Phoenix accepts only protobuf over HTTP)
+     * - `http/json` — `@opentelemetry/exporter-trace-otlp-http`
+     */
     protocol?: string;
   };
 
@@ -111,6 +135,13 @@ export interface OtelEmissionPolicy {
    * instead (see {@link applyUsageSummaryToActiveSpan}).
    */
   emitGenAiUsageAttrs: boolean;
+  /**
+   * Apply task-level usage rollups on the active span
+   * (`a2a.task.usage.*` ± `gen_ai.usage.*`).
+   */
+  emitTaskUsageRollup: boolean;
+  /** Emit per-call `a2a.llm.call` span events (wrapper-only token source). */
+  annotateUsageCalls: boolean;
 }
 
 /**
@@ -171,6 +202,9 @@ export function resolveOtelEmissionPolicy(otel?: OtelConfig | null): OtelEmissio
   const overlap = otel?.emitOverlappingBackendSpans === true;
   const emitToolSpans = enabled && mirror && (!backendOtelOn || overlap);
   const emitGenAiUsageAttrs = enabled && (!backendOtelOn || overlap);
+  const emitTaskUsageRollup = enabled && otel?.taskUsageRollup !== false;
+  const annotateUsageCalls =
+    enabled && otel?.annotateUsageCalls === true && emitGenAiUsageAttrs;
 
   return {
     enabled,
@@ -178,5 +212,7 @@ export function resolveOtelEmissionPolicy(otel?: OtelConfig | null): OtelEmissio
     emitToolSpans,
     annotateLifecycleOnTaskSpan: enabled,
     emitGenAiUsageAttrs,
+    emitTaskUsageRollup,
+    annotateUsageCalls,
   };
 }

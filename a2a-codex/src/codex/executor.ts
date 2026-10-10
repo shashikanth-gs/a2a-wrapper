@@ -34,6 +34,7 @@ import {
   createExecutionObservability,
   LlmUsageAccumulator,
   applyUsageSummaryToActiveSpan,
+  applyUsageCallToActiveSpan,
 } from "@a2a-wrapper/core";
 import type {
   EventTransport,
@@ -235,12 +236,13 @@ export class CodexExecutor implements AgentExecutor {
             }
 
             if (event.type === "turn.completed" && event.usage) {
-              accumulator.record(
-                codexUsageToCallRecord(
-                  event.usage as Record<string, unknown>,
-                  this.config.codex.model,
-                ),
+              const call = codexUsageToCallRecord(
+                event.usage as Record<string, unknown>,
+                this.config.codex.model,
               );
+              accumulator.record(call);
+              // Optional: otel.annotateUsageCalls — per-call span events (noisy; off by default).
+              applyUsageCallToActiveSpan(call);
             }
 
             mapper.handleEvent(event);

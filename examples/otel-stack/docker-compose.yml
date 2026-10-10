@@ -1,22 +1,24 @@
-# Local OpenTelemetry collector + Jaeger for a2a-* wrapper demos.
+# Optional: run Phoenix via Docker instead of `pip install arize-phoenix`.
+# Prefer the pip/uv path in README.md when Docker is unavailable.
 #
 #   docker compose -f examples/otel-stack/docker-compose.yml up -d
-#   open http://localhost:16686
+#   open http://localhost:6006
 #
 # Point wrappers at:
-#   otel.exporter.endpoint = "http://127.0.0.1:4318"
-#   otel.backend.copilot.otlpEndpoint = "http://127.0.0.1:4318"   # or inherit exporter
-#
-# Jaeger all-in-one accepts OTLP HTTP (:4318) and gRPC (:4317).
+#   otel.exporter.endpoint = "http://127.0.0.1:6006"
 
 services:
-  jaeger:
-    image: jaegertracing/all-in-one:1.57
-    container_name: a2a-otel-jaeger
-    environment:
-      COLLECTOR_OTLP_ENABLED: "true"
+  phoenix:
+    image: arizephoenix/phoenix:latest
+    container_name: a2a-otel-phoenix
     ports:
-      - "4317:4317"   # OTLP gRPC  (Claude / generic)
-      - "4318:4318"   # OTLP HTTP  (Copilot + NodeSDK — preferred)
-      - "16686:16686" # Jaeger UI
+      - "6006:6006"   # UI + OTLP HTTP (/v1/traces)
+      - "4317:4317"   # OTLP gRPC
+    environment:
+      PHOENIX_WORKING_DIR: /data
+    volumes:
+      - phoenix-data:/data
     restart: unless-stopped
+
+volumes:
+  phoenix-data:

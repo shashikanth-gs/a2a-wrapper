@@ -8,11 +8,14 @@ import {
   observeAgentEvent,
   runWithTaskOtelStore,
   applyUsageSummaryToActiveSpan,
+  applyUsageCallToActiveSpan,
   createExecutionObservability,
   buildCopilotTelemetryOptions,
   shouldPropagateCopilotTraceContext,
   buildClaudeOtelEnv,
   mergeCodexOtelOverrides,
+  getCorePackageVersion,
+  buildTaskSpanAttributes,
   type OtelTracerLike,
   type OtelSpanLike,
   type A2AExecutor,
@@ -95,6 +98,26 @@ describe("resolveOtelEmissionPolicy", () => {
     expect(p.emitGenAiUsageAttrs).toBe(true);
   });
 
+  it("defaults taskUsageRollup on and annotateUsageCalls off", () => {
+    const p = resolveOtelEmissionPolicy({ enabled: true });
+    expect(p.emitTaskUsageRollup).toBe(true);
+    expect(p.annotateUsageCalls).toBe(false);
+  });
+
+  it("honors taskUsageRollup: false and annotateUsageCalls: true", () => {
+    const off = resolveOtelEmissionPolicy({ enabled: true, taskUsageRollup: false });
+    expect(off.emitTaskUsageRollup).toBe(false);
+    const on = resolveOtelEmissionPolicy({ enabled: true, annotateUsageCalls: true });
+    expect(on.annotateUsageCalls).toBe(true);
+    const blocked = resolveOtelEmissionPolicy({
+      enabled: true,
+      annotateUsageCalls: true,
+      backend: { claude: { enableTelemetry: true } },
+    });
+    // Per-call events only when wrapper is sole GenAI usage source.
+    expect(blocked.annotateUsageCalls).toBe(false);
+  });
+
   it("suppresses gen_ai.usage attrs on the task span when backend OTel is on", () => {
     const p = resolveOtelEmissionPolicy({
       enabled: true,
@@ -166,11 +189,29 @@ describe("extractA2ATraceContext", () => {
   });
 });
 
+describe("wrapper package identity attrs", () => {
+  it("stamps core + sdk versions on task spans", () => {
+    const attrs = buildTaskSpanAttributes({
+      taskId: "t",
+      contextId: "c",
+      agentName: "Example",
+      wrapperName: "a2a-claude",
+      wrapperVersion: "0.4.1",
+    });
+    expect(attrs["a2a.wrapper.core.version"]).toBe(getCorePackageVersion());
+    expect(attrs["a2a.wrapper.sdk"]).toBe("a2a-claude");
+    expect(attrs["a2a.wrapper.sdk.version"]).toBe("0.4.1");
+    expect(attrs["a2a.wrapper.name"]).toBe("a2a-claude");
+    expect(attrs["a2a.wrapper.version"]).toBe("0.4.1");
+    expect(getCorePackageVersion()).toMatch(/^\d+\.\d+\.\d+/);
+  });
+});
+
 describe("instrumentExecutor", () => {
   afterEach(() => setOtelTracer(undefined));
 
   it("wraps execute in a2a.task.execute when otel.enabled", async () => {
-    const { tracer, ended } = fakeTracer();
+    const { tracer, ended, attrs } = fakeTracer();
     setOtelTracer(tracer);
     let ran = false;
     const inner: A2AExecutor = {
@@ -184,6 +225,7 @@ describe("instrumentExecutor", () => {
       otel: { enabled: true },
       agentName: "Example Agent",
       wrapperName: "a2a-copilot",
+      wrapperVersion: "1.8.2",
     });
     await ex.execute(
       {
@@ -195,6 +237,9 @@ describe("instrumentExecutor", () => {
     );
     expect(ran).toBe(true);
     expect(ended).toEqual(["a2a.task.execute"]);
+    expect(attrs.some((a) => a.key === "a2a.wrapper.sdk" && a.value === "a2a-copilot")).toBe(true);
+    expect(attrs.some((a) => a.key === "a2a.wrapper.sdk.version" && a.value === "1.8.2")).toBe(true);
+    expect(attrs.some((a) => a.key === "a2a.wrapper.core.version")).toBe(true);
   });
 
   it("marks continue vs retry on re-entry (still one span per request)", async () => {
@@ -358,6 +403,89 @@ describe("applyUsageSummaryToActiveSpan", () => {
     );
     expect(attrs.some((a) => a.key === "gen_ai.usage.input_tokens" && a.value === 10)).toBe(true);
     expect(attrs.some((a) => a.key === "gen_ai.usage.output_tokens" && a.value === 5)).toBe(true);
+  });
+
+  it("skips rollup attrs when taskUsageRollup is false", async () => {
+    const { tracer, attrs } = fakeTracer();
+    setOtelTracer(tracer);
+    const policy = resolveOtelEmissionPolicy({ enabled: true, taskUsageRollup: false });
+    await runWithTaskOtelStore(
+      {
+        policy,
+        taskId: "t",
+        contextId: "c",
+        agentId: "a",
+        agentName: "A",
+        toolSpans: new Map(),
+        span: tracer.startSpan("task"),
+      },
+      async () => {
+        applyUsageSummaryToActiveSpan(sampleUsage);
+      },
+    );
+    expect(attrs.some((a) => a.key.startsWith("a2a.task.usage."))).toBe(false);
+  });
+
+  it("emits a2a.llm.call events only when annotateUsageCalls is on", async () => {
+    const { tracer, events } = fakeTracer();
+    setOtelTracer(tracer);
+    const off = resolveOtelEmissionPolicy({ enabled: true });
+    await runWithTaskOtelStore(
+      {
+        policy: off,
+        taskId: "t",
+        contextId: "c",
+        agentId: "a",
+        agentName: "A",
+        toolSpans: new Map(),
+        span: tracer.startSpan("task"),
+      },
+      async () => {
+        applyUsageCallToActiveSpan({
+          model: "m",
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          reasoningTokens: 0,
+          durationMs: 1,
+          timeToFirstTokenMs: null,
+          cost: null,
+          apiEndpoint: null,
+          initiator: "claude",
+        });
+      },
+    );
+    expect(events).not.toContain("a2a.llm.call");
+
+    const on = resolveOtelEmissionPolicy({ enabled: true, annotateUsageCalls: true });
+    await runWithTaskOtelStore(
+      {
+        policy: on,
+        taskId: "t",
+        contextId: "c",
+        agentId: "a",
+        agentName: "A",
+        toolSpans: new Map(),
+        span: tracer.startSpan("task2"),
+      },
+      async () => {
+        applyUsageCallToActiveSpan({
+          model: "m",
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          reasoningTokens: 0,
+          durationMs: 1,
+          timeToFirstTokenMs: null,
+          cost: null,
+          apiEndpoint: null,
+          initiator: "claude",
+        });
+      },
+    );
+    expect(events).toContain("a2a.llm.call");
   });
 });
 

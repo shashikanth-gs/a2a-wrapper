@@ -42,6 +42,7 @@ import {
   createExecutionObservability,
   LlmUsageAccumulator,
   applyUsageSummaryToActiveSpan,
+  applyUsageCallToActiveSpan,
 } from "@a2a-wrapper/core";
 import type {
   EventTransport,
@@ -481,7 +482,10 @@ export class ClaudeExecutor implements AgentExecutor {
 
             lastResult = msg;
             if (msg.subtype === "success") {
-              accumulator.record(claudeUsageToCallRecord(msg, this.config.claude.model));
+              const call = claudeUsageToCallRecord(msg, this.config.claude.model);
+              accumulator.record(call);
+              // Optional: otel.annotateUsageCalls — per-call span events (noisy; off by default).
+              applyUsageCallToActiveSpan(call);
             }
             const holding = holdEnabled && resultError === null && backgroundTasks.size > 0;
             mapper.handleResult(msg, { held: holding });

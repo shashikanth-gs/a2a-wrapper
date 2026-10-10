@@ -29,6 +29,7 @@ function setNum(span: OtelSpanLike, key: string, value: number): void {
 export function applyUsageSummaryToActiveSpan(summary: UsageTelemetryData): void {
   const store = getTaskOtelStore();
   if (!store?.policy.enabled || !store.span) return;
+  if (!store.policy.emitTaskUsageRollup) return;
 
   const span = store.span;
   // A2A-owned task rollup — safe alongside backend GenAI spans.
@@ -68,7 +69,7 @@ export function applyUsageSummaryToActiveSpan(summary: UsageTelemetryData): void
 export function applyUsageCallToActiveSpan(call: UsageCallRecord): void {
   const store = getTaskOtelStore();
   if (!store?.policy.enabled || !store.span) return;
-  if (!store.policy.emitGenAiUsageAttrs) return;
+  if (!store.policy.annotateUsageCalls) return;
   if (!store.span.addEvent) return;
 
   store.span.addEvent("a2a.llm.call", {

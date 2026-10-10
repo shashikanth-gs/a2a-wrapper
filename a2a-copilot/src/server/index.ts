@@ -7,6 +7,7 @@
  * copilot-specific executor, the `/context` routes, and the startup banner.
  */
 
+import { createRequire } from "node:module";
 import express from "express";
 import { createA2AServer as coreCreateA2AServer, buildAgentCard } from "@a2a-wrapper/core";
 import type { ServerHandle as CoreServerHandle } from "@a2a-wrapper/core";
@@ -16,6 +17,9 @@ import { CopilotExecutor } from "../copilot/executor.js";
 import { logger } from "../utils/logger.js";
 
 const log = logger.child("server");
+const { name: WRAPPER_SDK, version: WRAPPER_SDK_VERSION } = createRequire(import.meta.url)(
+  "../../package.json",
+) as { name: string; version: string };
 
 export interface ServerHandle extends Omit<CoreServerHandle, "executor"> {
   executor: CopilotExecutor;
@@ -28,6 +32,8 @@ export interface ServerHandle extends Omit<CoreServerHandle, "executor"> {
 export async function createA2AServer(config: Required<AgentConfig>): Promise<ServerHandle> {
   const handle = await coreCreateA2AServer<Required<AgentConfig>>(config, (cfg) => new CopilotExecutor(cfg), {
     protocolVersion: "1.0",
+    wrapperName: WRAPPER_SDK,
+    wrapperVersion: WRAPPER_SDK_VERSION,
     registerRoutes: (app, executor) => {
       const copilotExecutor = executor as CopilotExecutor;
 

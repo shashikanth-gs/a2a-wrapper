@@ -546,6 +546,11 @@
       "additionalProperties": false,
       "description": "Optional OpenTelemetry settings on an agent config.\n\nWhen omitted or `enabled: false`, core instrumentation is a no-op unless a host has already registered a tracer via  {@link  setOtelTracer  } .",
       "properties": {
+        "annotateUsageCalls": {
+          "default": false,
+          "description": "Emit per-LLM-call span **events** (`a2a.llm.call`) on the task span when the wrapper is the sole OTel token source. Off by default (noisy).",
+          "type": "boolean"
+        },
         "backend": {
           "additionalProperties": false,
           "description": "Backend runtime OTel passthrough (Hook F). Presence of a configured backend block turns on de-dupe (no wrapper tool / gen_ai.usage duplicate).",
@@ -634,11 +639,11 @@
           "description": "Shared OTLP exporter hint for wrapper hosts and backend passthrough. Backends inherit `endpoint` / `protocol` when their own fields are omitted.",
           "properties": {
             "endpoint": {
-              "description": "e.g. `http://127.0.0.1:4318`",
+              "description": "e.g. `http://127.0.0.1:6006` (Phoenix) or `http://127.0.0.1:4318`",
               "type": "string"
             },
             "protocol": {
-              "description": "e.g. `http/protobuf` (preferred with Copilot) or `grpc`",
+              "description": "OTLP encoding for CLI bootstrap.\n- `http/protobuf` (default) — `@opentelemetry/exporter-trace-otlp-proto`   (Phoenix accepts only protobuf over HTTP)\n- `http/json` — `@opentelemetry/exporter-trace-otlp-http`",
               "type": "string"
             }
           },
@@ -653,6 +658,11 @@
           "default": "derived from agent card / wrapper name",
           "description": "Service name resource attribute for wrapper spans.",
           "type": "string"
+        },
+        "taskUsageRollup": {
+          "default": true,
+          "description": "Stamp per-request usage rollups (`a2a.task.usage.*`, and `gen_ai.usage.*` when the wrapper is the sole OTel source) via  {@link  applyUsageSummaryToActiveSpan  } .\n\nDefault `true` when `enabled`. Sideband `x-usage` is unaffected. Set `false` only to debug de-dupe / cardinality — rarely needed because the whole bridge is already a no-op when `enabled` is false.",
+          "type": "boolean"
         },
         "tracerName": {
           "default": "a2a-wrapper",

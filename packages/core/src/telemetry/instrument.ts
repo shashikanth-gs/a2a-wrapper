@@ -28,6 +28,7 @@ import {
   type OtelSpanContextLike,
   type OtelSpanLinkLike,
 } from "./types.js";
+import { getCorePackageVersion } from "./package-meta.js";
 
 export interface InstrumentExecutorOptions {
   /** Optional otel block from agent config. */
@@ -177,8 +178,17 @@ export function instrumentExecutor(
           "a2a.task.id": taskId,
           "a2a.agent.name": agentName,
           "gen_ai.agent.name": agentName,
+          "a2a.method.name": "tasks/cancel",
+          "a2a.wrapper.core.version": getCorePackageVersion(),
         };
-        if (options.wrapperName) attrs["a2a.wrapper.name"] = options.wrapperName;
+        if (options.wrapperName) {
+          attrs["a2a.wrapper.sdk"] = options.wrapperName;
+          attrs["a2a.wrapper.name"] = options.wrapperName;
+        }
+        if (options.wrapperVersion) {
+          attrs["a2a.wrapper.sdk.version"] = options.wrapperVersion;
+          attrs["a2a.wrapper.version"] = options.wrapperVersion;
+        }
 
         if (!policy.enabled) {
           return executor.cancelTask!(taskId, bus);

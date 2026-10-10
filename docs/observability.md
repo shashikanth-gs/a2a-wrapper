@@ -7,7 +7,7 @@ How to collect traces from `a2a-*` wrappers with [OpenTelemetry](https://opentel
 | Channel | Purpose | Transport |
 |---|---|---|
 | **A2A sideband** (`trace.mcp`, `trace.usage`, …) | Orchestrators and A2A clients | Event bus / optional HTTP event transport |
-| **OpenTelemetry** | Platform collectors (Grafana Tempo, Jaeger, Langfuse, …) | OTLP |
+| **OpenTelemetry** | Platform collectors (Phoenix, Grafana Tempo, Langfuse, …) | OTLP |
 
 Sideband is unchanged when you enable OTel. OTel does **not** replace A2A artifacts.
 
@@ -44,17 +44,23 @@ Wrapper CLIs call `bootstrapOtelSdkFromConfig` when `otel.enabled` and
 are missing, the process continues with no-op spans.
 
 ```bash
-npm install @opentelemetry/api @opentelemetry/sdk-node @opentelemetry/exporter-trace-otlp-http
+npm install @opentelemetry/api @opentelemetry/sdk-node @opentelemetry/exporter-trace-otlp-proto
 ```
 
-### Local demo stack
+Use `@opentelemetry/exporter-trace-otlp-http` only when `otel.exporter.protocol` is
+`"http/json"`. Phoenix’s `/v1/traces` accepts **protobuf only** (`application/x-protobuf`).
+
+### Local demo — Phoenix (no Docker required)
 
 ```bash
-docker compose -f examples/otel-stack/docker-compose.yml up -d
-# UI: http://localhost:16686
+pip install 'arize-phoenix'
+phoenix serve
+# UI + OTLP HTTP: http://localhost:6006  (traces → /v1/traces)
+# OTLP gRPC:      http://localhost:4317
 ```
 
-Point your collector (or Grafana Alloy / Langfuse OTLP) at OTLP HTTP `:4318` and/or gRPC `:4317`.
+Optional Docker image is in [`examples/otel-stack`](../examples/otel-stack) if you prefer compose.
+Smoke without a full agent: `node examples/otel-stack/smoke-export.mjs`.
 
 ## Agent config
 
@@ -63,13 +69,15 @@ Point your collector (or Grafana Alloy / Langfuse OTLP) at OTLP HTTP `:4318` and
   "otel": {
     "enabled": true,
     "mirrorAgentEvents": false,
+    "taskUsageRollup": true,
+    "annotateUsageCalls": false,
     "exporter": {
-      "endpoint": "http://127.0.0.1:4318",
+      "endpoint": "http://127.0.0.1:6006",
       "protocol": "http/protobuf"
     },
     "backend": {
       "copilot": {
-        "otlpEndpoint": "http://127.0.0.1:4318",
+        "otlpEndpoint": "http://127.0.0.1:6006",
         "exporterType": "otlp-http",
         "propagateTraceContext": true
       }
@@ -83,11 +91,21 @@ Point your collector (or Grafana Alloy / Langfuse OTLP) at OTLP HTTP `:4318` and
 | `otel.enabled` | Emit wrapper spans such as `a2a.task.execute` |
 | `otel.exporter.endpoint` | Shared OTLP hint inherited by backends when their own endpoint is omitted |
 | `otel.mirrorAgentEvents` | Also turn sideband tool events into wrapper OTel tool spans (default `false`) |
+| `otel.taskUsageRollup` | Stamp `a2a.task.usage.*` (± `gen_ai.usage.*`) on the task span (default `true`; sideband `x-usage` always) |
+| `otel.annotateUsageCalls` | Per-call `a2a.llm.call` span **events** when wrapper is sole token source (default `false`; Claude/Codex wired) |
 | `otel.backend.copilot` | Hook F: Copilot CLI OTLP + `onGetTraceContext` parent-link |
 | `otel.backend.claude` | Hook F: `CLAUDE_CODE_ENABLE_TELEMETRY` + `OTEL_*` + `TRACEPARENT` in subprocess env |
 | `otel.backend.codex` | Hook F: merged into Codex `configOverrides.otel` |
 | `otel.backend.opencode` | Declares OpenCode server OTel on (de-dupe); enable the flag on the OpenCode server itself |
 | `otel.emitOverlappingBackendSpans` | Unsafe; allow duplicates (debug only) |
+
+Every wrapper stamps package identity on `a2a.task.execute`:
+
+| Attribute | Value |
+|---|---|
+| `a2a.wrapper.core.version` | `@a2a-wrapper/core` version |
+| `a2a.wrapper.sdk` | e.g. `a2a-claude`, `a2a-copilot` |
+| `a2a.wrapper.sdk.version` | that package’s version |
 
 ### Mental model (keep this simple)
 
@@ -106,7 +124,7 @@ A2A OTel conventions are still evolving ([semantic-conventions-genai#254](https:
 | `a2a.message.id` | Inbound A2A message | One request / one turn |
 | `trace_id` / `traceparent` | W3C context | **Usually one request**; new UI call ⇒ often a new trace |
 
-### What appears in Tempo / Jaeger / Langfuse (happy path)
+### What appears in Phoenix / Tempo / Langfuse (happy path)
 
 One **request** = one wrapper span + backend children (not one merged span):
 
@@ -127,7 +145,7 @@ The wrapper **cannot stop** the orchestrator (or another agent) from calling aga
 
 So: **still one span per request** — never a multi-purpose span factory. Platforms join those spans via the stable IDs (session/conversation view), not by forcing one eternal parent across human wait time.
 
-When a prior in-process attempt exists, the new span also gets an OTel **span link** (`a2a.task.link_reason=continue|retry`) for Tempo/Jaeger. Langfuse/Datadog still primarily group on `gen_ai.conversation.id`.
+When a prior in-process attempt exists, the new span also gets an OTel **span link** (`a2a.task.link_reason=continue|retry`) for Tempo/Phoenix. Langfuse/Datadog still primarily group on `gen_ai.conversation.id`.
 
 ### Phase 3 — Backend passthrough (Hook F)
 
@@ -156,8 +174,9 @@ Notes:
 | `a2a.task.invocation` / `a2a.task.invocation_kind` | In-process execute count: `new` / `continue` / `retry` |
 | `gen_ai.agent.name` / `a2a.agent.name` | `agentCard.name` |
 | `gen_ai.conversation.id` | A2A `contextId` (platform session join key) |
-| `a2a.wrapper.name` | Server option / package name |
-| `a2a.task.usage.*` | Per-**request** rollup from `LlmUsageAccumulator` (when OTel on) |
+| `a2a.wrapper.core.version` | `@a2a-wrapper/core` package version |
+| `a2a.wrapper.sdk` / `.sdk.version` | Which `a2a-*` package + version (also mirrored as `.name` / `.version`) |
+| `a2a.task.usage.*` | Per-**request** rollup from `LlmUsageAccumulator` when `otel.taskUsageRollup` (default on) |
 | `gen_ai.usage.*` on task span | **Only when backend OTel is off** (fallback sole source) |
 
 **Ownership reminder:** wrapper owns A2A/protocol + correlation IDs. Backend owns per-call `gen_ai.usage.*` on LLM spans when its OTel is on. Do not treat the wrapper as the universal owner of GenAI token attrs ([#254](https://github.com/open-telemetry/semantic-conventions-genai/issues/254) is still drafting A2A shape).
@@ -180,7 +199,8 @@ Rules:
 1. **Never** open a second LLM span just to carry usage.
 2. **Never** emit wrapper token **metrics** that sum with backend GenAI metrics (Phase 2 does not add counters).
 3. Dashboards: either sum `gen_ai.usage.*` on backend LLM spans **or** read `a2a.task.usage.*` on `a2a.task.execute` — not both.
-4. Copilot, Antigravity, Claude, and Codex call `applyUsageSummaryToActiveSpan` on completed turns (per-request rollup).
+4. Copilot, Antigravity, Claude, and Codex call `applyUsageSummaryToActiveSpan` on completed turns (per-request rollup; opt out with `otel.taskUsageRollup: false`).
+5. Claude/Codex also call `applyUsageCallToActiveSpan` per LLM call — **no-op unless** `otel.annotateUsageCalls: true` (and backend OTel is off). Sideband `x-usage` is never gated by these flags.
 
 ## Programmatic API
 

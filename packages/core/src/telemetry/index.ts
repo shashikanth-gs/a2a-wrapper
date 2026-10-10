@@ -45,6 +45,8 @@ export {
   type TaskInvocationKind,
 } from "./attributes.js";
 
+export { getCorePackageVersion, readPackageIdentity } from "./package-meta.js";
+
 export { instrumentExecutor, type InstrumentExecutorOptions } from "./instrument.js";
 
 export { observeAgentEvent } from "./emitter-bridge.js";

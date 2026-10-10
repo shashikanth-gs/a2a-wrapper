@@ -10,6 +10,7 @@
  */
 
 import type { A2ATraceContext } from "./context.js";
+import { getCorePackageVersion } from "./package-meta.js";
 
 /** How this `execute` relates to the A2A task lifecycle. */
 export type TaskInvocationKind =
@@ -29,8 +30,21 @@ export function buildTaskSpanAttributes(opts: {
   contextId: string;
   agentName: string;
   agentId?: string;
+  /**
+   * Wrapper SDK package name (e.g. `"a2a-copilot"`). Emitted as
+   * `a2a.wrapper.sdk` (and legacy `a2a.wrapper.name`).
+   */
   wrapperName?: string;
+  /**
+   * Wrapper SDK package version. Emitted as `a2a.wrapper.sdk.version`
+   * (and legacy `a2a.wrapper.version`).
+   */
   wrapperVersion?: string;
+  /**
+   * `@a2a-wrapper/core` version. Defaults to the installed core package.json
+   * version when omitted.
+   */
+  coreVersion?: string;
   protocolVersion?: string;
   parentAgentId?: string | null;
   orchestratorTraceId?: string;
@@ -53,6 +67,7 @@ export function buildTaskSpanAttributes(opts: {
 }): Record<string, string | number | boolean> {
   const agentId = opts.agentId ?? slugAgentId(opts.agentName);
   const conversationId = opts.conversationId || opts.contextId;
+  const coreVersion = opts.coreVersion ?? getCorePackageVersion();
   const attrs: Record<string, string | number | boolean> = {
     "a2a.task.id": opts.taskId,
     "a2a.context.id": opts.contextId,
@@ -66,11 +81,20 @@ export function buildTaskSpanAttributes(opts: {
     // Draft semantic-conventions-genai#254 shared GenAI op for A2A invoke.
     "gen_ai.operation.name": "invoke_agent",
     "a2a.method.name": opts.methodName || "message/send",
+    "a2a.wrapper.core.version": coreVersion,
   };
   const sessionId = opts.sessionId || conversationId;
   attrs["session.id"] = sessionId;
-  if (opts.wrapperName) attrs["a2a.wrapper.name"] = opts.wrapperName;
-  if (opts.wrapperVersion) attrs["a2a.wrapper.version"] = opts.wrapperVersion;
+  if (opts.wrapperName) {
+    // Preferred names — which a2a-* SDK package is serving this request.
+    attrs["a2a.wrapper.sdk"] = opts.wrapperName;
+    // Legacy aliases (same values) for early Phase 1–5 consumers.
+    attrs["a2a.wrapper.name"] = opts.wrapperName;
+  }
+  if (opts.wrapperVersion) {
+    attrs["a2a.wrapper.sdk.version"] = opts.wrapperVersion;
+    attrs["a2a.wrapper.version"] = opts.wrapperVersion;
+  }
   if (opts.protocolVersion) attrs["a2a.protocol.version"] = opts.protocolVersion;
   if (opts.parentAgentId) attrs["a2a.parent_agent.id"] = opts.parentAgentId;
   if (opts.orchestratorTraceId) attrs["a2a.orchestrator.trace_id"] = opts.orchestratorTraceId;

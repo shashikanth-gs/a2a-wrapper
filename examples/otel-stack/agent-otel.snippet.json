@@ -2,8 +2,10 @@
   "otel": {
     "enabled": true,
     "serviceName": "a2a-wrapper-demo",
+    "taskUsageRollup": true,
+    "annotateUsageCalls": false,
     "exporter": {
-      "endpoint": "http://127.0.0.1:4318",
+      "endpoint": "http://127.0.0.1:6006",
       "protocol": "http/protobuf"
     },
     "backend": {
