@@ -346,7 +346,7 @@ Wrappers run coding agents behind an HTTP endpoint. Read the [Security Guide](do
 
 ## Roadmap
 
-- **OpenTelemetry observability** — optional distributed tracing/metrics for task lifecycle and HTTP requests, via `@opentelemetry/api` (no-op by default, zero cost unless a host app registers a real SDK/exporter). Not yet implemented.
+- **OpenTelemetry observability** — optional distributed tracing/metrics for task lifecycle and HTTP requests, via `@opentelemetry/api` (no-op by default, zero cost unless a host app registers a real SDK/exporter). Not yet implemented — design and upstream SDK survey in [docs/opentelemetry.md](docs/opentelemetry.md).
 
 ## Contributing
 
