@@ -99,6 +99,15 @@ Provider-only smoke (no Phoenix): `node examples/mock-ollama/smoke.mjs`.
 }
 ```
 
+**Structure (important):**
+
+- **Wrapper-level (common to all packages):** `enabled`, `exporter`, `serviceName`,
+  feature flags (`taskUsageRollup`, `annotateUsageCalls`, `mirrorAgentEvents`, …).
+- **Provider-specific only under `otel.backend.<this-package>`:** Copilot’s OTLP
+  knobs, Claude’s subprocess env flags, Codex’s `[otel]` overrides, OpenCode’s
+  server flag. Each wrapper’s JSON Schema exposes **only its own** backend key
+  (OpenCode does **not** list Codex, etc.).
+
 | Field | Meaning |
 |---|---|
 | `otel.enabled` | Emit wrapper spans such as `a2a.task.execute` |
@@ -106,10 +115,10 @@ Provider-only smoke (no Phoenix): `node examples/mock-ollama/smoke.mjs`.
 | `otel.mirrorAgentEvents` | Also turn sideband tool events into wrapper OTel tool spans (default `false`) |
 | `otel.taskUsageRollup` | Stamp `a2a.task.usage.*` (± `gen_ai.usage.*`) on the task span (default `true`; sideband `x-usage` always) |
 | `otel.annotateUsageCalls` | Per-call `a2a.llm.call` span **events** when wrapper is sole token source (default `false`; Claude/Codex wired) |
-| `otel.backend.copilot` | Hook F: Copilot CLI OTLP + `onGetTraceContext` parent-link |
-| `otel.backend.claude` | Hook F: `CLAUDE_CODE_ENABLE_TELEMETRY` + `OTEL_*` + `TRACEPARENT` in subprocess env |
-| `otel.backend.codex` | Hook F: merged into Codex `configOverrides.otel` |
-| `otel.backend.opencode` | Declares OpenCode server OTel on (de-dupe); enable the flag on the OpenCode server itself |
+| `otel.backend.copilot` | **a2a-copilot only** — Hook F: Copilot CLI OTLP + `onGetTraceContext` |
+| `otel.backend.claude` | **a2a-claude only** — Hook F: `CLAUDE_CODE_ENABLE_TELEMETRY` + `OTEL_*` + `TRACEPARENT` |
+| `otel.backend.codex` | **a2a-codex only** — Hook F: merged into Codex `configOverrides.otel` |
+| `otel.backend.opencode` | **a2a-opencode only** — declares OpenCode server OTel on (de-dupe) |
 | `otel.emitOverlappingBackendSpans` | Unsafe; allow duplicates (debug only) |
 
 Every wrapper stamps package identity on `a2a.task.execute`:

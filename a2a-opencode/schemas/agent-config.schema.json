@@ -161,8 +161,8 @@
           "description": "OpenCode connection settings"
         },
         "otel": {
-          "$ref": "#/definitions/OtelConfig",
-          "description": "Optional OpenTelemetry settings (see docs/observability.md)."
+          "$ref": "#/definitions/OtelOpenCodeConfig",
+          "description": "Wrapper-level OTel + OpenCode Hook F only (`otel.backend.opencode`)."
         },
         "server": {
           "$ref": "#/definitions/ServerConfig",
@@ -431,9 +431,19 @@
       },
       "type": "object"
     },
-    "OtelConfig": {
+    "OtelOpenCodeBackendConfig": {
       "additionalProperties": false,
-      "description": "Optional OpenTelemetry settings on an agent config.\n\nWhen omitted or `enabled: false`, core instrumentation is a no-op unless a host has already registered a tracer via  {@link  setOtelTracer  } .",
+      "description": "OpenCode server-side experimental flag (only meaningful on `a2a-opencode`). The wrapper does not start OpenCode's exporter; set this so de-dupe policy matches your server.",
+      "properties": {
+        "openTelemetry": {
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "OtelOpenCodeConfig": {
+      "additionalProperties": false,
+      "description": "`a2a-opencode` agent `otel` — common + OpenCode Hook F only.",
       "properties": {
         "annotateUsageCalls": {
           "default": false,
@@ -442,73 +452,9 @@
         },
         "backend": {
           "additionalProperties": false,
-          "description": "Backend runtime OTel passthrough (Hook F). Presence of a configured backend block turns on de-dupe (no wrapper tool / gen_ai.usage duplicate).",
           "properties": {
-            "claude": {
-              "additionalProperties": false,
-              "properties": {
-                "enableTelemetry": {
-                  "type": "boolean"
-                },
-                "otlpEndpoint": {
-                  "type": "string"
-                },
-                "otlpProtocol": {
-                  "type": "string"
-                },
-                "propagateTraceContext": {
-                  "default": "true when Claude telemetry is enabled",
-                  "type": "boolean"
-                }
-              },
-              "type": "object"
-            },
-            "codex": {
-              "additionalProperties": {},
-              "description": "Merged into Codex `configOverrides.otel` (CLI `[otel]` shape).",
-              "type": "object"
-            },
-            "copilot": {
-              "additionalProperties": false,
-              "properties": {
-                "captureContent": {
-                  "type": "boolean"
-                },
-                "exporterType": {
-                  "type": "string"
-                },
-                "filePath": {
-                  "type": "string"
-                },
-                "otlpEndpoint": {
-                  "type": "string"
-                },
-                "otlpProtocol": {
-                  "enum": [
-                    "http/json",
-                    "http/protobuf"
-                  ],
-                  "type": "string"
-                },
-                "propagateTraceContext": {
-                  "default": "true when Copilot OTel is configured",
-                  "type": "boolean"
-                },
-                "sourceName": {
-                  "type": "string"
-                }
-              },
-              "type": "object"
-            },
             "opencode": {
-              "additionalProperties": false,
-              "description": "OpenCode server-side experimental flag. The wrapper does not start OpenCode's exporter; set this so de-dupe policy matches your server.",
-              "properties": {
-                "openTelemetry": {
-                  "type": "boolean"
-                }
-              },
-              "type": "object"
+              "$ref": "#/definitions/OtelOpenCodeBackendConfig"
             }
           },
           "type": "object"

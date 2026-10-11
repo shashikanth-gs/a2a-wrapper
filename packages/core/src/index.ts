@@ -160,7 +160,17 @@ export { LlmUsageAccumulator } from "./events/usage.js";
 // ─── OpenTelemetry (optional @opentelemetry/api peer) ───────────────────────
 
 export type {
+  OtelCommonConfig,
   OtelConfig,
+  OtelCopilotBackendConfig,
+  OtelClaudeBackendConfig,
+  OtelCodexBackendConfig,
+  OtelOpenCodeBackendConfig,
+  OtelCopilotConfig,
+  OtelClaudeConfig,
+  OtelCodexConfig,
+  OtelOpenCodeConfig,
+  OtelAntigravityConfig,
   OtelEmissionPolicy,
   OtelTracerLike,
   OtelSpanLike,

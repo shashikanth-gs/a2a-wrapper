@@ -512,16 +512,14 @@ export interface BaseAgentConfig<TBackend = Record<string, unknown>> {
   /**
    * Optional OpenTelemetry settings for wrapper-owned spans.
    *
-   * Core only uses `@opentelemetry/api` (optional peer). Register a real
-   * TracerProvider / OTLP exporter in the host app or wrapper CLI — see
-   * `docs/observability.md`. When omitted, instrumentation is a no-op.
+   * Common fields (`enabled`, `exporter`, feature flags, …) live here at the
+   * wrapper level. Provider-specific Hook F knobs belong under
+   * `otel.backend.<this-wrapper-only>` — each package's AgentConfig uses a
+   * narrowed type (`OtelCopilotConfig`, `OtelOpenCodeConfig`, …) so schemas
+   * do not leak other backends (e.g. Codex under OpenCode).
    *
    * Typed loosely here to avoid a hard import cycle with the telemetry
-   * module; see {@link OtelConfig} in `@a2a-wrapper/core` exports.
-   */
-  /**
-   * Optional OpenTelemetry settings. Prefer the exported {@link OtelConfig}
-   * type from `@a2a-wrapper/core` in wrapper configs.
+   * module; see {@link OtelConfig} / per-wrapper aliases in exports.
    */
   otel?: {
     enabled?: boolean;
@@ -529,25 +527,10 @@ export interface BaseAgentConfig<TBackend = Record<string, unknown>> {
     tracerName?: string;
     mirrorAgentEvents?: boolean;
     emitOverlappingBackendSpans?: boolean;
+    taskUsageRollup?: boolean;
+    annotateUsageCalls?: boolean;
     exporter?: { endpoint?: string; protocol?: string };
-    backend?: {
-      copilot?: {
-        otlpEndpoint?: string;
-        exporterType?: string;
-        otlpProtocol?: string;
-        sourceName?: string;
-        captureContent?: boolean;
-        filePath?: string;
-        propagateTraceContext?: boolean;
-      };
-      claude?: {
-        enableTelemetry?: boolean;
-        otlpEndpoint?: string;
-        otlpProtocol?: string;
-        propagateTraceContext?: boolean;
-      };
-      codex?: Record<string, unknown>;
-      opencode?: { openTelemetry?: boolean };
-    };
+    /** Only the key for the running wrapper is meaningful. */
+    backend?: Record<string, unknown>;
   };
 }

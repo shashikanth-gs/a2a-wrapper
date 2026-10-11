@@ -9,7 +9,7 @@ import type {
   AgentCardConfig,
   EventsConfig,
   MemoryConfig,
-  OtelConfig,
+  OtelOpenCodeConfig,
   SubAgentsConfig,
 } from "@a2a-wrapper/core";
 
@@ -234,7 +234,8 @@ export interface AgentConfig {
    */
   subAgents?: SubAgentsConfig;
   /** Optional OpenTelemetry settings (see docs/observability.md). */
-  otel?: OtelConfig;
+  /** Wrapper-level OTel + OpenCode Hook F only (`otel.backend.opencode`). */
+  otel?: OtelOpenCodeConfig;
   /**
    * Directory containing the agent's config.json file.
    * Populated automatically by the CLI scaffold when a config file path is provided.

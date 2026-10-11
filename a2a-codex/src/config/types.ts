@@ -9,7 +9,7 @@ import type {
   AgentCardConfig,
   EventsConfig,
   MemoryConfig,
-  OtelConfig,
+  OtelCodexConfig,
   SubAgentsConfig,
 } from "@a2a-wrapper/core";
 
@@ -226,7 +226,8 @@ export interface AgentConfig {
   memory?: MemoryConfig;
   subAgents?: SubAgentsConfig;
   /** Optional OpenTelemetry settings (see docs/observability.md). */
-  otel?: OtelConfig;
+  /** Wrapper-level OTel + Codex Hook F only (`otel.backend.codex`). */
+  otel?: OtelCodexConfig;
   /**
    * Directory containing the agent's config.json file.
    * Populated automatically by the CLI loader. Do not set manually.

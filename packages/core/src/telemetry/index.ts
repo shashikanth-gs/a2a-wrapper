@@ -5,7 +5,17 @@
  */
 
 export type {
+  OtelCommonConfig,
   OtelConfig,
+  OtelCopilotBackendConfig,
+  OtelClaudeBackendConfig,
+  OtelCodexBackendConfig,
+  OtelOpenCodeBackendConfig,
+  OtelCopilotConfig,
+  OtelClaudeConfig,
+  OtelCodexConfig,
+  OtelOpenCodeConfig,
+  OtelAntigravityConfig,
   OtelEmissionPolicy,
   OtelTracerLike,
   OtelSpanLike,

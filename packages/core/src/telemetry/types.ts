@@ -8,12 +8,13 @@
  */
 
 /**
- * Optional OpenTelemetry settings on an agent config.
+ * Common wrapper-level OTel settings — shared by every `a2a-*` package.
  *
- * When omitted or `enabled: false`, core instrumentation is a no-op unless a
- * host has already registered a tracer via {@link setOtelTracer}.
+ * These are **not** provider-specific. Put only Hook F / vendor knobs under
+ * {@link OtelConfig.backend} (and each wrapper's schema only exposes *its*
+ * backend key — see {@link OtelCopilotConfig}, {@link OtelClaudeConfig}, …).
  */
-export interface OtelConfig {
+export interface OtelCommonConfig {
   /**
    * Master switch for wrapper-owned OTel instrumentation.
    * @default false
@@ -81,38 +82,88 @@ export interface OtelConfig {
      */
     protocol?: string;
   };
+}
 
+/** Copilot CLI OTel knobs (only meaningful on `a2a-copilot`). */
+export interface OtelCopilotBackendConfig {
+  otlpEndpoint?: string;
+  exporterType?: string;
+  otlpProtocol?: "http/json" | "http/protobuf";
+  sourceName?: string;
+  captureContent?: boolean;
+  filePath?: string;
+  /** @default true when Copilot OTel is configured */
+  propagateTraceContext?: boolean;
+}
+
+/** Claude Code subprocess OTel knobs (only meaningful on `a2a-claude`). */
+export interface OtelClaudeBackendConfig {
+  enableTelemetry?: boolean;
+  otlpEndpoint?: string;
+  otlpProtocol?: string;
+  /** @default true when Claude telemetry is enabled */
+  propagateTraceContext?: boolean;
+}
+
+/** Codex CLI `[otel]` overrides (only meaningful on `a2a-codex`). */
+export type OtelCodexBackendConfig = Record<string, unknown>;
+
+/**
+ * OpenCode server-side experimental flag (only meaningful on `a2a-opencode`).
+ * The wrapper does not start OpenCode's exporter; set this so de-dupe policy
+ * matches your server.
+ */
+export interface OtelOpenCodeBackendConfig {
+  openTelemetry?: boolean;
+}
+
+/**
+ * Full OTel config accepted by core helpers (all backend keys optional).
+ *
+ * Prefer the per-wrapper aliases in agent configs / JSON Schema so editors
+ * only surface the backend that package actually implements:
+ * {@link OtelCopilotConfig}, {@link OtelClaudeConfig}, {@link OtelCodexConfig},
+ * {@link OtelOpenCodeConfig}, {@link OtelAntigravityConfig}.
+ */
+export interface OtelConfig extends OtelCommonConfig {
   /**
-   * Backend runtime OTel passthrough (Hook F). Presence of a configured
-   * backend block turns on de-dupe (no wrapper tool / gen_ai.usage duplicate).
+   * Backend runtime OTel passthrough (Hook F). Only the key matching the
+   * running wrapper is read. Presence of a configured backend block turns on
+   * de-dupe (no wrapper tool / gen_ai.usage duplicate).
    */
   backend?: {
-    copilot?: {
-      otlpEndpoint?: string;
-      exporterType?: string;
-      otlpProtocol?: "http/json" | "http/protobuf";
-      sourceName?: string;
-      captureContent?: boolean;
-      filePath?: string;
-      /** @default true when Copilot OTel is configured */
-      propagateTraceContext?: boolean;
-    };
-    claude?: {
-      enableTelemetry?: boolean;
-      otlpEndpoint?: string;
-      otlpProtocol?: string;
-      /** @default true when Claude telemetry is enabled */
-      propagateTraceContext?: boolean;
-    };
-    /** Merged into Codex `configOverrides.otel` (CLI `[otel]` shape). */
-    codex?: Record<string, unknown>;
-    /**
-     * OpenCode server-side experimental flag. The wrapper does not start
-     * OpenCode's exporter; set this so de-dupe policy matches your server.
-     */
-    opencode?: { openTelemetry?: boolean };
+    copilot?: OtelCopilotBackendConfig;
+    claude?: OtelClaudeBackendConfig;
+    codex?: OtelCodexBackendConfig;
+    opencode?: OtelOpenCodeBackendConfig;
   };
 }
+
+/** `a2a-copilot` agent `otel` — common + Copilot Hook F only. */
+export type OtelCopilotConfig = OtelCommonConfig & {
+  backend?: { copilot?: OtelCopilotBackendConfig };
+};
+
+/** `a2a-claude` agent `otel` — common + Claude Hook F only. */
+export type OtelClaudeConfig = OtelCommonConfig & {
+  backend?: { claude?: OtelClaudeBackendConfig };
+};
+
+/** `a2a-codex` agent `otel` — common + Codex Hook F only. */
+export type OtelCodexConfig = OtelCommonConfig & {
+  backend?: { codex?: OtelCodexBackendConfig };
+};
+
+/** `a2a-opencode` agent `otel` — common + OpenCode Hook F only. */
+export type OtelOpenCodeConfig = OtelCommonConfig & {
+  backend?: { opencode?: OtelOpenCodeBackendConfig };
+};
+
+/**
+ * `a2a-antigravity` agent `otel` — common settings only (no Hook F backend
+ * passthrough yet).
+ */
+export type OtelAntigravityConfig = OtelCommonConfig;
 
 /**
  * Policy computed once per task for deciding what the wrapper may emit to OTLP.
