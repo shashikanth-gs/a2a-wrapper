@@ -361,6 +361,7 @@ OS / Container boundary
 1. **OS / container boundary** — The Docker image runs as a non-root `node` user. For `danger-full-access` mode, use an isolated container or VM with no access to host secrets.
 2. **Codex workspace boundary** — `workspace-write` confines all file operations to `workingDirectory`. `read-only` prevents any writes. Both modes prevent access to directories outside the configured paths.
 3. **MCP server permissions** — Each MCP server runs as a separate process (stdio) or connects to an external endpoint (http). Scope their permissions via the `args`, `env`, and `enabledTools` / `disabledTools` settings.
+   In headless mode Codex cannot prompt, so MCP tools must be pre-approved or calls fail with `MCP tool call requires approval, but approval policy is never`. Set `defaultToolsApprovalMode: "approve"` on the server (or `toolApprovalModes: { "tool": "approve" }` per tool); values: `auto`, `prompt`, `writes`, `approve`. The `subAgents` bridge is pre-approved automatically.
 
 ## Docker
 

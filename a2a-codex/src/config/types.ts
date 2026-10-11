@@ -163,6 +163,9 @@ export interface LoggingConfig {
 
 // ─── MCP Server Config ──────────────────────────────────────────────────────
 
+/** Codex MCP tool approval mode. */
+export type McpToolApprovalMode = "auto" | "prompt" | "writes" | "approve";
+
 export interface McpStdioServerConfig {
   type: "stdio";
   /** Command to launch the MCP server. */
@@ -180,6 +183,19 @@ export interface McpStdioServerConfig {
   enabledTools?: string[];
   /** Denylist of tool names to block. */
   disabledTools?: string[];
+  /**
+   * Approval mode applied to every tool of this server. With
+   * `codex.approvalPolicy: "never"` Codex cannot prompt, so MCP tools that are
+   * not pre-approved fail with "MCP tool call requires approval". Set
+   * "approve" to authorize this server's tools in headless operation.
+   * Maps to `mcp_servers.<id>.default_tools_approval_mode`.
+   */
+  defaultToolsApprovalMode?: McpToolApprovalMode;
+  /**
+   * Per-tool approval overrides, keyed by tool name.
+   * Maps to `mcp_servers.<id>.tools.<tool>.approval_mode`.
+   */
+  toolApprovalModes?: Record<string, McpToolApprovalMode>;
 }
 
 export interface McpHttpServerConfig {
@@ -194,6 +210,19 @@ export interface McpHttpServerConfig {
   headers?: Record<string, string>;
   enabled?: boolean;
   toolTimeoutSec?: number;
+  /**
+   * Approval mode applied to every tool of this server. With
+   * `codex.approvalPolicy: "never"` Codex cannot prompt, so MCP tools that are
+   * not pre-approved fail with "MCP tool call requires approval". Set
+   * "approve" to authorize this server's tools in headless operation.
+   * Maps to `mcp_servers.<id>.default_tools_approval_mode`.
+   */
+  defaultToolsApprovalMode?: McpToolApprovalMode;
+  /**
+   * Per-tool approval overrides, keyed by tool name.
+   * Maps to `mcp_servers.<id>.tools.<tool>.approval_mode`.
+   */
+  toolApprovalModes?: Record<string, McpToolApprovalMode>;
 }
 
 export type McpServerConfig = McpStdioServerConfig | McpHttpServerConfig | { type: string; [k: string]: unknown };
