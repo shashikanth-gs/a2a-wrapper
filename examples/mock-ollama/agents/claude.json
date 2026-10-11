@@ -1,7 +1,8 @@
 {
+  "$comment": "Generic a2a-claude agent for mock-ollama Anthropic API. Set ANTHROPIC_BASE_URL=http://127.0.0.1:11434 when starting. No OTel required.",
   "agentCard": {
-    "name": "Claude BYOK Cookout",
-    "description": "a2a-claude against mock Ollama Anthropic API + Phoenix OTel",
+    "name": "Mock Ollama Claude Agent",
+    "description": "a2a-claude against examples/mock-ollama (Anthropic-compatible). Useful for local cookouts without Anthropic login.",
     "version": "1.0.0",
     "protocolVersion": "0.3.0",
     "streaming": true,
@@ -16,12 +17,12 @@
     "advertiseProtocol": "http"
   },
   "claude": {
-    "workingDirectory": "/tmp/a2a-cookout-claude-ws",
+    "workingDirectory": "/tmp/a2a-mock-ollama-claude-ws",
     "model": "mock-ollama",
     "permissionMode": "bypassPermissions",
     "dangerouslyAllowBypassPermissions": true,
     "settingSources": [],
-    "systemPromptAppend": "Reply briefly. You are a cookout test agent."
+    "systemPromptAppend": "Reply briefly. You are a local mock-ollama test agent."
   },
   "session": {
     "reuseByContext": true,
@@ -43,20 +44,5 @@
   },
   "events": {
     "enabled": false
-  },
-  "otel": {
-    "enabled": true,
-    "serviceName": "a2a-claude-byok-cookout",
-    "taskUsageRollup": true,
-    "exporter": {
-      "endpoint": "http://127.0.0.1:6006",
-      "protocol": "http/protobuf"
-    },
-    "backend": {
-      "claude": {
-        "enableTelemetry": false,
-        "propagateTraceContext": true
-      }
-    }
   }
 }

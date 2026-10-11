@@ -26,6 +26,7 @@ import { randomUUID } from "node:crypto";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = join(__dirname, "../..");
+const mockOllamaDir = join(__dirname, "../mock-ollama");
 const require = createRequire(import.meta.url);
 
 const MOCK_PORT = Number(process.env.MOCK_OLLAMA_PORT || 19134);
@@ -131,9 +132,11 @@ async function messageSend(port, text) {
   return { status: res.status, body, taskId, contextId, messageId };
 }
 
-function writePatchedConfig(srcName, port, mockBase) {
-  const src = JSON.parse(readFileSync(join(__dirname, srcName), "utf8"));
+function writePatchedConfig(agentFile, port, mockBase, otelPatch) {
+  // Shared BYOK agents live under examples/mock-ollama — OTel is layered on here.
+  const src = JSON.parse(readFileSync(join(mockOllamaDir, "agents", agentFile), "utf8"));
   src.server.port = port;
+  src.otel = otelPatch;
   if (src.copilot?.provider) {
     src.copilot.provider.baseUrl = `${mockBase}/v1`;
     src.copilot.model = MODEL;
@@ -145,7 +148,7 @@ function writePatchedConfig(srcName, port, mockBase) {
     src.claude.workingDirectory = `/tmp/a2a-cookout-claude-ws`;
     mkdirSync(src.claude.workingDirectory, { recursive: true });
   }
-  const out = join("/tmp", `a2a-cookout-${srcName}`);
+  const out = join("/tmp", `a2a-cookout-${agentFile}`);
   writeFileSync(out, JSON.stringify(src, null, 2));
   return out;
 }
@@ -179,8 +182,8 @@ async function main() {
   }
 
   const mockBase = `http://127.0.0.1:${MOCK_PORT}`;
-  console.log("Starting mock-ollama on", MOCK_PORT);
-  spawnLogged(process.execPath, [join(__dirname, "mock-ollama.mjs")], {
+  console.log("Starting shared mock-ollama on", MOCK_PORT);
+  spawnLogged(process.execPath, [join(mockOllamaDir, "server.mjs")], {
     label: "mock-ollama",
     env: {
       ...process.env,
@@ -199,8 +202,20 @@ async function main() {
   }).then((r) => r.json());
   console.log("mock chat ok:", chat.choices?.[0]?.message?.content);
 
-  const copilotCfg = writePatchedConfig("agent-copilot-byok.json", COPILOT_PORT, mockBase);
-  const claudeCfg = writePatchedConfig("agent-claude-byok.json", CLAUDE_PORT, mockBase);
+  const copilotCfg = writePatchedConfig("copilot.json", COPILOT_PORT, mockBase, {
+    enabled: true,
+    serviceName: "a2a-copilot-byok-cookout",
+    taskUsageRollup: true,
+    exporter: { endpoint: PHOENIX, protocol: "http/protobuf" },
+    backend: { copilot: { propagateTraceContext: true } },
+  });
+  const claudeCfg = writePatchedConfig("claude.json", CLAUDE_PORT, mockBase, {
+    enabled: true,
+    serviceName: "a2a-claude-byok-cookout",
+    taskUsageRollup: true,
+    exporter: { endpoint: PHOENIX, protocol: "http/protobuf" },
+    backend: { claude: { enableTelemetry: false, propagateTraceContext: true } },
+  });
 
   // Sequential: one provider at a time so each CLI can flush OTel cleanly.
   console.log("Starting a2a-copilot…");

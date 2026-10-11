@@ -61,16 +61,19 @@ phoenix serve
 
 Optional Docker image is in [`examples/otel-stack`](../examples/otel-stack) if you prefer compose.
 
-**BYOK cookout (recommended):** fake Ollama + real wrapper CLIs — no cloud keys:
+**BYOK cookout (recommended):** shared fake Ollama + real wrapper CLIs — no cloud keys:
 
 ```bash
 phoenix serve   # terminal 1
 node examples/otel-stack/cookout-byok.mjs   # terminal 2
 ```
 
-That starts `mock-ollama.mjs`, points `a2a-copilot` at `/v1` (Responses API) and
-`a2a-claude` at `ANTHROPIC_BASE_URL` (Messages API), sends A2A `message/send`, and
-checks Phoenix for `a2a.wrapper.sdk` spans. Same shape as real Ollama BYOK.
+The LLM stub is [`examples/mock-ollama`](../examples/mock-ollama/) (reusable for
+any feature, not just OTel). The cookout points `a2a-copilot` at `/v1`
+(Responses API) and `a2a-claude` at `ANTHROPIC_BASE_URL` (Messages API), sends
+A2A `message/send`, and checks Phoenix for `a2a.wrapper.sdk` spans.
+
+Provider-only smoke (no Phoenix): `node examples/mock-ollama/smoke.mjs`.
 
 ## Agent config
 

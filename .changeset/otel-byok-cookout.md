@@ -7,9 +7,9 @@
 "a2a-antigravity": patch
 ---
 
-feat(otel): BYOK mock-Ollama cookout; wire CLI OTel bootstrap on all wrappers
+feat(otel): BYOK cookout + shared mock-ollama; wire CLI OTel bootstrap
 
-- examples/otel-stack/mock-ollama.mjs (OpenAI Responses + Anthropic Messages)
-- examples/otel-stack/cookout-byok.mjs end-to-end against Phoenix
+- examples/mock-ollama/ — reusable fake Ollama (OpenAI + Anthropic) for any cookout
+- examples/otel-stack/cookout-byok.mjs layers Phoenix/OTel on that stub
 - Hand-rolled wrapper CLIs now call bootstrapOtelSdkFromConfig / shutdownOtelSdk
 - CLI bootstrap uses SimpleSpanProcessor for reliable short-lived export

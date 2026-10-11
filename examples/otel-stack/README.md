@@ -5,6 +5,10 @@ Local collector UI for developing `a2a-*` wrappers. **No Docker required.**
 Phoenix is lighter than a Jaeger all-in-one compose stack: one Python process,
 OTLP HTTP on the same port as the UI.
 
+> **LLM stub:** the fake Ollama used by cookouts lives in
+> [`examples/mock-ollama`](../mock-ollama/) — shared for any feature test, not
+> only OTel. This folder only adds Phoenix + OTel assertions on top.
+
 ## Start Phoenix
 
 ```bash
@@ -53,7 +57,7 @@ npm install @opentelemetry/api @opentelemetry/sdk-node @opentelemetry/exporter-t
 # npm install @opentelemetry/exporter-trace-otlp-http
 ```
 
-## Smoke / cookout scripts (this repo)
+## Smoke / cookout scripts
 
 With Phoenix already running:
 
@@ -61,16 +65,18 @@ With Phoenix already running:
 # 1) Synthetic core span (bootstrap + attrs only)
 node examples/otel-stack/smoke-export.mjs
 
-# 2) Recommended: BYOK cookout via **fake Ollama** (no GPU, no cloud keys)
-#    - mock-ollama speaks OpenAI /v1/responses (Copilot) + Anthropic /v1/messages (Claude)
-#    - boots real a2a-copilot + a2a-claude CLIs against it
+# 2) Recommended: BYOK + Phoenix (uses shared examples/mock-ollama)
+#    - starts mock-ollama server
+#    - boots real a2a-copilot + a2a-claude with otel.enabled
 #    - asserts Phoenix has a2a.wrapper.sdk spans + usage
 node examples/otel-stack/cookout-byok.mjs
 ```
 
-Why fake Ollama? Copilot already supports BYOK → Ollama (`copilot.provider.baseUrl`),
-and Claude Code supports Ollama via `ANTHROPIC_BASE_URL` (Anthropic-compatible API).
-That is a more realistic cookout than stubbing the session manager.
+Provider-only smoke (no Phoenix) lives with the stub:
+
+```bash
+node examples/mock-ollama/smoke.mjs
+```
 
 Optional lower-level script (executor + fake client, no CLI spawn):
 
