@@ -357,6 +357,29 @@
         "url": {
           "description": "URL of the Streamable HTTP MCP server.",
           "type": "string"
+        },
+        "defaultToolsApprovalMode": {
+          "description": "Approval mode for all tools of this server (auto | prompt | writes | approve). Use \"approve\" for headless operation with approvalPolicy \"never\".",
+          "enum": [
+            "auto",
+            "prompt",
+            "writes",
+            "approve"
+          ],
+          "type": "string"
+        },
+        "toolApprovalModes": {
+          "additionalProperties": {
+            "enum": [
+              "auto",
+              "prompt",
+              "writes",
+              "approve"
+            ],
+            "type": "string"
+          },
+          "description": "Per-tool approval overrides keyed by tool name.",
+          "type": "object"
         }
       },
       "required": [
@@ -436,6 +459,29 @@
         "type": {
           "const": "stdio",
           "type": "string"
+        },
+        "defaultToolsApprovalMode": {
+          "description": "Approval mode for all tools of this server (auto | prompt | writes | approve). Use \"approve\" for headless operation with approvalPolicy \"never\".",
+          "enum": [
+            "auto",
+            "prompt",
+            "writes",
+            "approve"
+          ],
+          "type": "string"
+        },
+        "toolApprovalModes": {
+          "additionalProperties": {
+            "enum": [
+              "auto",
+              "prompt",
+              "writes",
+              "approve"
+            ],
+            "type": "string"
+          },
+          "description": "Per-tool approval overrides keyed by tool name.",
+          "type": "object"
         }
       },
       "required": [

@@ -56,7 +56,28 @@ export function toCodexMcpEntry(descriptor: SynthesizedMcpDescriptor): McpStdioS
     args: descriptor.args,
     env: descriptor.env,
     enabled: true,
+    // Headless: the bridge is configured by the operator via `subAgents`, so
+    // its tools are pre-approved. Otherwise Codex rejects delegation calls
+    // with "MCP tool call requires approval, but approval policy is never".
+    defaultToolsApprovalMode: "approve",
   };
+}
+
+/** Add per-server / per-tool MCP approval settings to an SDK entry. */
+function applyApprovalModes(
+  entry: Record<string, unknown>,
+  s: { defaultToolsApprovalMode?: string; toolApprovalModes?: Record<string, string> },
+): void {
+  if (s.defaultToolsApprovalMode) {
+    entry.default_tools_approval_mode = s.defaultToolsApprovalMode;
+  }
+  if (s.toolApprovalModes && Object.keys(s.toolApprovalModes).length > 0) {
+    const tools: Record<string, unknown> = {};
+    for (const [name, mode] of Object.entries(s.toolApprovalModes)) {
+      tools[name] = { approval_mode: mode };
+    }
+    entry.tools = tools;
+  }
 }
 
 // ─── SDK Config Translation ──────────────────────────────────────────────────
@@ -88,6 +109,7 @@ export function buildMcpConfig(
       if (s.toolTimeoutSec !== undefined) entry.tool_timeout_sec = s.toolTimeoutSec;
       if (s.enabledTools && s.enabledTools.length > 0) entry.enabled_tools = s.enabledTools;
       if (s.disabledTools && s.disabledTools.length > 0) entry.disabled_tools = s.disabledTools;
+      applyApprovalModes(entry, s);
       result[key] = entry;
     } else if (server.type === "http") {
       const s = server as McpHttpServerConfig;
@@ -107,6 +129,7 @@ export function buildMcpConfig(
         }
       }
       if (s.toolTimeoutSec !== undefined) entry.tool_timeout_sec = s.toolTimeoutSec;
+      applyApprovalModes(entry, s);
       result[key] = entry;
     }
   }

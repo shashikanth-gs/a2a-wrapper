@@ -102,7 +102,12 @@ export class CodexExecutor implements AgentExecutor {
       }
     }
 
-    // 3. Sub-agents bootstrap — synthesize the a2a-mcp-skillmap MCP entry and
+    // 3. Validate user-supplied MCP servers BEFORE the bridge entry is merged,
+    //    so the internally generated reserved "a2a-subagents" key is not
+    //    rejected while user-supplied conflicts still are.
+    validateMcpServers(this.config.mcp ?? {});
+
+    // 4. Sub-agents bootstrap — synthesize the a2a-mcp-skillmap MCP entry and
     //    merge it into config.mcp before client construction (MCP is baked at
     //    SDK construction time and cannot be registered at runtime).
     if (this.config.subAgents?.agents?.length) {
@@ -118,9 +123,6 @@ export class CodexExecutor implements AgentExecutor {
         [result.descriptor.key]: this.toCodexMcpEntry(result.descriptor),
       };
     }
-
-    // 4. Validate MCP after sub-agent merge (so the bridge entry is visible)
-    validateMcpServers(this.config.mcp ?? {});
 
     // 5. Construct Codex client (MCP config baked in here)
     this.client = createCodexClient(this.config);
