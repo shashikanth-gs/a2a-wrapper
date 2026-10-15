@@ -1,5 +1,65 @@
 # a2a-codex
 
+## 1.8.0
+
+### Minor Changes
+
+- a2bfdd2: feat(otel): Phase 3 backend passthrough (Hook F)
+
+  - Core helpers: Copilot telemetry/onGetTraceContext, Claude OTel env + TRACEPARENT, Codex otel overrides
+  - `withSpan` activates real OTel context so parent-link works
+  - Shared `otel.exporter` endpoint inheritance
+  - Wire Copilot / Claude / Codex; OpenCode/Antigravity documented
+
+- a2bfdd2: feat(otel): Phase 5 attribute ownership + gateway ID mapping
+
+  - docs/otel-attribute-ownership.md aligned with draft GenAI A2A #254
+  - Span attrs: gen_ai.operation.name, a2a.method.name, session.id, a2a.gateway.\*
+  - extractA2ATraceContext reads conversation/session/passkey/spectrum/ticket metadata
+  - Claude + Codex applyUsageSummaryToActiveSpan + x-usage on completed turns
+
+- a2bfdd2: feat(otel): Phoenix demo, package identity attrs, usage flags
+
+  - Replace Jaeger compose requirement with Arize Phoenix (`phoenix serve`, optional Docker)
+  - CLI bootstrap defaults to `http/protobuf` via `@opentelemetry/exporter-trace-otlp-proto` (Phoenix rejects JSON)
+  - Stamp `a2a.wrapper.core.version`, `a2a.wrapper.sdk`, `a2a.wrapper.sdk.version` on task spans
+  - Wire all wrapper servers with package name/version
+  - `otel.taskUsageRollup` (default true) + `otel.annotateUsageCalls` (default false; Claude/Codex per-call events)
+  - Smoke scripts: `examples/otel-stack/smoke-export.mjs` + `smoke-providers.mjs` (copilot/claude executor → Phoenix)
+
+### Patch Changes
+
+- 1bdaa60: Fix `subAgents` startup failure ("MCP server key "a2a-subagents" is reserved") by validating only user-supplied MCP servers before the internal bridge entry is merged. Add `defaultToolsApprovalMode` / `toolApprovalModes` to MCP server config (mapped to Codex `default_tools_approval_mode` and `tools.<name>.approval_mode`) so MCP tools can be pre-approved in headless mode with `approvalPolicy: "never"`; the sub-agent bridge is pre-approved automatically.
+- a2bfdd2: feat(otel): BYOK cookout + shared mock-ollama; wire CLI OTel bootstrap
+
+  - examples/mock-ollama/ — reusable fake Ollama (OpenAI + Anthropic) for any cookout
+  - examples/otel-stack/cookout-byok.mjs layers Phoenix/OTel on that stub
+  - Hand-rolled wrapper CLIs now call bootstrapOtelSdkFromConfig / shutdownOtelSdk
+  - CLI bootstrap uses SimpleSpanProcessor for reliable short-lived export
+
+- a2bfdd2: fix(otel): per-wrapper OTel schema — common at top, backend knobs only for that package
+
+  OpenCode no longer advertises `otel.backend.codex` (and peers). Shared flags stay
+  on `otel.*`; only `otel.backend.<this-wrapper>` appears in each agent schema.
+
+- a2bfdd2: feat(otel): Phase 2 usage mapping + shared execution observability
+
+  - Hook E: `applyUsageSummaryToActiveSpan` with anti-dupe policy — `a2a.task.usage.*` rollup always; `gen_ai.usage.*` only when backend OTel is off
+  - Hook B: `createExecutionObservability` adopted by all wrappers
+  - Hook C: `annotateSessionOnTaskSpan`; W3C `injectW3cTraceHeaders` for outbound calls
+  - Docs: usage double-count rules in `docs/observability.md`
+
+- Updated dependencies [a2bfdd2]
+- Updated dependencies [a2bfdd2]
+- Updated dependencies [a2bfdd2]
+- Updated dependencies [a2bfdd2]
+- Updated dependencies [a2bfdd2]
+- Updated dependencies [a2bfdd2]
+- Updated dependencies [a2bfdd2]
+- Updated dependencies [a2bfdd2]
+- Updated dependencies [98d2027]
+  - @a2a-wrapper/core@2.2.0
+
 ## 1.7.2
 
 ### Patch Changes
