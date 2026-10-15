@@ -11,7 +11,6 @@
 import { existsSync, statSync } from "node:fs";
 import { readFile as fsReadFile, writeFile as fsWriteFile } from "node:fs/promises";
 import { join, resolve as resolvePath } from "node:path";
-import { v4 as uuidv4 } from "uuid";
 
 import type { AgentExecutor, RequestContext, ExecutionEventBus } from "@a2a-js/sdk/server";
 
@@ -32,8 +31,6 @@ import { extractUserText, promptStream } from "./prompt-builder.js";
 import { BackgroundTaskTracker } from "./background-tasks.js";
 
 import {
-  resolveTransport,
-  AgentEventEmitter,
   createDeferred,
   materializeMemory,
   bootstrapSubAgents,
@@ -42,14 +39,45 @@ import {
   publishFinalArtifact,
   publishStreamingChunk,
   publishLastChunkMarker,
+  createExecutionObservability,
+  LlmUsageAccumulator,
+  applyUsageSummaryToActiveSpan,
+  applyUsageCallToActiveSpan,
 } from "@a2a-wrapper/core";
-import type { EventTransport, EventTransportFn, SynthesizedMcpDescriptor } from "@a2a-wrapper/core";
+import type {
+  EventTransport,
+  EventTransportFn,
+  SynthesizedMcpDescriptor,
+  UsageCallRecord,
+} from "@a2a-wrapper/core";
 
 import { logger } from "../utils/logger.js";
 
 const log = logger.child("executor");
 
 const VALID_PERMISSION_MODES = new Set(["acceptEdits", "dontAsk", "plan", "bypassPermissions"]);
+
+/** Map Claude Agent SDK result.usage → core UsageCallRecord. */
+function claudeUsageToCallRecord(
+  msg: SDKMessageLike,
+  modelFallback: string | undefined,
+): UsageCallRecord {
+  const usage = (msg.usage ?? {}) as Record<string, unknown>;
+  const num = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+  return {
+    model: (typeof msg.model === "string" ? msg.model : undefined) || modelFallback || "",
+    inputTokens: num(usage.input_tokens),
+    outputTokens: num(usage.output_tokens),
+    cacheReadTokens: num(usage.cache_read_input_tokens),
+    cacheWriteTokens: num(usage.cache_creation_input_tokens),
+    reasoningTokens: 0,
+    durationMs: num(msg.duration_ms),
+    timeToFirstTokenMs: null,
+    cost: typeof msg.total_cost_usd === "number" ? msg.total_cost_usd : null,
+    apiEndpoint: null,
+    initiator: "claude",
+  };
+}
 const VALID_EFFORT_LEVELS = new Set(["low", "medium", "high", "xhigh", "max"]);
 const VALID_THINKING_TYPES = new Set(["adaptive", "enabled", "disabled"]);
 const VALID_OUTPUT_FORMAT_TYPES = new Set(["json_schema"]);
@@ -235,13 +263,12 @@ export class ClaudeExecutor implements AgentExecutor {
     const { taskId, contextId, userMessage, task } = ctx;
     await this.initialize();
 
-    const agentId = this.config.agentCard.name.toLowerCase().replace(/\s+/g, "-");
-    const transport = resolveTransport(this.config.events, bus, taskId, contextId, this.customTransport);
-    const emitter = new AgentEventEmitter({
-      agentId,
+    const { emitter } = createExecutionObservability({
       agentName: this.config.agentCard.name,
-      traceId: contextId || uuidv4(),
-      transport,
+      ctx,
+      bus,
+      events: this.config.events,
+      customTransport: this.customTransport,
     });
     const mapper = new EventMapper(emitter, this.config);
 
@@ -259,6 +286,7 @@ export class ClaudeExecutor implements AgentExecutor {
       this.sessionManager!.trackExecution(taskId, contextId, abortController);
 
       const turnFn = async (): Promise<void> => {
+        const accumulator = new LlmUsageAccumulator();
         let timedOut = false;
         // A prompt timeout of 0 (or any value <= 0) disables the bound entirely:
         // the turn runs until the SDK iterator completes. Without this guard
@@ -361,7 +389,17 @@ export class ClaudeExecutor implements AgentExecutor {
 
         /** Single definition of the successful ending, mirroring endTurnRateLimited. */
         const endTurnCompleted = (): void => {
-          publishStatus(bus, taskId, contextId, "completed", undefined, true);
+          const usageSummary = accumulator.summary();
+          applyUsageSummaryToActiveSpan(usageSummary);
+          publishStatus(
+            bus,
+            taskId,
+            contextId,
+            "completed",
+            undefined,
+            true,
+            { "x-usage": usageSummary },
+          );
           terminalPublished = true;
           bus.finished();
         };
@@ -443,6 +481,12 @@ export class ClaudeExecutor implements AgentExecutor {
             }
 
             lastResult = msg;
+            if (msg.subtype === "success") {
+              const call = claudeUsageToCallRecord(msg, this.config.claude.model);
+              accumulator.record(call);
+              // Optional: otel.annotateUsageCalls — per-call span events (noisy; off by default).
+              applyUsageCallToActiveSpan(call);
+            }
             const holding = holdEnabled && resultError === null && backgroundTasks.size > 0;
             mapper.handleResult(msg, { held: holding });
 

@@ -1,0 +1,48 @@
+{
+  "$comment": "Generic a2a-claude agent for mock-ollama Anthropic API. Set ANTHROPIC_BASE_URL=http://127.0.0.1:11434 when starting. No OTel required.",
+  "agentCard": {
+    "name": "Mock Ollama Claude Agent",
+    "description": "a2a-claude against examples/mock-ollama (Anthropic-compatible). Useful for local cookouts without Anthropic login.",
+    "version": "1.0.0",
+    "protocolVersion": "0.3.0",
+    "streaming": true,
+    "defaultInputModes": ["text"],
+    "defaultOutputModes": ["text"],
+    "skills": []
+  },
+  "server": {
+    "port": 3102,
+    "hostname": "127.0.0.1",
+    "advertiseHost": "127.0.0.1",
+    "advertiseProtocol": "http"
+  },
+  "claude": {
+    "workingDirectory": "/tmp/a2a-mock-ollama-claude-ws",
+    "model": "mock-ollama",
+    "permissionMode": "bypassPermissions",
+    "dangerouslyAllowBypassPermissions": true,
+    "settingSources": [],
+    "systemPromptAppend": "Reply briefly. You are a local mock-ollama test agent."
+  },
+  "session": {
+    "reuseByContext": true,
+    "ttl": 0
+  },
+  "features": {
+    "streamArtifactChunks": false,
+    "emitThinkingEvents": false,
+    "emitToolEvents": false,
+    "emitFileChangeEvents": false,
+    "emitTodoEvents": false,
+    "holdTaskForBackgroundWork": false
+  },
+  "timeouts": {
+    "prompt": 60000
+  },
+  "logging": {
+    "level": "info"
+  },
+  "events": {
+    "enabled": false
+  }
+}

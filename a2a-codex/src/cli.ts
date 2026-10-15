@@ -19,6 +19,7 @@ import { parseArgs } from "node:util";
 import { dirname, resolve } from "node:path";
 import { resolveConfig } from "./config/loader.js";
 import type { AgentConfig, CodexConfig } from "./config/types.js";
+import { bootstrapOtelSdkFromConfig, shutdownOtelSdk } from "@a2a-wrapper/core";
 import { createA2AServer } from "./server/index.js";
 import { logger, LogLevel } from "./utils/logger.js";
 
@@ -173,11 +174,20 @@ async function main(): Promise<void> {
     sandboxMode: config.codex?.sandboxMode,
   });
 
+  if (await bootstrapOtelSdkFromConfig(config.otel)) {
+    log.info("OpenTelemetry SDK bootstrapped from otel.exporter.endpoint");
+  }
+
   const handle = await createA2AServer(config);
+  let shuttingDown = false;
 
   const shutdown = async (signal: string): Promise<void> => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     log.info(`${signal} received, shutting down...`);
     await handle.shutdown();
+    await shutdownOtelSdk();
+    await new Promise((r) => setTimeout(r, 300));
     process.exit(0);
   };
 

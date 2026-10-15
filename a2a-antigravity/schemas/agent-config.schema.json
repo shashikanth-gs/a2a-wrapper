@@ -152,6 +152,10 @@
         "memory": {
           "$ref": "#/definitions/MemoryConfig"
         },
+        "otel": {
+          "$ref": "#/definitions/OtelAntigravityConfig",
+          "description": "Wrapper-level OTel only (no Hook F backend passthrough yet)."
+        },
         "server": {
           "$ref": "#/definitions/ServerConfig"
         },
@@ -534,6 +538,67 @@
             "type": "string"
           },
           "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "OtelAntigravityConfig": {
+      "$ref": "#/definitions/OtelCommonConfig",
+      "description": "`a2a-antigravity` agent `otel` — common settings only (no Hook F backend passthrough yet)."
+    },
+    "OtelCommonConfig": {
+      "additionalProperties": false,
+      "description": "Common wrapper-level OTel settings — shared by every `a2a-*` package.\n\nThese are **not** provider-specific. Put only Hook F / vendor knobs under  {@link  OtelConfig.backend }  (and each wrapper's schema only exposes *its* backend key — see  {@link  OtelCopilotConfig } ,  {@link  OtelClaudeConfig } , …).",
+      "properties": {
+        "annotateUsageCalls": {
+          "default": false,
+          "description": "Emit per-LLM-call span **events** (`a2a.llm.call`) on the task span when the wrapper is the sole OTel token source. Off by default (noisy).",
+          "type": "boolean"
+        },
+        "emitOverlappingBackendSpans": {
+          "default": false,
+          "description": "Unsafe escape hatch: allow wrapper tool/LLM spans even when backend OTel is configured (duplicates Copilot/Claude tool spans in the collector).",
+          "type": "boolean"
+        },
+        "enabled": {
+          "default": false,
+          "description": "Master switch for wrapper-owned OTel instrumentation.",
+          "type": "boolean"
+        },
+        "exporter": {
+          "additionalProperties": false,
+          "description": "Shared OTLP exporter hint for wrapper hosts and backend passthrough. Backends inherit `endpoint` / `protocol` when their own fields are omitted.",
+          "properties": {
+            "endpoint": {
+              "description": "e.g. `http://127.0.0.1:6006` (Phoenix) or `http://127.0.0.1:4318`",
+              "type": "string"
+            },
+            "protocol": {
+              "description": "OTLP encoding for CLI bootstrap.\n- `http/protobuf` (default) — `@opentelemetry/exporter-trace-otlp-proto`   (Phoenix accepts only protobuf over HTTP)\n- `http/json` — `@opentelemetry/exporter-trace-otlp-http`",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "mirrorAgentEvents": {
+          "default": false,
+          "description": "When true, map `AgentEvent` tool calls into wrapper OTel child spans. Defaults to false. Forced off when a backend OTel block is present unless  {@link  emitOverlappingBackendSpans }  is true.",
+          "type": "boolean"
+        },
+        "serviceName": {
+          "default": "derived from agent card / wrapper name",
+          "description": "Service name resource attribute for wrapper spans.",
+          "type": "string"
+        },
+        "taskUsageRollup": {
+          "default": true,
+          "description": "Stamp per-request usage rollups (`a2a.task.usage.*`, and `gen_ai.usage.*` when the wrapper is the sole OTel source) via  {@link  applyUsageSummaryToActiveSpan  } .\n\nDefault `true` when `enabled`. Sideband `x-usage` is unaffected. Set `false` only to debug de-dupe / cardinality — rarely needed because the whole bridge is already a no-op when `enabled` is false.",
+          "type": "boolean"
+        },
+        "tracerName": {
+          "default": "a2a-wrapper",
+          "description": "Instrumentation scope name passed to `getTracer`.",
+          "type": "string"
         }
       },
       "type": "object"

@@ -346,7 +346,7 @@ Wrappers run coding agents behind an HTTP endpoint. Read the [Security Guide](do
 
 ## Roadmap
 
-- **OpenTelemetry observability** — optional distributed tracing/metrics for task lifecycle and HTTP requests, via `@opentelemetry/api` (no-op by default, zero cost unless a host app registers a real SDK/exporter). Not yet implemented.
+- **OpenTelemetry observability** — optional distributed tracing (`a2a.task.execute` + backend passthrough). Optional peers for `@opentelemetry/api` / SDK; CLI auto-bootstraps when `otel.exporter.endpoint` is set. Lightweight Phoenix demo (no Docker): [`examples/otel-stack`](examples/otel-stack). Guides: [Observability](docs/observability.md), [attribute ownership](docs/otel-attribute-ownership.md).
 
 ## Contributing
 

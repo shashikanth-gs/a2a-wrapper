@@ -416,6 +416,18 @@ export function createCli<T extends BaseAgentConfig<unknown>>(
       port: config.server?.port,
     });
 
+    // 4b. Optional OTel SDK bootstrap when otel.enabled + otel.exporter.endpoint
+    //     (dynamic import — no hard dep on sdk-node / OTLP exporter).
+    const { bootstrapOtelSdkFromConfig, shutdownOtelSdk } = await import(
+      "../telemetry/cli-bootstrap.js"
+    );
+    const otelBootstrapped = await bootstrapOtelSdkFromConfig(
+      (config as { otel?: import("../telemetry/types.js").OtelConfig }).otel,
+    );
+    if (otelBootstrapped) {
+      log.info("OpenTelemetry SDK bootstrapped from otel.exporter.endpoint");
+    }
+
     // 5. Create and start the A2A server
     const handle = await createA2AServer<T>(
       config,
@@ -427,6 +439,7 @@ export function createCli<T extends BaseAgentConfig<unknown>>(
     const shutdown = async (signal: string): Promise<void> => {
       log.info(`${signal} received, shutting down...`);
       await handle.shutdown();
+      await shutdownOtelSdk();
       process.exit(0);
     };
 

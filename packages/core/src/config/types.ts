@@ -508,4 +508,29 @@ export interface BaseAgentConfig<TBackend = Record<string, unknown>> {
    * Defaults to process.cwd() when no config file is specified.
    */
   configDir?: string;
+
+  /**
+   * Optional OpenTelemetry settings for wrapper-owned spans.
+   *
+   * Common fields (`enabled`, `exporter`, feature flags, …) live here at the
+   * wrapper level. Provider-specific Hook F knobs belong under
+   * `otel.backend.<this-wrapper-only>` — each package's AgentConfig uses a
+   * narrowed type (`OtelCopilotConfig`, `OtelOpenCodeConfig`, …) so schemas
+   * do not leak other backends (e.g. Codex under OpenCode).
+   *
+   * Typed loosely here to avoid a hard import cycle with the telemetry
+   * module; see {@link OtelConfig} / per-wrapper aliases in exports.
+   */
+  otel?: {
+    enabled?: boolean;
+    serviceName?: string;
+    tracerName?: string;
+    mirrorAgentEvents?: boolean;
+    emitOverlappingBackendSpans?: boolean;
+    taskUsageRollup?: boolean;
+    annotateUsageCalls?: boolean;
+    exporter?: { endpoint?: string; protocol?: string };
+    /** Only the key for the running wrapper is meaningful. */
+    backend?: Record<string, unknown>;
+  };
 }

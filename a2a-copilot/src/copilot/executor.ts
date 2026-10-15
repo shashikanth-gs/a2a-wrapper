@@ -24,12 +24,16 @@ import {
   publishTask,
   publishTraceArtifact,
   extractUserText,
-  resolveTransport,
-  AgentEventEmitter,
   materializeMemory,
   WELL_KNOWN_PATHS,
   bootstrapSubAgents,
   LlmUsageAccumulator,
+  createExecutionObservability,
+  applyUsageSummaryToActiveSpan,
+  annotateSessionOnTaskSpan,
+  buildCopilotTelemetryOptions,
+  shouldPropagateCopilotTraceContext,
+  createCopilotTraceContextProvider,
 } from "@a2a-wrapper/core";
 import type {
   EventTransport,
@@ -138,6 +142,21 @@ export class CopilotExecutor implements AgentExecutor {
       if (this.config.copilot.githubToken) {
         clientOpts.gitHubToken = this.config.copilot.githubToken;
       }
+    }
+
+    // Hook F — Copilot CLI OTel exporter + parent-link into a2a.task.execute.
+    // `telemetry` only affects SDK-spawned CLI env (not external cliUrl servers).
+    const telemetry = buildCopilotTelemetryOptions(this.config.otel);
+    if (telemetry) {
+      clientOpts.telemetry = telemetry;
+      log.info("Copilot CLI OTel telemetry configured", {
+        otlpEndpoint: telemetry.otlpEndpoint,
+        exporterType: telemetry.exporterType,
+        externalCli: Boolean(this.config.copilot.cliUrl),
+      });
+    }
+    if (shouldPropagateCopilotTraceContext(this.config.otel)) {
+      clientOpts.onGetTraceContext = createCopilotTraceContextProvider();
     }
 
     this.client = new CopilotClient(clientOpts as any);
@@ -305,24 +324,12 @@ export class CopilotExecutor implements AgentExecutor {
     const { taskId, contextId, userMessage, task } = ctx;
     await this.initialize();
 
-    // Extract trace context from A2A request metadata (injected by orchestrator)
-    const traceCtx = this.extractTraceContext(ctx);
-    const agentId = this.config.agentCard.name.toLowerCase().replace(/\s+/g, "-");
-    const agentName = this.config.agentCard.name;
-
-    // Resolve event transport and create per-execution emitter
-    const transport = resolveTransport(
-      this.config.events,
+    const { emitter } = createExecutionObservability({
+      agentName: this.config.agentCard.name,
+      ctx,
       bus,
-      taskId,
-      contextId,
-      this.customTransport,
-    );
-    const emitter = new AgentEventEmitter({
-      agentId,
-      agentName,
-      traceId: traceCtx.traceId,
-      transport,
+      events: this.config.events,
+      customTransport: this.customTransport,
     });
 
     // Set MCP hooks context → trace artifacts flow via transport
@@ -348,6 +355,7 @@ export class CopilotExecutor implements AgentExecutor {
       // 3. Get or create Copilot session
       const { sessionId, session, isNew } = await this.sessionManager!.getOrCreate(contextId);
       this.sessionManager!.trackTask(taskId, sessionId, contextId);
+      annotateSessionOnTaskSpan({ reused: !isNew, sessionId });
 
       // 4. Build prompt
       let promptText = extractUserText(userMessage);
@@ -674,6 +682,10 @@ export class CopilotExecutor implements AgentExecutor {
       let usageSummary: UsageTelemetryData | undefined;
       try {
         usageSummary = accumulator.summary();
+        // OTel: task-span rollup only — never a second LLM span / token metric.
+        // When backend OTel is on, gen_ai.usage.* is omitted (policy) so Tempo
+        // SUMs of vendor LLM spans do not double-count with the parent.
+        applyUsageSummaryToActiveSpan(usageSummary);
       } catch (e) {
         log.warn("accumulator.summary() failed, omitting x-usage from final event", {
           taskId,
@@ -745,40 +757,4 @@ export class CopilotExecutor implements AgentExecutor {
     };
   }
 
-  /**
-   * Extract trace context propagated by the orchestrator via A2A metadata.
-   *
-   * The orchestrator injects { trace_id, parent_agent_id, propagated_metadata }
-   * into the A2A request configuration dict. The A2A JS SDK exposes these
-   * through the RequestContext or the Task object.
-   */
-  private extractTraceContext(ctx: RequestContext): {
-    traceId: string;
-    parentAgentId: string | null;
-    metadata: Record<string, unknown>;
-  } {
-    // Try multiple access paths — SDK version differences may place metadata differently
-    const raw = ctx as unknown as Record<string, unknown>;
-    const meta =
-      (raw.metadata as Record<string, unknown>) ||
-      ((raw.task as Record<string, unknown>)?.metadata as Record<string, unknown>) ||
-      ((raw.task as Record<string, unknown>)?.configuration as Record<string, unknown>) ||
-      {};
-
-    return {
-      traceId:
-        (meta.trace_id as string) ||
-        (meta.traceId as string) ||
-        ctx.contextId ||
-        uuidv4(),
-      parentAgentId:
-        (meta.parent_agent_id as string) ||
-        (meta.parentAgentId as string) ||
-        null,
-      metadata:
-        (meta.propagated_metadata as Record<string, unknown>) ||
-        (meta.propagatedMetadata as Record<string, unknown>) ||
-        {},
-    };
-  }
 }

@@ -63,6 +63,8 @@ import {
 
 import type { AgentCardConfig } from "../config/types.js";
 import type { EventTransport, EventTransportFn } from "../events/transport.js";
+import { instrumentExecutor } from "../telemetry/instrument.js";
+import type { OtelConfig } from "../telemetry/types.js";
 import { buildAgentCard, buildAgentCardForUrls, buildLegacyAgentCard } from "./agent-card.js";
 import type { BuildAgentCardInput } from "./agent-card.js";
 
@@ -103,31 +105,13 @@ function resolveAgentCardSigningFromConfig(
 // ─── A2AExecutor Interface ──────────────────────────────────────────────────
 
 /**
- * Minimal executor contract required by the server factory.
+ * Full executor contract used by the server factory and OTel instrumentation.
  *
- * Every wrapper project implements this interface with its backend-specific
- * logic (e.g. `CopilotExecutor`, `OpenCodeExecutor`). The server factory
- * calls {@link initialize} during startup and {@link shutdown} during
- * graceful teardown.
- *
- * The `execute` and `cancelTask` methods are inherited from the SDK's
- * `AgentExecutor` type and are invoked by {@link DefaultRequestHandler}
- * when processing A2A JSON-RPC / REST requests.
+ * Re-exported from {@link ../executor/types.js} so factory typing stays aligned
+ * with `execute` / `cancelTask` (required for Hook A span wrapping).
  */
-export interface A2AExecutor {
-  /**
-   * Perform asynchronous startup logic (e.g. connect to backend, register
-   * MCP servers, warm caches). Called once before the HTTP server begins
-   * accepting requests.
-   */
-  initialize(): Promise<void>;
-
-  /**
-   * Perform graceful cleanup (e.g. close backend connections, flush buffers).
-   * Called when the server is shutting down.
-   */
-  shutdown(): Promise<void>;
-}
+export type { A2AExecutor } from "../executor/types.js";
+import type { A2AExecutor } from "../executor/types.js";
 
 // ─── ServerOptions ──────────────────────────────────────────────────────────
 
@@ -205,6 +189,16 @@ export interface ServerOptions {
    * inside their `execute()` method to get the final transport for each request.
    */
   eventTransport?: EventTransport | EventTransportFn;
+
+  /**
+   * Wrapper package name for OTel resource/span attributes (e.g. `"a2a-copilot"`).
+   */
+  wrapperName?: string;
+
+  /**
+   * Wrapper package version for OTel attributes.
+   */
+  wrapperVersion?: string;
 }
 
 // ─── ServerHandle ───────────────────────────────────────────────────────────
@@ -318,7 +312,15 @@ export async function createA2AServer<T extends BuildAgentCardInput>(
   const protocolVersion = options?.protocolVersion ?? "1.0";
 
   // ── 1. Executor ─────────────────────────────────────────────────────────
-  const executor = executorFactory(config);
+  const rawExecutor = executorFactory(config);
+  const otelConfig = (config as { otel?: OtelConfig }).otel;
+  const executor = instrumentExecutor(rawExecutor, {
+    otel: otelConfig,
+    wrapperName: options?.wrapperName,
+    wrapperVersion: options?.wrapperVersion,
+    protocolVersion: options?.protocolVersion ?? "1.0",
+    agentName: config.agentCard.name,
+  });
   await executor.initialize();
 
   // ── 2. Agent card (static, used for request-handler-internal version

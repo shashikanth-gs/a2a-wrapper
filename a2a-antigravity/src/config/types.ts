@@ -11,6 +11,7 @@ import type {
   AgentCardConfig,
   EventsConfig,
   MemoryConfig,
+  OtelAntigravityConfig,
   SubAgentsConfig,
 } from "@a2a-wrapper/core";
 
@@ -181,6 +182,9 @@ export interface AgentConfig {
   events?: EventsConfig;
   memory?: MemoryConfig;
   subAgents?: SubAgentsConfig;
+  /** Optional OpenTelemetry settings (see docs/observability.md). */
+  /** Wrapper-level OTel only (no Hook F backend passthrough yet). */
+  otel?: OtelAntigravityConfig;
   /** Directory containing the loaded config file; set by CLI/loader. */
   configDir?: string;
 }

@@ -9,6 +9,7 @@ import type {
   AgentCardConfig,
   EventsConfig,
   MemoryConfig,
+  OtelClaudeConfig,
   SubAgentsConfig,
 } from "@a2a-wrapper/core";
 
@@ -287,6 +288,9 @@ export interface AgentConfig {
   events?: EventsConfig;
   memory?: MemoryConfig;
   subAgents?: SubAgentsConfig;
+  /** Optional OpenTelemetry settings (see docs/observability.md). */
+  /** Wrapper-level OTel + Claude Hook F only (`otel.backend.claude`). */
+  otel?: OtelClaudeConfig;
   /** Populated automatically by the CLI loader. Do not set manually. */
   configDir?: string;
 }

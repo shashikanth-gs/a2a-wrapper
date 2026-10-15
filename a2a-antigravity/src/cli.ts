@@ -6,7 +6,7 @@
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { Logger } from "@a2a-wrapper/core";
+import { Logger, bootstrapOtelSdkFromConfig, shutdownOtelSdk } from "@a2a-wrapper/core";
 import { resolveConfig } from "./config/loader.js";
 import type { AgentConfig, AntigravityConfig } from "./config/types.js";
 import { createA2AServer } from "./server/index.js";
@@ -211,6 +211,10 @@ async function main(): Promise<void> {
     authMode: config.antigravity.provider?.authMode ?? "sdkDefault",
   });
 
+  if (await bootstrapOtelSdkFromConfig(config.otel)) {
+    log.info("OpenTelemetry SDK bootstrapped from otel.exporter.endpoint");
+  }
+
   const handle = await createA2AServer(config);
   let shuttingDown = false;
 
@@ -220,6 +224,8 @@ async function main(): Promise<void> {
     log.info(`${signal} received, shutting down...`);
     try {
       await handle.shutdown();
+      await shutdownOtelSdk();
+      await new Promise((r) => setTimeout(r, 300));
     } catch (err) {
       log.error("Shutdown failed", { error: (err as Error).message, stack: (err as Error).stack });
       process.exit(1);

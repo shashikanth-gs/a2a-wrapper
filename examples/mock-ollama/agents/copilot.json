@@ -1,0 +1,45 @@
+{
+  "$comment": "Generic a2a-copilot agent pointing at mock-ollama (BYOK). No OTel required — add an otel block when needed.",
+  "agentCard": {
+    "name": "Mock Ollama Copilot Agent",
+    "description": "a2a-copilot against examples/mock-ollama (OpenAI-compatible). Useful for local cookouts without GitHub Copilot auth.",
+    "version": "1.0.0",
+    "protocolVersion": "0.3.0",
+    "streaming": true,
+    "defaultInputModes": ["text"],
+    "defaultOutputModes": ["text"],
+    "skills": []
+  },
+  "server": {
+    "port": 3101,
+    "hostname": "127.0.0.1",
+    "advertiseHost": "127.0.0.1",
+    "advertiseProtocol": "http"
+  },
+  "copilot": {
+    "model": "mock-ollama",
+    "streaming": true,
+    "systemPromptMode": "replace",
+    "systemPrompt": "Reply briefly. You are a local mock-ollama test agent.",
+    "workspaceDirectory": "/tmp/a2a-mock-ollama-copilot-ws",
+    "provider": {
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:11434/v1",
+      "apiKey": "ollama",
+      "wireApi": "responses"
+    }
+  },
+  "features": {
+    "streamArtifactChunks": false,
+    "trackUsage": true
+  },
+  "timeouts": {
+    "prompt": 60000
+  },
+  "logging": {
+    "level": "info"
+  },
+  "events": {
+    "enabled": false
+  }
+}

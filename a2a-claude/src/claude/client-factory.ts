@@ -8,6 +8,7 @@
 
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { Options } from "@anthropic-ai/claude-agent-sdk";
+import { buildClaudeOtelEnv } from "@a2a-wrapper/core";
 import type { AgentConfig, ClaudeThinkingConfig } from "../config/types.js";
 import { buildMcpServers } from "./mcp-adapter.js";
 
@@ -134,6 +135,10 @@ export function buildQueryOptions(
   const marketplaces = claude.marketplaces ?? {};
   const usesMarketplaces = Object.keys(marketplaces).length > 0;
 
+  const baseEnv = usesMarketplaces ? syncPluginInstallEnv() : undefined;
+  // Hook F — Claude Code subprocess OTel + TRACEPARENT from active task span.
+  const env = buildClaudeOtelEnv(config.otel, baseEnv);
+
   const opts: QueryOptionsLike = {
     cwd: claude.workingDirectory || undefined,
     model: claude.model || undefined,
@@ -152,7 +157,7 @@ export function buildQueryOptions(
           enabledPlugins: claude.enabledPlugins ?? {},
         }
       : undefined,
-    env: usesMarketplaces ? syncPluginInstallEnv() : undefined,
+    env,
     maxTurns: claude.maxTurns,
     maxBudgetUsd: claude.maxBudgetUsd,
     additionalDirectories:
