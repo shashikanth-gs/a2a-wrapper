@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { resolve, join } from "node:path";
+import { resolve, join, relative, sep } from "node:path";
 import { createHash } from "node:crypto";
 
 /**
@@ -235,7 +235,10 @@ describe("Test 2d — a2a-opencode Runtime Preservation", () => {
 
   it("a2a-opencode/src/ contains the expected set of .ts runtime files", () => {
     const tsFiles = collectTsFiles(opencodeSrcDir);
-    const relativePaths = tsFiles.map((f) => f.replace(opencodeSrcDir + "/", ""));
+    // Normalize separators so the snapshot is identical on Windows, macOS and Linux.
+    const relativePaths = tsFiles
+      .map((f) => relative(opencodeSrcDir, f).split(sep).join("/"))
+      .sort();
 
     // Snapshot: these are the .ts files that exist in the unfixed code
     // Note: post-release additions like __tests__/sub-agents.test.ts (added
@@ -248,17 +251,29 @@ describe("Test 2d — a2a-opencode Runtime Preservation", () => {
     // agent-card.ts), consolidating server bootstrap onto core's
     // `createA2AServer`. This is an intended removal, not the accidental
     // regression this test otherwise guards against.
+    // OpenCode 2.x support (#60) intentionally adds the backend interface + factory, the 2.x
+    // client, a Node 20 polyfill, and their tests. That is a deliberate extension, not the
+    // accidental regression this test otherwise guards against.
     expect(relativePaths).toEqual([
+      "__tests__/backend-factory.test.ts",
+      "__tests__/client-v2.test.ts",
       "__tests__/config-schema.test.ts",
+      "__tests__/env-overrides.test.ts",
+      "__tests__/live-server.test.ts",
+      "__tests__/polyfills.test.ts",
       "__tests__/schema-up-to-date.test.ts",
       "__tests__/smoke.test.ts",
       "__tests__/sub-agents.test.ts",
+      "__tests__/v2-detection.test.ts",
       "cli.ts",
       "config/defaults.ts",
       "config/index.ts",
       "config/loader.ts",
       "config/types.ts",
       "index.ts",
+      "opencode/backend-factory.ts",
+      "opencode/backend.ts",
+      "opencode/client-v2.ts",
       "opencode/client.ts",
       "opencode/event-stream.ts",
       "opencode/executor.ts",
@@ -270,6 +285,7 @@ describe("Test 2d — a2a-opencode Runtime Preservation", () => {
       "server/index.ts",
       "utils/deferred.ts",
       "utils/logger.ts",
+      "utils/polyfills.ts",
     ]);
   });
 
@@ -277,7 +293,7 @@ describe("Test 2d — a2a-opencode Runtime Preservation", () => {
     const tsFiles = collectTsFiles(opencodeSrcDir);
     const hashMap: Record<string, string> = {};
     for (const f of tsFiles) {
-      const rel = f.replace(opencodeSrcDir + "/", "");
+      const rel = relative(opencodeSrcDir, f).split(sep).join("/");
       hashMap[rel] = hashFile(f);
     }
 
@@ -287,6 +303,6 @@ describe("Test 2d — a2a-opencode Runtime Preservation", () => {
     }
 
     // Verify the number of files matches our expected count
-    expect(Object.keys(hashMap)).toHaveLength(21);
+    expect(Object.keys(hashMap)).toHaveLength(31);
   });
 });

@@ -18,6 +18,10 @@
 #   ./start.sh logs opencode  — Tail the OpenCode subprocess log only
 #   ./start.sh logs a2a       — Tail the A2A server log only
 #   ./start.sh foreground     — Run in the foreground (useful for debugging)
+#
+# OpenCode 2.x needs its server password. Export it before starting so both the
+# OpenCode server and the wrapper pick it up:
+#   export OPENCODE_SERVER_PASSWORD=change-me
 ###############################################################################
 
 set -euo pipefail

@@ -86,10 +86,15 @@ export function loadEnvOverrides(): Partial<AgentConfig> {
   // OpenCode
   const baseUrl = process.env["OPENCODE_URL"];
   const directory = process.env["DIRECTORY"];
-  const model = process.env["MODEL"];
+  // MODEL is the long-standing name; OPENCODE_MODEL is accepted as an alias (it is what .env.example documents).
+  const model = process.env["MODEL"] || process.env["OPENCODE_MODEL"];
   const agent = process.env["OPENCODE_AGENT"];
-  if (baseUrl || directory || model || agent) {
+  const apiVersion = process.env["OPENCODE_API_VERSION"];
+  const password = process.env["OPENCODE_SERVER_PASSWORD"];
+  if (baseUrl || directory || model || agent || apiVersion || password) {
     cfg.opencode = {};
+    if (apiVersion === "auto" || apiVersion === "1" || apiVersion === "2") cfg.opencode.apiVersion = apiVersion;
+    if (password) cfg.opencode.password = password;
     if (baseUrl) cfg.opencode.baseUrl = baseUrl;
     if (directory) cfg.opencode.projectDirectory = directory;
     if (model) cfg.opencode.model = model;

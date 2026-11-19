@@ -47,6 +47,7 @@
 
   "opencode": {
     "baseUrl": "http://localhost:4096",
+    "apiVersion": "auto",
     "model": "github-copilot/claude-sonnet-4.5",
     "agent": "general",
     "systemPromptMode": "replace",

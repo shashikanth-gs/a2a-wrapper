@@ -15,7 +15,10 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { AgentConfig, McpLocalServerConfig } from "../config/types.js";
-import { OpenCodeClientWrapper } from "./client.js";
+import type { OpenCodeBackend } from "./backend.js";
+import { OpenCodeAuthError } from "./backend.js";
+import { OpenCodeVersionError } from "./client.js";
+import { createBackend } from "./backend-factory.js";
 import { EventStreamManager } from "./event-stream.js";
 import { PermissionHandler } from "./permission-handler.js";
 import { SessionManager } from "./session-manager.js";
@@ -38,7 +41,7 @@ import type {
   BackendPaths,
   SynthesizedMcpDescriptor,
 } from "@a2a-wrapper/core";
-import type { OpenCodeEvent, Part as OpenCodePart, SessionStatus } from "./types.js";
+import type { OpenCodeEvent, Part as OpenCodePart } from "./types.js";
 import { createDeferred, sleep } from "../utils/deferred.js";
 import { logger } from "../utils/logger.js";
 
@@ -79,7 +82,7 @@ function truncate(data: unknown): unknown {
 
 export class OpenCodeExecutor implements AgentExecutor {
   private readonly config: Required<AgentConfig>;
-  private client: OpenCodeClientWrapper | null = null;
+  private client: OpenCodeBackend | null = null;
   private permissionHandler: PermissionHandler | null = null;
   private sessionManager: SessionManager | null = null;
   private initialized = false;
@@ -129,17 +132,22 @@ export class OpenCodeExecutor implements AgentExecutor {
     }
 
     const oc = this.config.opencode;
-    this.client = new OpenCodeClientWrapper({
+    this.client = await createBackend({
       baseUrl: oc.baseUrl!,
+      apiVersion: oc.apiVersion,
       defaultDirectory: oc.projectDirectory || undefined,
+      username: oc.username,
+      password: oc.password || process.env["OPENCODE_SERVER_PASSWORD"] || undefined,
       healthCheckInterval: this.config.timeouts.healthCheck ?? 30_000,
     });
 
     // Health check
     try {
       const h = await this.client.health();
-      log.info("OpenCode healthy", { version: h.version });
+      log.info("OpenCode healthy", { version: h.version, api: this.client.kind });
     } catch (e) {
+      // Misconfiguration (wrong API generation, missing/wrong password): fail fast with a clear message.
+      if (e instanceof OpenCodeVersionError || e instanceof OpenCodeAuthError) throw e;
       log.warn("Initial health check failed", { error: (e as Error).message });
     }
 
@@ -199,6 +207,7 @@ export class OpenCodeExecutor implements AgentExecutor {
       this.config.session as Required<typeof this.config.session>,
       this.config.features as Required<typeof this.config.features>,
       oc.projectDirectory ?? "",
+      this.sessionDefaults(),
     );
     this.sessionManager.startCleanup();
 
@@ -235,6 +244,7 @@ export class OpenCodeExecutor implements AgentExecutor {
     // Create a dedicated session for context building
     const session = await this.client!.sessionCreate(dir, {
       title: "Context Build",
+      ...this.sessionDefaults(),
       permission: [
         { permission: "read",  pattern: "*", action: "allow" },
         { permission: "edit",  pattern: "*", action: "allow" },
@@ -293,9 +303,7 @@ export class OpenCodeExecutor implements AgentExecutor {
         await sleep(this.config.timeouts.pollingInterval ?? 2_000);
         await this.permissionHandler!.handlePending(dir);
         try {
-          const statuses = await this.client!.sessionStatus(dir);
-          const st = statuses[session.id];
-          if (st && (st as Record<string, unknown>).type === "idle") break;
+          if (await this.client!.sessionIdle(session.id, dir)) break;
         } catch { /* continue polling */ }
       }
     } else {
@@ -637,9 +645,7 @@ export class OpenCodeExecutor implements AgentExecutor {
       await this.permissionHandler!.handlePending(dir);
 
       try {
-        const statuses = await this.client!.sessionStatus(dir);
-        const st: SessionStatus | undefined = statuses[sessionId];
-        if (st && (st as Record<string, unknown>).type === "idle") {
+        if (await this.client!.sessionIdle(sessionId, dir)) {
           const msgs = await this.client!.sessionMessages(sessionId, dir);
           return this.extractResponseText(msgs);
         }
@@ -699,6 +705,22 @@ export class OpenCodeExecutor implements AgentExecutor {
     };
   }
 
+  /** Parse "provider/model" into the structured form OpenCode expects. */
+  private parseModel(): { providerID: string; modelID: string } | undefined {
+    const m = this.config.opencode.model;
+    if (!m) return undefined;
+    const [provider, ...rest] = m.split("/");
+    return { providerID: provider, modelID: rest.join("/") };
+  }
+
+  /** Model/agent applied at session creation (OpenCode 2.x) — 1.x also receives them per prompt. */
+  private sessionDefaults(): { model?: { providerID: string; modelID: string }; agent?: string } {
+    return {
+      ...(this.parseModel() ? { model: this.parseModel() } : {}),
+      ...(this.config.opencode.agent ? { agent: this.config.opencode.agent } : {}),
+    };
+  }
+
   private buildPromptBody(text: string) {
     const body: {
       parts: Array<{ type: "text"; text: string }>;
@@ -706,10 +728,8 @@ export class OpenCodeExecutor implements AgentExecutor {
       agent?: string;
     } = { parts: [{ type: "text", text }] };
 
-    if (this.config.opencode.model) {
-      const [provider, ...rest] = this.config.opencode.model.split("/");
-      body.model = { providerID: provider, modelID: rest.join("/") };
-    }
+    const model = this.parseModel();
+    if (model) body.model = model;
     if (this.config.opencode.agent) {
       body.agent = this.config.opencode.agent;
     }

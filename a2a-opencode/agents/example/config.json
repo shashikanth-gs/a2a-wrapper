@@ -56,6 +56,9 @@
       "Controls how the wrapper connects to OpenCode.",
       "",
       "baseUrl         — URL of the running OpenCode server process.",
+      "apiVersion      — 'auto' (default) detects whether the server is OpenCode 1.x or 2.x;",
+      "                  set '1' or '2' to force one. OpenCode 2.x also requires its server",
+      "                  password: export OPENCODE_SERVER_PASSWORD (do not put it in this file).",
       "model           — The LLM provider/model string OpenCode accepts.",
       "                  Examples: 'github-copilot/gpt-4o', 'anthropic/claude-3-5-sonnet',",
       "                  'openai/gpt-4o'",
@@ -65,6 +68,7 @@
       "  'append'      — Your prompt is injected as-is before the first user message."
     ],
     "baseUrl": "http://localhost:4097",
+    "apiVersion": "auto",
     "projectDirectory": "/Users/gss/Views/open-code-projects/mcp-test",
     "model": "github-copilot/claude-sonnet-4.5",
     "agent": "general",

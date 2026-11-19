@@ -8,11 +8,14 @@
  *  - Graceful disconnect
  */
 
-import type { OpenCodeClientWrapper } from "./client.js";
+import type { OpenCodeBackend, EventStreamHandle } from "./backend.js";
 import type { OpenCodeEvent } from "./types.js";
 import { logger } from "../utils/logger.js";
 
 const log = logger.child("event-stream");
+
+const sleepMs = (ms: number): Promise<void> =>
+  new Promise((resolve) => { const t = setTimeout(resolve, ms); t.unref?.(); });
 
 // ─── Config ─────────────────────────────────────────────────────────────────
 
@@ -34,7 +37,7 @@ export type EventHandler = (event: OpenCodeEvent) => void | Promise<void>;
 // ─── Manager ────────────────────────────────────────────────────────────────
 
 export class EventStreamManager {
-  private readonly client: OpenCodeClientWrapper;
+  private readonly client: OpenCodeBackend;
   private readonly opts: Required<EventStreamOptions>;
   private readonly rcfg: Required<ReconnectConfig>;
   private handlers = new Map<string, Set<EventHandler>>();
@@ -43,8 +46,11 @@ export class EventStreamManager {
   private abortCtl: AbortController | null = null;
   private failures = 0;
   private consumePromise: Promise<void> | null = null;
+  private currentHandle: EventStreamHandle | null = null;
+  private ready: Promise<void> = Promise.resolve();
+  private markReady: () => void = () => {};
 
-  constructor(client: OpenCodeClientWrapper, opts?: EventStreamOptions) {
+  constructor(client: OpenCodeBackend, opts?: EventStreamOptions) {
     this.client = client;
     this.opts = {
       sessionFilter: opts?.sessionFilter ?? "",
@@ -89,13 +95,21 @@ export class EventStreamManager {
     this.running = true;
     this.abortCtl = new AbortController();
     this.failures = 0;
+    this.ready = new Promise<void>((resolve) => { this.markReady = resolve; });
     this.consumePromise = this.consumeLoop();
     log.info("Connecting", { session: this.opts.sessionFilter || "(all)" });
+    // Wait (briefly) for the subscription to be live so a prompt sent right
+    // after connect() cannot finish before we are listening. Never throws:
+    // failures are retried by the consume loop.
+    await Promise.race([this.ready, sleepMs(5_000)]);
   }
 
   disconnect(): void {
     if (!this.running) return;
     this.running = false;
+    try { this.currentHandle?.abort(); } catch { /* ignore */ }
+    this.currentHandle = null;
+    this.markReady();
     this.abortCtl?.abort();
     this.abortCtl = null;
     log.info("Disconnected");
@@ -129,7 +143,9 @@ export class EventStreamManager {
 
   private async consumeOnce(): Promise<void> {
     const handle = await this.client.subscribeEvents(this.opts.directory || undefined);
+    this.currentHandle = handle;
     this.failures = 0;
+    this.markReady();
     try {
       for await (const raw of handle.stream) {
         if (!this.running) break;

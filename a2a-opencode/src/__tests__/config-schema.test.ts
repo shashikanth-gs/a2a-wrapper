@@ -67,6 +67,16 @@ describe("AgentConfig JSON schema", () => {
     expect(validate.errors).toBeDefined();
   });
 
+  it.each(["auto", "1", "2"])("accepts opencode.apiVersion %s", (apiVersion) => {
+    const cfg = { agentCard: { name: "Test", description: "x" }, opencode: { apiVersion, password: "pw", username: "opencode" } };
+    expect(validate(cfg), JSON.stringify(validate.errors)).toBe(true);
+  });
+
+  it("rejects an invalid opencode.apiVersion", () => {
+    const cfg = { agentCard: { name: "Test", description: "x" }, opencode: { apiVersion: "3" } };
+    expect(validate(cfg)).toBe(false);
+  });
+
   it("rejects an unknown top-level field", () => {
     const cfg = {
       agentCard: { name: "Test", description: "x" },
