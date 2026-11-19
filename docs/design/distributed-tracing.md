@@ -23,12 +23,12 @@ Today the wrappers do not join a caller's trace: an inbound `traceparent` is nev
 | # | Decision | Why (short) |
 |---|---|---|
 | **D1** | **W3C Trace Context is the interoperability contract.** Read it from HTTP headers first, then from message metadata, then fall back to today's legacy ids. | It is the only mechanism all three backends and every OTel-instrumented caller share. The A2A spec only *recommends* it ([R18]), and the A2A semantic conventions explicitly left propagation out of scope ([R10]), so we must accept more than one carrier. |
-| **D2** | **Inbound policy `parent \| link \| ignore`**, default `parent` when OTel is enabled, with strict header validation. | Parenting is what produces a connected graph; `link` and `ignore` exist because these endpoints are unauthenticated by default and W3C/OTel warn about untrusted inbound context ([R27], [R28], [R29]). |
-| **D3** | The request span becomes **`SERVER` kind**; span *names* stay as today by default, with an opt-in `semconv` naming mode. | Tempo's service graph needs CLIENT/SERVER pairs ([R20]). Renaming spans would silently break existing dashboards, so it is opt-in first. |
+| **D2** | **Configurable inbound policy `continue \| restart \| ignore`** (the vocabulary Elastic and Datadog use), default `continue`, plus optional **trusted peers**: callers outside a CIDR list are downgraded to `restart`. | Parenting is what produces a connected graph. Every surveyed product defaults to continuing the trace but exposes the choice, because unauthenticated endpoints let callers choose trace ids and sampling ([R27], [R28], [R29], [R30], [R31]). Analysis: 9.1.1. |
+| **D3** | The request span becomes **`SERVER` kind** when we own the server side, and **nests** (INTERNAL) under an existing HTTP server span when the host has HTTP instrumentation (`otel.span.server: auto`). Span *names* stay as today by default, with an opt-in `semconv` naming mode. | Tempo's service graph needs CLIENT/SERVER pairs ([R20]). Measured: an always-extract design creates a duplicate SERVER span next to HTTP auto-instrumentation (Appendix A). Renaming spans would silently break existing dashboards, so it is opt-in. |
 | **D4** | Context reaches sub-agents through **MCP `_meta.traceparent`** (SEP-414, Final) first. A per-session bridge is a fallback only if the spike shows backends do not forward context. Needs a companion change in `a2a-mcp-skillmap`. | Backends call MCP tools with no per-request context; the standard answer is `_meta` ([R14], [R15]). |
 | **D5** | Sideband events carry the **real W3C trace and span id**, plus `propagatedMetadata`; add `eventId`/`parentAgentId` to the A2A artifact; add `events.transport: "both"`; substitute `${VAR}` in event headers and exporter headers. | Today `AgentEvent.traceId` is the orchestrator's id or the `contextId`, so sideband events cannot be joined to our own spans [code]. |
 | **D6** | **Platform "graph" views via opt-in compat attributes** (`langfuse.*`, `openinference.*`), not by changing the standard attributes. | Langfuse and Phoenix key their agent views on their own attributes; Phoenix says `gen_ai.*` spans "won't get the same UI treatment" ([R22]). |
-| **D7** | **No wrapper-emitted metrics in the baseline.** Tempo derives RED metrics from spans; Langfuse and Phoenix derive from traces. Re-decide after the Grafana dashboard spike (P0-S5). | Grafana Cloud's AI dashboards are metrics-driven, but their required names are undocumented ([R21]). |
+| **D7** | **No wrapper-emitted metrics by default.** `otel.metrics.profile` (`none`, `genai-semconv`, `grafana-agent`) is reserved for opt-in later. | Verified in Grafana's dashboard definitions: **every** AI dashboard is Prometheus/Loki-driven (none works from traces alone) and the agent panels use OpenLIT vendor metric names ([R33], [R34]). Tempo, Langfuse and Phoenix derive what they need from spans. Analysis: 9.1.3. |
 | **D8** | We do **not** implement LangSmith-style or ADK-style proprietary propagation. Outside agents are supported through W3C `traceparent` (header or metadata). | LangSmith's distributed tracing uses its own headers and does not document W3C ([R25]); ADK's code shows no A2A propagation at all ([R24]). |
 
 ---
@@ -175,7 +175,7 @@ All GenAI/A2A/MCP conventions are **Development** (not stable) and moved to the 
 **What this means for "everything is possible":**
 
 - We cannot rely on outside callers sending `traceparent` by themselves; many will not unless their HTTP client is auto-instrumented or the operator adds an interceptor. Our job is to **accept every reasonable carrier** and to **document** exactly how a caller can provide it.
-- We cannot assume an outside system exports to the same backend as us (Krama may have no backend). A remote parent that is never exported leaves our span with a missing parent in some backends (LangSmith drops it; Langfuse is undocumented). That is the reason for the `link` policy and the spike P0-S4.
+- We cannot assume an outside system exports to the same backend as us (Krama may have no backend). A remote parent that is never exported leaves our span with a missing parent in some backends (LangSmith drops it; Langfuse is undocumented). That is the reason for the `restart` policy and the spike P0-S4.
 
 ---
 
@@ -194,7 +194,7 @@ S7  our agent ─▶ event collector (HTTP sideband, e.g. Krama)
 | # | We **consume** | We **send** | Bare minimum | Notes |
 |---|---|---|---|---|
 | **S1** | Same as S2 (the callee is one of ours). | The caller's tool span → skillmap's A2A **CLIENT** span → callee's **SERVER** span, one trace. Requires skillmap to receive context (`_meta.traceparent`) and inject `traceparent` into its A2A HTTP request. | Callee reads `traceparent` (P1). Caller side needs the companion skillmap change and a backend that forwards context (P4). | Without P4, S1 degrades to today's behaviour (separate traces, linked by attributes). |
-| **S2** | `traceparent`/`tracestate` from HTTP headers; remote parent for `a2a.task.execute`. | n/a | P1. | Default policy `parent`. |
+| **S2** | `traceparent`/`tracestate` from HTTP headers; remote parent for `a2a.task.execute`. | n/a | P1. | Default policy `continue`. |
 | **S3** | Metadata `traceparent`/`tracestate` if present; else legacy `trace_id`/`parent_agent_id`/`propagated_metadata` as **attributes and event stamps**, **no parent** (cannot form a valid parent from an arbitrary id). | n/a | Legacy path stays; add event stamping (P2). | This is today's Krama case; it still works and now also stamps `propagatedMetadata` on events. |
 | **S4** | LangSmith headers are **not parsed**. A `baggage` header is ignored unless allow-listed. | n/a | Document the supported carriers; callers can add `traceparent` (LangSmith users can pair it with an OTel propagator). | Keeps scope bounded (D8). |
 | **S5** | n/a | `traceparent` injected on our **outgoing A2A HTTP** requests (inside skillmap) so an ADK/LangGraph server that *does* extract context can join. | Companion skillmap change (P4). | Whether the outside server extracts is its choice; ADK's server code read has no extraction. |
@@ -210,7 +210,7 @@ S7  our agent ─▶ event collector (HTTP sideband, e.g. Krama)
 1. **Standard first.** W3C context and the OTel GenAI/A2A shapes are the contract; vendor attributes are an opt-in layer.
 2. **One server span per request.** No "span factory". Extra spans only where a standard demands a boundary (the A2A CLIENT span lives in skillmap).
 3. **Additive and reversible.** New behaviour is configurable; defaults preserve existing dashboards except where a change is clearly a fix (span kind, inbound parenting).
-4. **Safe at a trust boundary.** Validate strictly, cap sizes, make `link`/`ignore` available, never copy arbitrary baggage into attributes.
+4. **Safe at a trust boundary.** Validate strictly, cap sizes, make `restart`/`ignore` available, never copy arbitrary baggage into attributes.
 5. **Do not duplicate backend spans.** Existing ownership rules (wrapper vs backend) are unchanged.
 6. **Do not guess.** Where a backend's behaviour is undocumented, ship a spike before shipping behaviour.
 
@@ -218,7 +218,8 @@ S7  our agent ─▶ event collector (HTTP sideband, e.g. Krama)
 
 ```
 resolveInbound(ctx):
-  headers = ctx.context.state.get("headers")         # raw HTTP headers (A2A SDK default context builder)
+  headers = ctx.context.state.get("headers")         # raw HTTP headers (A2A SDK default context builder);
+                                                     # verified for JSON-RPC blocking AND streaming (Appendix A)
   meta    = merged request/message/task metadata    # as today (collectMetadata)
 
   candidate = first valid of:
@@ -228,10 +229,12 @@ resolveInbound(ctx):
             v00 length == 55; tracestate: <= 32 members and <= 512 chars, else dropped
   if headers and meta both valid and different: header wins (log at debug)
 
-  policy = otel.propagation.inbound            # parent | link | ignore (default: parent)
-  parent  -> context = propagation.extract(carrier)          # remote parent (IsRemote=true)
-  link    -> new root span + Link(candidate)                 # trusted-boundary pattern
-  ignore  -> new root span, candidate discarded
+  policy = effectivePolicy(request)            # section 8.3: otel.propagation.inbound, downgraded for untrusted peers
+  server = otel.span.server                    # section 8.4: auto | own | nest decides whether we extract at all
+
+  continue -> remote parent (IsRemote=true); sampling follows the host SDK's parent-based sampler
+  restart  -> NEW trace; Link(candidate) added; sampling decided locally (root decision of the host sampler)
+  ignore   -> NEW trace; candidate discarded; no link
 
   legacy ids (trace_id, parent_agent_id, propagated_metadata, conversation_id, session_id, gateway.*):
      always read as today -> attributes + event stamps. They never become a parent.
@@ -239,32 +242,80 @@ resolveInbound(ctx):
 
 Notes:
 
-- **Sampling is not ours to decide.** The host SDK's sampler applies (`parentbased_always_on` by default: an inbound `sampled=0` drops our spans, which keeps a caller's sampling decision consistent across hops).
+- **`restart` and `ignore` have the same meaning as in Datadog (`DD_TRACE_PROPAGATION_BEHAVIOR_EXTRACT=restart|ignore`) and Elastic (`trace_continuation_strategy=restart`)**: `restart` starts a new trace and keeps a span link to the caller; `ignore` drops the caller's context entirely ([R30], [R31]).
+- **Sampling is not ours to decide.** With `continue`, the host SDK's sampler applies (`parentbased_always_on` by default: an inbound `sampled=0` drops our spans, which keeps a caller's sampling decision consistent across hops; the flip side is that a caller can also switch our tracing off for its requests).
 - If OTel is disabled or `@opentelemetry/api` is absent, this is a no-op, as today.
-- Duplicate carriers: `tracestate` is propagated unmodified when the parent is used (W3C: "MUST NOT" modify tracestate if traceparent is unchanged).
+- When the parent is used, `tracestate` is propagated unmodified (W3C: it MUST NOT be modified if `traceparent` is unchanged).
 
-### 8.3 Trust policy
+### 8.3 Inbound trust policy (configurable)
 
-| Policy | Behaviour | Use when |
-|---|---|---|
-| `parent` (default when `otel.enabled`) | Join the caller's trace. | Agents inside one trust domain (the normal multi-agent case). |
-| `link` | Start a new trace; add the inbound context as a span **link**. | The agent is reachable from untrusted callers, or callers do not export to the same backend (avoids "missing parent" in backends that drop orphans). |
-| `ignore` | Ignore inbound context entirely. | Public, unauthenticated endpoint; or to preserve today's behaviour. |
+Every other tracing product that was checked exposes this as an operator setting, with `continue` as the default. Nobody enforces a trust boundary for you ([R30], [R31], [R32]).
 
-Rationale for the default: it is the only setting that produces the connected graph (the goal), OTel's default behaviour is to continue the trace, and `otel.enabled` is already an explicit opt-in. W3C §7.2 and OTel both caution about public endpoints; our docs must say plainly that **unauthenticated + `parent` lets any caller choose your trace id and sampling flag** and recommend `link` or `ignore` there. *This default is the first open question (Q1).*
+| Product | Setting | Values | Default | Notes |
+|---|---|---|---|---|
+| Elastic APM (Java) | `trace_continuation_strategy` | `continue`, `restart`, `restart_external` | `continue` | `restart` = new trace id, local sampling, span link to the caller. `restart_external` treats a caller as internal only if its `tracestate` carries Elastic's `es` key (the docs do not say whether a caller can forge it). Rationale given: a public service "does not want tracing data (trace-ids, sampling decisions) to possibly be spoofed by user requests". |
+| Datadog (Java) | `DD_TRACE_PROPAGATION_BEHAVIOR_EXTRACT` | `continue`, `restart`, `ignore` | `continue` | `restart` = new trace, caller context kept as a span link on service-entry spans. `ignore` = new trace, headers dropped. No internal/external classifier. |
+| AWS X-Ray | none | n/a | n/a | Docs tell the operator to strip `X-Amzn-Trace-Id` at the edge. |
+| Envoy | none for `traceparent` | n/a | n/a | Its header-sanitizing list does **not** include `traceparent`/`tracestate`; classifying callers as internal or external uses the connection address (`xff_trusted_cidrs`, `use_remote_address`). |
+| OTel SDK (Java, JS) | none | n/a | n/a | No "ignore remote parent" option; the spec's answer is to not extract, or to start a root span and add a link. |
+
+**What each option gives you**
+
+| Option | You get | You risk | Suits |
+|---|---|---|---|
+| **`continue`** (default) | One connected trace and graph across hops: Tempo service graph pairs, Langfuse/Phoenix nesting, cross-agent attribution. Same default as Elastic and Datadog. | The caller chooses your trace id and sampling flag. On an **unauthenticated** endpoint (ours is, by default) that allows trace-id spoofing, injecting spans into someone else's trace, and flooding or silencing your tracing. | Agents inside one trust domain: a private network, a service mesh, an orchestrator you operate (Krama), local development. |
+| **`restart`** | A new trace per request with a **span link** back to the caller. Safe: sampling is decided locally, trace ids are yours. Links show in Tempo/Jaeger; sampling and storage cost stay under your control. | No parent/child edge, so Tempo's service graph and Langfuse/Phoenix agent graphs do **not** connect across hops (links are not rendered as graph edges in the docs read; Langfuse and Phoenix link handling is unverified). | Agents reachable from partly trusted callers, or callers whose traces never reach your backend (avoids orphaned parents in backends that drop them, e.g. LangSmith). |
+| **`ignore`** | Strongest isolation: caller context is discarded, no link. Behaviour identical to today's. | You lose caller correlation except for the legacy attributes (`a2a.orchestrator.trace_id`, `parent_agent_id`). | Public, unauthenticated endpoints; strict compliance environments; "keep today's behaviour". |
+
+**Trusted peers (optional refinement).** To get the connected graph from known callers and safety from everyone else:
+
+- `otel.propagation.trustedPeers`: list of CIDRs (empty = every caller is trusted, i.e. the plain option above).
+- `otel.propagation.untrusted`: policy applied to callers **outside** that list: `restart` (default) or `ignore`.
+
+How a caller is classified: the SDK's context builder receives only request headers, **not** the socket address (verified in the SDK's `ServerCallContextBuilderOptions`). Core therefore adds a small Express middleware, ahead of the A2A handlers, that **overwrites** an internal header (for example `x-a2a-peer`) with `req.ip` before the context is built. A client-supplied value is always overwritten, so it cannot be spoofed. `req.ip` honours Express's `trust proxy` setting, so behind a gateway the operator must configure that (documented), otherwise every caller appears to be the gateway.
+
+We deliberately do **not** copy Elastic's `restart_external` (classification by a `tracestate` key): it is client-controlled, and most outside callers (LangGraph, ADK, custom orchestrators) set no vendor key, so they would all be restarted.
+
+**Presets**
+
+| Deployment | Settings |
+|---|---|
+| Local development, a single trust domain, Krama-style internal orchestrator | defaults (`inbound: "continue"`) |
+| Behind an API gateway you control | `inbound: "continue"`, `trustedPeers: ["<gateway CIDR>"]`, `untrusted: "restart"`; set Express `trust proxy` |
+| Public endpoint, callers not trusted | `inbound: "restart"` (keeps a link) or `"ignore"` |
+| Exact legacy behaviour | `inbound: "ignore"` |
 
 ### 8.4 Span model
 
 | Property | Today | Proposed |
 |---|---|---|
-| Parent | active context | inbound remote parent per 8.2 |
-| Kind | unset (INTERNAL) | **SERVER** |
+| Parent | active context | per 8.2 / 8.3 / the `serverSpan` mode below |
+| Kind | unset (INTERNAL) | **SERVER** when we own the server-side span; INTERNAL when we nest under an existing server span |
 | Name | `a2a.task.execute` / `a2a.task.cancel` | unchanged by default; `otel.spanNaming: "semconv"` → `invoke_agent {gen_ai.agent.name}` |
 | `a2a.method.name` | `message/send` | map to A2A v1 names (`SendMessage`, `SendStreamingMessage`, `CancelTask`) per [R10]; keep the old value in `a2a.method.legacy_name` for one release |
 | Status | exception → ERROR | unchanged; plus ERROR on `failed` terminal task state |
-| Links | prior attempt (`a2a.task.link_reason`) | unchanged; plus inbound link under `link` policy |
+| Links | prior attempt (`a2a.task.link_reason`) | unchanged; plus the inbound link under `restart` |
 
-Why one span and not the spec-pure two (SERVER `SendMessage` → INTERNAL `invoke_agent`): it keeps the repo's "one request, one span" rule, gives Tempo its SERVER half, and gives Langfuse/Phoenix an agent-typed span. The two-span form is recorded as a Tier 2 option (section 9) if backends or the spec require it.
+#### Server-span handling: `otel.span.server` = `auto` | `own` | `nest`
+
+Two real deployments exist, and they need different behaviour. It was measured, not assumed (Appendix A):
+
+| Deployment | What the executor sees | Result today |
+|---|---|---|
+| **No HTTP instrumentation** (what the wrapper CLI bootstraps) | No ambient span. `traceparent` is in `ctx.context.state.get("headers")`. | Our `a2a.task.execute` is a **root span in a new trace**: the break described in 2.3. |
+| **HTTP auto-instrumentation on the host** (e.g. `@opentelemetry/auto-instrumentations-node`) | An ambient, recording **SERVER** span (`POST`) that already extracted the caller's context. | Our span is its **child**: the graph is already connected, no work needed. |
+
+If we always extracted and created our own SERVER span, the second deployment would get **two SERVER spans for one request**, both children of the caller's span (measured). That duplicates service-graph edges and span-metric counts. The A2A conventions tell instrumentation to "enrich the HTTP server span … instead of reporting a nested server span" when it can detect one ([R10]); the spec defines no detection mechanism, so ours is:
+
+| Mode | Behaviour | You get | You give up | Suits |
+|---|---|---|---|---|
+| **`auto`** (default) | If the active span is **recording** and its **SDK kind is SERVER**, nest: our span is an INTERNAL child and we do **not** extract (the HTTP instrumentation already did). Otherwise act as `own`. | Correct in both deployments with no setting; no duplicate SERVER spans. | Detection relies on the SDK span's `kind` (the API `Span` exposes none); an unsampled ambient span cannot be inspected and is treated as "no ambient span". | Almost everyone. |
+| **`own`** | Always extract (per policy) and create our own SERVER span. | Deterministic. Our span is the single server-side span if the host has no HTTP instrumentation. | Duplicate SERVER spans next to HTTP auto-instrumentation. | Hosts without HTTP instrumentation that want certainty; hosts that deliberately disable it. |
+| **`nest`** | Never extract; always a child of the active context; INTERNAL kind (today's behaviour). | Host owns propagation entirely; zero behaviour change. | No cross-agent join unless the host instruments HTTP. | Hosts with their own propagation layer. |
+
+Optional `otel.span.enrichServerSpan` (default **false**): in `auto`-nest, also add `a2a.*` attributes to the existing HTTP server span (and, only if enabled, rename it to `{a2a.method.name}` as the A2A convention suggests). It is off by default because mutating another instrumentation's span is invasive.
+
+Why one span and not the spec-pure two (SERVER `SendMessage` → INTERNAL `invoke_agent`): it keeps the repo's "one request, one span" rule, gives Tempo its SERVER half, and gives Langfuse/Phoenix an agent-typed span. The two-span form stays a Tier 2 option (section 9).
 
 ### 8.5 Compat attributes (opt-in)
 
@@ -318,18 +369,56 @@ Decision tree (to be settled by spike P0-S2):
 
 ### 8.9 Configuration surface
 
+Every behaviour that has more than one sensible answer is a setting, so the same build serves a laptop, an internal mesh, a gateway-fronted deployment and a public endpoint. Precedence follows the existing loader order: **defaults ← JSON file ← environment ← CLI flags**. Every JSON path below has an environment variable; the CLI flags mirror the ones that already exist for other settings (added where a flag is useful).
+
+| JSON path | Environment variable | Values | Default | Decision |
+|---|---|---|---|---|
+| `otel.propagation.inbound` | `A2A_OTEL_INBOUND` | `continue`, `restart`, `ignore` | `continue` | 8.3 |
+| `otel.propagation.trustedPeers` | `A2A_OTEL_TRUSTED_PEERS` (comma-separated CIDRs) | list | `[]` (everyone trusted) | 8.3 |
+| `otel.propagation.untrusted` | `A2A_OTEL_UNTRUSTED` | `restart`, `ignore` | `restart` | 8.3 |
+| `otel.propagation.carriers` | `A2A_OTEL_CARRIERS` | `header`, `metadata` (comma-separated, order = precedence) | `header,metadata` | 8.2 |
+| `otel.propagation.baggageAttributes` | `A2A_OTEL_BAGGAGE_ATTRIBUTES` | allow-list of baggage keys to copy to attributes | `[]` | 8.11 |
+| `otel.span.server` | `A2A_OTEL_SERVER_SPAN` | `auto`, `own`, `nest` | `auto` | 8.4 |
+| `otel.span.enrichServerSpan` | `A2A_OTEL_ENRICH_SERVER_SPAN` | boolean | `false` | 8.4 |
+| `otel.spanNaming` | `A2A_OTEL_SPAN_NAMING` | `legacy`, `semconv` | `legacy` | 8.4 |
+| `otel.compat` | `A2A_OTEL_COMPAT` | `langfuse`, `openinference` (comma-separated) | none | 8.5 |
+| `otel.metrics.profile` | `A2A_OTEL_METRICS_PROFILE` | `none`, `genai-semconv`, `grafana-agent` | `none` | 9.1.3 |
+| `otel.exporter.headers` | `OTEL_EXPORTER_OTLP_HEADERS` (standard; also accepted in JSON with `${VAR}`) | map | none | 8.8 |
+| `otel.attributes.sessionId` | `A2A_OTEL_SESSION_ID` | `context` (use A2A `contextId`), `explicit` (only metadata `session_id`) | `context` | 9.1.4 |
+| `otel.attributes.providerName` | `A2A_OTEL_PROVIDER_NAME` | string, e.g. `anthropic` | unset | 9.1.4 |
+| `events.transport` | `A2A_EVENTS_TRANSPORT` | `a2a`, `http`, `both` | `a2a` | 8.7 |
+| `events.httpUrl` / `events.httpHeaders` | `A2A_EVENTS_HTTP_URL` / `${VAR}` in values | string / map | none | 8.7 |
+
 ```jsonc
 {
   "otel": {
     "enabled": true,
-    "exporter": { "endpoint": "…", "protocol": "http/protobuf", "headers": { "Authorization": "Basic ${LANGFUSE_AUTH}" } },
-    "propagation": { "inbound": "parent" },     // parent | link | ignore
-    "compat": ["langfuse", "openinference"],    // default []
-    "spanNaming": "legacy"                      // legacy | semconv
+    "exporter": { "endpoint": "https://…", "protocol": "http/protobuf", "headers": { "Authorization": "Basic ${LANGFUSE_AUTH}" } },
+    "propagation": { "inbound": "continue", "trustedPeers": ["10.0.0.0/8"], "untrusted": "restart" },
+    "span": { "server": "auto", "enrichServerSpan": false },
+    "spanNaming": "legacy",
+    "compat": ["langfuse", "openinference"],
+    "metrics": { "profile": "none" }
   },
   "events": { "transport": "both", "httpUrl": "${COLLECTOR_URL}", "httpHeaders": { "Authorization": "Bearer ${TOKEN}" } }
 }
 ```
+
+#### Presets: which settings for which use case
+
+| Use case | Settings |
+|---|---|
+| **Local development / demo** | defaults; `compat` as needed for the viewer |
+| **Internal multi-agent mesh, orchestrator you operate (Krama)** | defaults (`continue`, `span.server: auto`); `events.transport: both` |
+| **Host already runs OTel auto-instrumentation** | defaults (`auto` nests under the HTTP server span); no `own` |
+| **Behind an API gateway** | `trustedPeers: [gateway CIDR]`, `untrusted: restart`; configure Express `trust proxy` |
+| **Public / untrusted callers** | `inbound: restart` (or `ignore`) |
+| **Outside orchestrator (LangGraph, ADK) that sends no `traceparent`** | nothing to configure; it arrives as a legacy-attribute request (S3/S4). Document how the caller can add the header |
+| **Langfuse** | `compat: ["langfuse"]`, exporter headers (Basic + `x-langfuse-ingestion-version: 4`), HTTP protocol |
+| **Phoenix** | `compat: ["openinference"]`, `http/protobuf` |
+| **Tempo / generic Grafana** | no `compat`; optionally list `gen_ai.agent.name` in the metrics-generator `dimensions` |
+| **Grafana Cloud AI dashboards (agent panels)** | `metrics.profile: grafana-agent` (9.1.3); the GenAI/VectorDB dashboards cannot be lit without impersonating OpenLIT |
+| **Keep exactly today's behaviour** | `inbound: ignore`, `span.server: nest`, no `compat`, `metrics.profile: none` |
 
 JSON schemas for all five wrappers and `@a2a-wrapper/core` are regenerated (the existing `schema-up-to-date` tests enforce this).
 
@@ -338,7 +427,7 @@ JSON schemas for all five wrappers and `@a2a-wrapper/core` are regenerated (the 
 | Change | Visible effect | Mitigation |
 |---|---|---|
 | Span kind INTERNAL → SERVER | Appears in service graphs / span metrics (`span_kind` label). | Document in changeset; intended. |
-| Inbound parenting | Traces from instrumented callers now connect. Orphan risk in backends that drop spans with unexported parents. | `link` / `ignore` policies; spike P0-S4; docs. |
+| Inbound parenting | Traces from instrumented callers now connect. Orphan risk in backends that drop spans with unexported parents. | `restart` / `ignore` policies, `trustedPeers`; spike P0-S4; docs. |
 | `a2a.method.name` values | Dashboards filtering on `message/send` | Keep legacy value under a second key for one release. |
 | New artifact fields / event fields | Additive | none |
 | `semconv` naming | Opt-in only; default flip considered for a major release | none |
@@ -349,7 +438,7 @@ JSON schemas for all five wrappers and `@a2a-wrapper/core` are regenerated (the 
 - Cap sizes for tracestate and `propagatedMetadata`; apply the existing secret redaction to propagated metadata.
 - Never copy inbound `baggage` into attributes by default; an allow-list setting (`otel.propagation.baggageAttributes`, default empty) can map named keys to attributes. Baggage is forwarded only by the host SDK's propagators, as today.
 - Never put identifiers other than W3C-defined fields into `traceparent`/`tracestate`.
-- Unauthenticated endpoints: docs state the risk and recommend `link`/`ignore`.
+- Unauthenticated endpoints: docs state the risk and recommend `restart`/`ignore`, or `trustedPeers` with `untrusted: restart` (8.3).
 - Content capture unchanged (off by default).
 
 ### 8.12 Deliberately not done
@@ -374,7 +463,7 @@ Each candidate is scored against the three consumers and outside-agent interop. 
 | Real `otelTraceId`/`otelSpanId` on events | – | – | – | lets collectors join events to spans | S | **0** |
 | `session.id` / conversation id (exists) | session grouping | session grouping | filter | – | done | **0** |
 | Exporter `headers` (with `${VAR}`) | **auth required** | cloud key | Grafana Cloud auth | – | S | **0** |
-| Inbound policy `link`/`ignore` + strict validation | orphan handling | – | – | trust boundary | S | **1** (ships with the Tier 0 parenting) |
+| Inbound policy `restart`/`ignore` + `trustedPeers` + strict validation | orphan handling | – | – | trust boundary | S | **1** (ships with the Tier 0 parenting) |
 | `${VAR}` in event headers; `propagatedMetadata` on events; `eventId`/`parentAgentId` on artifact | – | – | – | Krama-style attribution | S | **1** |
 | `events.transport: "both"` | – | – | – | dedupe by `eventId` | S | **1** |
 | `compat: langfuse` (`observation.type`) | **agent graph** | – | – | – | S | **1** |
@@ -382,12 +471,64 @@ Each candidate is scored against the three consumers and outside-agent interop. 
 | Sub-agent forwarding via `_meta` (skillmap companion) | cross-agent graph | cross-agent graph | cross-agent service graph | S1/S5 | M (+ companion) | **1** (after spike P0-S2) |
 | `spanNaming: "semconv"` and A2A v1 method names | maybe type mapping | – | – | spec alignment | S | **1** |
 | Two-span model (SERVER `SendMessage` + INTERNAL `invoke_agent`) | – | – | spec-pure | – | M | 2 |
-| GenAI/A2A duration metrics | – | – | Grafana AI dashboards (undocumented) | – | M | 2 (after P0-S5) |
+| GenAI/A2A duration metrics (`otel.metrics.profile`) | – | – | Grafana AI dashboards need Prometheus/Loki, not traces (verified) | – | M | 2 (opt-in profiles, P6) |
 | Per-session wrapper-hosted MCP bridge | – | – | – | backends that drop context | L | 2 (only if P0-S2 requires) |
 | A2A carriers in message metadata via an official extension | – | – | – | when A2A settles #2103 | S | 2 (we already read `meta.traceparent`) |
 | Span links for `input-required` resume across requests | – | – | – | already present (prior attempt) | done | – |
 
 ---
+
+### 9.1 Decision analysis: what you get with each option
+
+The three decisions that were open are each made **configurable** (8.9), so the question becomes "what should the default be, and what does each setting buy". Evidence is in sections 4, 5 and 8 and Appendix A.
+
+#### 9.1.1 Inbound policy (was Q1)
+
+See the full option table in [8.3](#83-inbound-trust-policy-configurable). In short:
+
+| If you choose | The graph | Security posture | Cost to you |
+|---|---|---|---|
+| `continue` | Connected across hops | Caller controls trace id and sampling | None; matches the default of Elastic and Datadog |
+| `continue` + `trustedPeers` + `untrusted: restart` | Connected for known callers, linked for others | Strong: spoofing only from trusted peers | One CIDR list; `trust proxy` behind a gateway |
+| `restart` | Linked, not connected | Safe | Lose service-graph and agent-graph edges across hops |
+| `ignore` | Isolated | Safest | Lose caller correlation (attributes only) |
+
+**Recommended default: `continue`**, because the goal is the connected graph, `otel.enabled` is already an explicit opt-in, and this is what the surveyed products default to. The documentation must state plainly that an unauthenticated endpoint plus `continue` lets any caller choose your trace id and sampling flag, and point to the presets.
+
+#### 9.1.2 Server span: nest or own (was Q3)
+
+See [8.4](#84-span-model). Measured behaviour: without HTTP instrumentation the old span is a root in a new trace; with it, the old span already nests under the HTTP SERVER span, and an always-extract design would create a **second** SERVER span. Hence `auto` as the default: correct for both, no duplicates, and `own`/`nest` as escape hatches.
+
+#### 9.1.3 Metrics (was Q5)
+
+What Grafana's AI dashboards need was read from their dashboard definitions (`grafana-aio11y-app`, `mixin/genai-mixin/dashboards`) [R33] [summary for the second half of three files]:
+
+| Dashboard | Data it queries | Works from traces alone? |
+|---|---|---|
+| GenAI observability | Prometheus: `gen_ai_client_operation_duration_seconds_*`, `gen_ai_client_token_usage_*`, `gen_ai_usage_cost_USD_*`, `gen_ai_server_time_to_first_token_seconds_bucket`; hard filter `telemetry_sdk_name="openlit"`; plus one Loki logs panel | **No** |
+| **Agent observability** | Prometheus: `gen_ai_agent_invocations_total`, `gen_ai_agent_operation_duration_seconds_*`, `gen_ai_usage_cost_USD_sum`; labels `gen_ai_agent_name`, `gen_ai_agent_source`, `gen_ai_provider_name`; Loki "Agent Logs" (`|= "_agent"`, `otelTraceID`) | **No** |
+| MCP observability | Prometheus `mcp_*` metrics; Tempo only for a supplemental trace table (`mcp.system = "mcp"`) | No |
+| VectorDB | Prometheus `db_*`; Tempo trace table (filter `telemetry.sdk.name = "openlit"`) | No |
+| Evaluations | Loki only | n/a |
+
+Also: every dashboard needs `service_name` and `deployment_environment` labels. The agent metrics (`gen_ai.agent.*`) are **OpenLIT vendor extensions**, not OpenTelemetry-standard names [R34], and the OTel GenAI spec's own agent metric names are still in flux (`gen_ai.invoke_agent.duration` vs `gen_ai.client.invoke_agent.duration` on the same spec page).
+
+| `otel.metrics.profile` | What is emitted | You get | You give up / risk |
+|---|---|---|---|
+| **`none`** (default) | No wrapper metrics. | Tempo derives RED metrics from spans (span-metrics generator); Langfuse and Phoenix derive from traces. No double counting with backends that already emit metrics (Claude Code has its own). | Grafana Cloud AI dashboards stay empty. |
+| `genai-semconv` | The standard agent metrics as the spec currently names them (invoke-agent duration, execute-tool duration, plus the call-count histograms), low-cardinality dimensions only (agent name, operation, error type). | Portable metrics for any backend; you can build your own Grafana panels or alerts. | Spec is in Development and internally inconsistent; names may change; will **not** populate OpenLIT-shaped dashboards. |
+| `grafana-agent` | OpenLIT-style agent metrics: invocations counter, agent operation-duration histogram, cost, with the labels the Agent dashboard filters on. | The **Agent** dashboard's metric panels light up. | Vendor-specific names that can change; the GenAI and VectorDB dashboards stay empty (they hard-filter `telemetry.sdk.name = "openlit"` and we will not impersonate another SDK); the "Agent Logs" panel needs logs we do not emit; extra care to avoid double counting. |
+
+Rules for any profile: low-cardinality dimensions only (never task, message or context ids); the usage rules in `otel-attribute-ownership.md` still apply (no summing wrapper and backend token metrics). Implementation is Tier 2 (P6); the setting is reserved now so the schema is stable.
+
+**Recommended default: `none`.** Revisit after a real Grafana Cloud check of the Prometheus names after OTLP translation (the dashboards show the translated names; we have not verified the translation rules ourselves).
+
+#### 9.1.4 Smaller choices that became settings
+
+| Choice | Options | Default and why |
+|---|---|---|
+| `session.id` source (was Q2) | `context` (A2A `contextId`) or `explicit` (only a caller-supplied `session_id`) | `context`: keeps today's behaviour; Langfuse and Phoenix group on `session.id`. `explicit` suits callers whose `contextId` is per-request. |
+| `gen_ai.provider.name` (was Q4) | unset, or a configured value | unset: the GenAI spec requires it on the CLIENT `invoke_agent` variant (remote agent services) but not on the in-process variant our request span resembles. Set it if a platform you use groups by provider. |
 
 ## 10. Implementation plan
 
@@ -397,11 +538,12 @@ Sizes: S ≈ ≤1 day, M ≈ 2–4 days, L ≈ 1–2 weeks. Each phase is a sepa
 
 | ID | Question | Method | Decides |
 |---|---|---|---|
-| **P0-S1** | Does `ctx.context.state.get("headers")` carry `traceparent` for JSON-RPC, REST, **streaming** and gRPC? | Two-line executor probe + curl with a `traceparent` header. | 8.2 mechanism. |
+| **P0-S1** | Does `ctx.context.state.get("headers")` carry `traceparent` for JSON-RPC, REST, **streaming** and gRPC? | **Answered for JSON-RPC blocking and streaming (Appendix A).** REST and gRPC remain: same probe, two more requests. | 8.2 mechanism (confirmed). |
 | **P0-S2** | Which backends forward trace context to MCP tool calls (`_meta.traceparent` or header)? | A tiny MCP server that logs `_meta` and headers (we already have one), driven by Copilot and OpenCode on this machine; Claude/Codex per their docs and, where installed, live. | D4 branch (1 vs 2). |
 | **P0-S3** | Do ADK and LangGraph clients send `traceparent` to our agent? | Minimal ADK `RemoteA2aAgent` and LangGraph A2A client scripts against a wrapper that logs headers; try with and without `opentelemetry-instrumentation-httpx`. | Docs for callers; S2 vs S3 expectations. |
-| **P0-S4** | How do Phoenix (local, per `examples/otel-stack`) and Langfuse treat a span whose remote parent was never exported? | Send a synthetic trace with a missing parent to each. | Default inbound policy (Q1). |
-| **P0-S5** | What exactly do Grafana Cloud's AI dashboards query? | Read the OpenLIT dashboard definitions / SDK metric names. | D7 (metrics in or out). |
+| **P0-S4** | How do Phoenix (local, per `examples/otel-stack`) and Langfuse treat a span whose remote parent was never exported? | Send a synthetic trace with a missing parent to each. | Which of `continue` / `restart` to recommend per backend (the default stays configurable). |
+| **P0-S5** | What exactly do Grafana Cloud's AI dashboards query? | **Answered (9.1.3):** Prometheus and Loki only, OpenLIT-shaped names. Remaining: confirm the translated Prometheus names against a real Grafana Cloud stack. | D7 confirmed: no default metrics. |
+| **P0-S6** | Can core record the caller's address unspoofably for `trustedPeers`? | Prototype the Express middleware that overwrites an internal header with `req.ip`; test with and without `trust proxy` and with a client-supplied header of the same name. | Whether `trustedPeers` ships in the first release (open question 3). |
 
 Exit: findings appended to this document; decisions D2/D4/D7 confirmed or changed.
 
@@ -410,14 +552,16 @@ Exit: findings appended to this document; decisions D2/D4/D7 confirmed or change
 | Work item | Files |
 |---|---|
 | `resolveInbound()` per 8.2: header then metadata carrier, strict validation, policies | `packages/core/src/telemetry/context.ts`, new `propagation.ts` |
-| Parent the request span from the resolved context; set kind `SERVER`; `link` policy | `telemetry/instrument.ts`, `api.ts` (`withSpan` accepts parent context and kind) |
-| `otel.propagation.inbound` in config + schema | `config/types.ts`, wrapper schemas |
+| Parent the request span from the resolved context; set kind `SERVER` (or nest, per `otel.span.server`); `restart`/`ignore` policies | `telemetry/instrument.ts`, `api.ts` (`withSpan` accepts parent context and kind) |
+| `otel.propagation.{inbound,trustedPeers,untrusted,carriers}` and `otel.span.{server,enrichServerSpan}` in config, schema and env vars | `config/types.ts`, loaders, wrapper schemas |
+| Server-span detection for `auto` (active span recording and SDK kind SERVER) | `telemetry/instrument.ts` |
+| Peer-address middleware for `trustedPeers` (only if P0-S6 passes) | `server/factory.ts` |
 | `a2a.method.name` v1 names (+ legacy key) | `telemetry/attributes.ts` |
 | Stamp `otelTraceId`/`otelSpanId` on `AgentEvent` | `events/transport.ts` (`AgentEventEmitter`) |
 | Exporter `headers` with `${VAR}` | `telemetry/cli-bootstrap.ts`, config, loader |
 | Docs + changeset (core minor, wrappers minor) | `observability.md`, ownership doc |
 
-**Acceptance:** (1) a request carrying a valid `traceparent` produces a request span whose parent is that span id (same trace id), for JSON-RPC, REST and streaming; (2) invalid headers are ignored and logged at debug, request still succeeds; (3) `link` produces a new trace with one link to the inbound context; `ignore` produces a new trace; (4) with no context, behaviour is unchanged; (5) span kind is SERVER; (6) events carry the active span's trace/span ids; (7) two real wrappers on this machine, A then B with a header-injecting client, show one trace in an in-memory exporter.
+**Acceptance:** (1) with no HTTP instrumentation, a request carrying a valid `traceparent` produces a request span whose parent is that span id (same trace id), for JSON-RPC and REST, blocking and streaming; (2) with HTTP instrumentation present and `span.server: auto`, exactly **one** SERVER span exists per request and ours nests under it; (3) invalid headers are ignored and logged at debug, the request still succeeds; (4) `restart` produces a new trace with one link to the inbound context, `ignore` a new trace with no link; (5) with `trustedPeers` set, an untrusted peer gets the `untrusted` policy and a client-supplied peer header has no effect; (6) with no context, behaviour is unchanged; (7) events carry the active span's trace and span ids; (8) two real wrappers on this machine, A then B with a header-injecting client, show one trace in an in-memory exporter.
 
 **Tests:** unit (validation matrix, policies) with the OTel in-memory span exporter; one contract test per wrapper with a fake backend; a cross-agent integration test (two executors); a local Phoenix check using `examples/otel-stack`.
 
@@ -439,7 +583,7 @@ Shape depends on P0-S2. Always: file the companion issue in `a2a-mcp-skillmap` (
 
 ### P6: Conditional work (Tier 2)
 
-Decide after P0-S5/P0-S4/P4: GenAI duration metrics, two-span model, per-session bridge, A2A-extension carrier.
+Decide after P0-S4/P4 (P0-S5 is answered): `otel.metrics.profile` implementations (`genai-semconv`, and `grafana-agent` only if the owner confirms it is worth it), the two-span model, the per-session bridge, the A2A-extension carrier.
 
 ### Issue management
 
@@ -458,21 +602,29 @@ Changesets: `@a2a-wrapper/core` minor (new config, behaviour: SERVER kind, inbou
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
 | Conventions are Development and keep changing | High | Rename churn | Keep standard attributes thin; compat layer isolated; follow the existing spec-drift policy |
-| Orphan spans in backends that drop unexported parents | Medium | Traces missing | `link` policy; P0-S4; docs |
-| Untrusted callers choose trace id/sampling | Medium (agents are unauthenticated by default) | Trace flooding | Strict validation; `link`/`ignore`; documented |
+| Orphan spans in backends that drop unexported parents | Medium | Traces missing | `restart` policy; P0-S4; docs |
+| Untrusted callers choose trace id/sampling | Medium (agents are unauthenticated by default) | Trace flooding | Strict validation; `restart`/`ignore`; `trustedPeers`; documented |
 | Backends do not forward context to MCP tools | Medium | S1/S5 incomplete | D4 branch 2; attribute-level correlation still works |
-| Duplicate SERVER spans when a host also runs HTTP auto-instrumentation | Medium | Double spans | Detect an active SERVER span context and skip/downgrade (open question Q3) |
+| Duplicate SERVER spans when a host also runs HTTP auto-instrumentation | Medium | Double spans | **Mitigated:** `otel.span.server: auto` nests under a recording SERVER span (behaviour measured in Appendix A); `own` and `nest` are available. |
 | Grafana AI dashboards need metrics we do not emit | High | Dashboards empty | Out of baseline by design; P0-S5; P6 |
 
-### Open questions for the owner
+### Decisions and open questions
 
-1. **Q1.** Is `parent` the right default for the inbound policy given endpoints are unauthenticated by default? (This document proposes `parent` with strong docs; `link` is the conservative alternative.)
-2. **Q2.** Should `session.id` default to the A2A `contextId` (current behaviour) or only to an explicit `session_id`? (Current behaviour kept.)
-3. **Q3.** When the host already runs HTTP server instrumentation, do we nest under that span (A2A semconv: enrich it) or still create ours?
-4. **Q4.** Do we want `gen_ai.provider.name` on the request span (the backend provider)? The spec requires it on the CLIENT variant only.
-5. **Q5.** Appetite for GenAI/A2A metrics if P0-S5 shows Grafana's dashboards require them?
+The five questions raised in the first draft were analysed in [9.1](#91-decision-analysis-what-you-get-with-each-option). Each is now a **setting**, so they no longer block the work; what remains is confirming defaults.
 
----
+| # | Original question | Resolution |
+|---|---|---|
+| Q1 | Default inbound policy given unauthenticated endpoints? | Configurable `continue \| restart \| ignore` plus `trustedPeers`/`untrusted`. Proposed default `continue`. |
+| Q2 | `session.id` from `contextId` or explicit only? | Setting `otel.attributes.sessionId`; default `context`. |
+| Q3 | Nest under an HTTP server span or create our own? | Setting `otel.span.server`; default `auto` (measured in Appendix A). |
+| Q4 | `gen_ai.provider.name` on the request span? | Optional setting; default unset. |
+| Q5 | Appetite for GenAI/A2A metrics? | Setting `otel.metrics.profile`; default `none`; implementation is Tier 2. |
+
+**Still to confirm with the owner (defaults only):**
+
+1. Is `continue` the right shipped default for `otel.propagation.inbound`, with the documentation warning for unauthenticated endpoints? (The alternative is `restart`, which is safer but gives up the connected graph by default.)
+2. Is the `grafana-agent` metrics profile worth building at all, given it targets vendor-specific names and only the Agent dashboard? (If not, keep only `none` and `genai-semconv`.)
+3. Should `trustedPeers` ship in the first release, or follow `inbound` alone? (It needs the peer-address middleware, P0-S6; `inbound` alone needs none.)
 
 ## 11. Verification strategy
 
@@ -523,8 +675,44 @@ Labels: **[docs]** read directly; **[summary]** read via a fetch-tool summary (v
 - [R28] W3C Baggage: https://www.w3.org/TR/baggage/ **[docs]**
 - [R29] OpenTelemetry context propagation https://opentelemetry.io/docs/concepts/context-propagation/ ; SDK environment variables https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/ ; sampling and tracing SDK https://opentelemetry.io/docs/specs/otel/trace/sdk/ ; span links https://opentelemetry.io/docs/concepts/signals/traces/ ; messaging spans (processing spans and links) https://opentelemetry.io/docs/specs/semconv/messaging/messaging-spans/ **[docs]**
 
+- [R30] Elastic APM trace continuation: https://www.elastic.co/docs/reference/apm/agents/java/config-core (`trace_continuation_strategy`: `continue` / `restart` / `restart_external`, default `continue`) **[docs]**. Other Elastic agents not checked.
+- [R31] Datadog propagation behaviour: https://docs.datadoghq.com/tracing/trace_collection/library_config/java/ (`DD_TRACE_PROPAGATION_BEHAVIOR_EXTRACT`: `continue` / `restart` / `ignore`, default `continue`) **[docs]**. Sentry (`strictTraceContinuation`) and New Relic (trusted account key) could not be located **[unverified]**.
+- [R32] Edge handling: AWS X-Ray concepts https://docs.aws.amazon.com/xray/latest/devguide/xray-concepts.html ; Envoy header sanitizing https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_conn_man/header_sanitizing and headers reference https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_conn_man/headers **[docs]/[summary]**
+- [R33] Grafana GenAI dashboards: https://github.com/grafana/grafana-aio11y-app/tree/main/mixin/genai-mixin/dashboards (`genai-observability.json`, `genai-agent-observability.json`, `mcp-observability.json`, `genai-evaluations.json`, `vectordb-observability.json`); the second half of three files was read through a summary **[docs]/[summary]**
+- [R34] OpenLIT metrics and agent identity: https://github.com/openlit/openlit (`sdk/python/src/openlit/semcov/__init__.py`, `__helpers.py`), https://docs.openlit.io/latest/openlit/observability/agents/overview.md , OTel GenAI metrics `docs/gen-ai/gen-ai-metrics.md` and `gen-ai-token-metrics.md` in [R1] **[docs]/[summary]**
+- [R35] A2A and MCP server-span rules (enrich the HTTP/gRPC server span; SDK `kind` detection): `docs/gen-ai/a2a.md` and `docs/gen-ai/mcp.md` in [R1]; OTel trace API https://opentelemetry.io/docs/specs/otel/trace/api/ ; JS context https://opentelemetry.io/docs/languages/js/context/ **[docs]/[summary]**
+- [R36] Experiment (Appendix A): local, 2026-11-19; `@a2a-js/sdk` server state/headers confirmed in `node_modules/@a2a-js/sdk/dist/server/express/index.js` **[code]**
+
+
 **This repository** **[code]**: `packages/core/src/telemetry/{context,instrument,api,attributes,emitter-bridge,observability,cli-bootstrap}.ts`, `packages/core/src/events/transport.ts`, `packages/core/src/server/factory.ts`, `docs/observability.md`, `docs/otel-attribute-ownership.md`, `examples/otel-stack/`, and `node_modules/@a2a-js/sdk/dist/server/express/index.js` (header state).
 
 ### Not verified (carry into the spikes)
 
-Langfuse's `gen_ai.operation.name` → observation-type mapping and its handling of a missing remote parent; Phoenix's handling of `gen_ai.*`-only spans beyond the docs statement; Codex inbound traceparent behaviour; OpenCode OTel support; whether `ctx.context.state.get("headers")` is populated for streaming requests; the exact A2A attribute list beyond the merged `a2a.md` summary; what Grafana Cloud's AI dashboards query.
+Langfuse's `gen_ai.operation.name` → observation-type mapping and its handling of a missing remote parent; Phoenix's handling of `gen_ai.*`-only spans beyond the docs statement; Codex inbound traceparent behaviour; OpenCode OTel support; REST and gRPC header population (JSON-RPC is confirmed, Appendix A); the exact A2A attribute list beyond the merged `a2a.md` summary; the Prometheus names Grafana's dashboards see after OTLP translation (the dashboards show them, we have not verified the translation); Sentry's `strictTraceContinuation` and New Relic's trusted-account behaviour (pages not located); whether Elastic's other agents offer `trace_continuation_strategy`.
+
+---
+
+## Appendix A: Experiment results (2026-11-19)
+
+**Question.** What does an A2A executor actually see for inbound trace context, and what happens to our span in a host that already has HTTP instrumentation?
+
+**Method.** A real A2A server built from the same SDK handler stack the wrappers use (`DefaultRequestHandler` + `jsonRpcHandler`, `UserBuilder.noAuthentication`, agent card from core's `buildAgentCard`), Node 24, `@opentelemetry/sdk-trace-node` 2.x with an in-memory exporter and the default W3C propagator. The executor records `trace.getActiveSpan()` (name, SDK `kind`, recording), the headers in `ctx.context.state`, then starts (a) a span exactly as the wrapper does today (`tracer.startSpan("a2a.task.execute")`, default context) and (b) a span parented explicitly from `propagation.extract(headers)` with kind SERVER. Three requests per run: `message/send` with a `traceparent`, `message/stream` with a `traceparent`, and `message/send` without one. Run twice: with and without `@opentelemetry/instrumentation-http`.
+
+**Results**
+
+| | Without HTTP instrumentation (wrapper CLI default) | With `instrumentation-http` (typical auto-instrumented host) |
+|---|---|---|
+| Headers in `ctx.context.state.get("headers")` | **Present**, with the caller's `traceparent`, for `message/send` **and** `message/stream` | Same |
+| Ambient active span in `execute()` | **None** | HTTP `POST` span, kind **SERVER**, recording, for send and stream |
+| Today's `a2a.task.execute` (INTERNAL) | **Root of a new trace** (`2e6f98bf…`, not the caller's `0af76519…`) | **Child of the HTTP span**, in the caller's trace (`0af76519…`) |
+| Explicit extraction + SERVER span (proposal) | Joins the caller's trace, parent = caller's span id | Also joins, **but as a sibling of the HTTP SERVER span**: two SERVER spans for one request |
+| Request without `traceparent` | New root trace | HTTP span is the root; ours nests under it |
+
+**Conclusions**
+
+1. The mechanism in 8.2 works as designed: no middleware is needed to read `traceparent` (the P0-S1 question is answered for JSON-RPC blocking and streaming; REST and gRPC are still to confirm).
+2. The trace break is **real but conditional**: it exists in the wrapper's default (no HTTP instrumentation) and not in auto-instrumented hosts. Both must keep working, which is why `otel.span.server` defaults to `auto`.
+3. An always-extract design would duplicate SERVER spans in auto-instrumented hosts (measured), confirming the need for the detection in 8.4.
+4. The SDK span exposes `kind`, and the ambient span is recording: the `auto` detection (recording + SDK kind SERVER) is feasible in this stack. The API `Span` interface has no `kind` getter, so the check must read the SDK object defensively.
+
+**Limits.** One SDK version, JSON-RPC transport only, a synthetic executor (not a full wrapper), no sampling variations, no REST/gRPC. The script lives outside the repository; the contract tests in P1 reproduce it.
