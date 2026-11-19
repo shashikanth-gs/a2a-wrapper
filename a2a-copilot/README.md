@@ -16,6 +16,7 @@ GitHub Copilot is a production-grade agent. It already handles multi-step planni
 - Powered by GitHub Copilot (GPT-4.1, Claude Sonnet 4.5, and more)
 - **Bring Your Own Model (BYOK)** — point at Ollama, OpenAI, Anthropic, Azure, vLLM, or any OpenAI-compatible endpoint. See [Bring Your Own Model (BYOK)](#bring-your-own-model-byok).
 - MCP tool server support — HTTP and stdio transports
+- Usage, cost and lifecycle telemetry — token/cost summary on every task, plus `agent_started` / `agent_finished` events delivered over the A2A sideband or an HTTP collector. See [Event Transport](#event-transport-observability) and [LLM Usage and Cost Telemetry](#llm-usage-and-cost-telemetry)
 - Multi-turn conversations via persistent Copilot sessions
 - JSON config file with layered overrides (JSON → env vars → CLI flags)
 - Docker-ready with corporate proxy CA support
@@ -60,6 +61,7 @@ GitHub Copilot is a production-grade agent. It already handles multi-step planni
 - [Event Transport (Observability)](#event-transport-observability)
   - [Default (A2A sideband)](#default-a2a-sideband)
   - [HTTP collector](#http-collector)
+  - [Events Copilot emits](#events-copilot-emits)
   - [Custom transport (programmatic)](#custom-transport-programmatic)
 - [LLM Usage and Cost Telemetry](#llm-usage-and-cost-telemetry)
   - [Enabling](#enabling)
@@ -594,6 +596,57 @@ Route events to an external telemetry endpoint:
 }
 ```
 
+### Events Copilot emits
+
+Every event goes through the configured transport (A2A sideband by default, or your HTTP collector / custom transport). Each carries a unique `eventId` (UUID v4), `agentName`, `traceId` and an ISO 8601 `timestamp`.
+
+| Event | When | `data` | A2A sideband artifact |
+|---|---|---|---|
+| `agent_started` | Once per task, right after the `working` status | `{ "backend": "copilot" }` | `trace.lifecycle` (`state: "started"`) |
+| `tool_call_start` / `tool_call_end` | Around each MCP tool call | tool name, sanitized arguments / result, duration | `trace.mcp.start` / `trace.mcp` |
+| `thinking` | When the model streams reasoning | `{ "content": "…" }` | `trace.thinking` |
+| `context_window` | After each turn, when `trackUsage: true` | context-window snapshot | _none — transport only_ |
+| `agent_finished` | Once, on success, **before** the `completed` status | `{ "backend": "copilot", "usage": <UsageTelemetryData> }` | `trace.lifecycle` (`state: "finished"`) |
+| `agent_error` | Once, on failure, before the `failed` status | `{ "backend": "copilot", "message": "…", "usage": <UsageTelemetryData \| null> }` | `trace.lifecycle` (`state: "error"`) |
+
+Exactly one of `agent_finished` / `agent_error` closes each `agent_started`. `usage` is the same object that is sent as `metadata["x-usage"]` (see [LLM Usage and Cost Telemetry](#llm-usage-and-cost-telemetry)), so an HTTP collector can account for a worker's usage without intercepting the A2A exchange. In `agent_error`, `usage` is `null` when no LLM call had been made before the failure; tokens spent before a failure are otherwise reported.
+
+An `agent_finished` event as it arrives at an HTTP collector:
+
+```json
+{
+  "eventId": "6b0e3b0e-4c0a-4d7e-9c1a-2f6d5b1d3a77",
+  "eventType": "agent_finished",
+  "agentId": "…",
+  "agentName": "Filesystem Assistant",
+  "traceId": "…",
+  "parentAgentId": null,
+  "timestamp": "2026-11-19T10:00:00.000Z",
+  "data": {
+    "backend": "copilot",
+    "usage": {
+      "llmCalls": 2,
+      "model": "gpt-4.1",
+      "inputTokens": 130,
+      "outputTokens": 70,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0,
+      "reasoningTokens": 0,
+      "durationMs": 400,
+      "cost": null,
+      "calls": [{ "model": "gpt-4.1", "inputTokens": 100, "...": "..." }]
+    }
+  }
+}
+```
+
+Delivery notes:
+
+- `cost` is the **provider-reported** sum. It is `null` when the provider reports none (it is never estimated), and `0` is a valid value.
+- The per-call `trace.usage` artifact (`trackUsage: true`) is an A2A sideband artifact only. On an HTTP or custom transport, the same per-call records are in `agent_finished.data.usage.calls`.
+- The terminal event is awaited so it reaches the collector before the task is reported finished, but for at most 2 seconds, so a slow or unreachable collector cannot stall tasks. HTTP delivery is best-effort: a failed POST is logged and not retried.
+- With `events.enabled: false` nothing is emitted on any transport.
+
 ### Custom transport (programmatic)
 
 For Kafka, Redis, or database sinks, use the programmatic API. See the [`@a2a-wrapper/core` README](https://www.npmjs.com/package/@a2a-wrapper/core) for full details.
@@ -604,7 +657,7 @@ Every task execution tracks token counts, latency, model, and cost. Telemetry is
 
 | Tier | Always-on? | What you get |
 |---|---|---|
-| **Tier 1** | ✅ Always | `metadata["x-usage"]` on the final `completed` status event |
+| **Tier 1** | ✅ Always | `metadata["x-usage"]` on the final `completed` status event, and the same summary in the `agent_finished` event on every event transport (A2A sideband, HTTP, custom) |
 | **Tier 2** | `trackUsage: true` | One `trace.usage` sideband artifact per LLM API call |
 | **Tier 3** | `trackUsage: true` | `contextWindow` fill snapshot inside `x-usage` |
 
@@ -654,7 +707,9 @@ Every successfully completed task includes a `UsageTelemetryData` object under `
 }
 ```
 
-`cost` is always present — `null` when no cost was reported by the provider, a finite number ≥ 0 otherwise (`0` is a valid Copilot-native quota value).
+`cost` is always present — `null` when no cost was reported by the provider, a finite number ≥ 0 otherwise (`0` is a valid Copilot-native quota value). It is never estimated.
+
+When the HTTP (or a custom) [event transport](#event-transport-observability) is configured, the same object is sent as `data.usage` of the `agent_finished` event (and, for failed tasks, of `agent_error`), so a collector receives it without reading the A2A response. See [Events Copilot emits](#events-copilot-emits).
 
 `contextWindow` is present when at least one `session.usage_info` event was received from the SDK. Absent (not `null`) otherwise.
 

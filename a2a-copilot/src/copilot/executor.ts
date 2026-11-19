@@ -49,6 +49,15 @@ import { logger } from "../utils/logger.js";
 const log = logger.child("executor");
 
 /**
+ * Upper bound on how long a terminal lifecycle event (`agent_finished` /
+ * `agent_error`) may delay task completion. The event is awaited so the usage
+ * record reaches an HTTP collector *before* the caller sees the task finish
+ * (a caller that reads its usage ledger right after the result would otherwise
+ * race the POST), but a slow or unreachable collector must never stall tasks.
+ */
+const TERMINAL_EMIT_TIMEOUT_MS = 2_000;
+
+/**
  * Heuristic: detect when an assistant "response" is actually a tool call
  * serialized as plain text. Models without proper native function-calling
  * support (common with small/local Ollama models) print tool calls into the
@@ -340,6 +349,9 @@ export class CopilotExecutor implements AgentExecutor {
     // ── Usage accumulator — one per execute() call, local scope only ──────
     const accumulator = new LlmUsageAccumulator();
 
+    // Exactly one terminal lifecycle event (agent_finished | agent_error) per task.
+    let lifecycleClosed = false;
+
     try {
       // 1. Register task with the SDK's ResultManager, then emit submitted status.
       // The ResultManager requires a task event (kind: "task") before it will
@@ -351,6 +363,10 @@ export class CopilotExecutor implements AgentExecutor {
 
       // 2. Working
       publishStatus(bus, taskId, contextId, "working", "Processing request...");
+
+      // Lifecycle bookend, delivered through the configured transport (A2A sideband
+      // artifact by default, or the HTTP/custom transport) — see issue #56.
+      emitter.emit("agent_started", { backend: "copilot" });
 
       // 3. Get or create Copilot session
       const { sessionId, session, isNew } = await this.sessionManager!.getOrCreate(contextId);
@@ -693,6 +709,16 @@ export class CopilotExecutor implements AgentExecutor {
         });
       }
 
+      // Report the same summary that goes out as `x-usage` through the event
+      // transport as well, so HTTP/custom collectors can account for worker usage
+      // without intercepting the A2A exchange. `cost` is the provider-reported sum
+      // and stays null when the provider reported none — it is never estimated.
+      lifecycleClosed = true;
+      await this.emitTerminal(emitter, "agent_finished", {
+        backend: "copilot",
+        usage: usageSummary ?? null,
+      });
+
       publishStatus(
         bus,
         taskId,
@@ -716,6 +742,15 @@ export class CopilotExecutor implements AgentExecutor {
           ? `Cannot reach GitHub Copilot CLI server at ${cliUrl}. Is it running?`
           : `Error: ${msg}`;
       log.error("Execution failed", { taskId, error: msg });
+      if (!lifecycleClosed) {
+        lifecycleClosed = true;
+        // Tokens spent before the failure still count toward accounting.
+        await this.emitTerminal(emitter, "agent_error", {
+          backend: "copilot",
+          message: userMsg,
+          usage: this.usageIfAny(accumulator),
+        });
+      }
       publishStatus(bus, taskId, contextId, "failed", userMsg, true);
       bus.finished();
     } finally {
@@ -723,6 +758,39 @@ export class CopilotExecutor implements AgentExecutor {
       this.mcpHooks?.clearEmitter();
     }
   }
+  /**
+   * Emit a terminal lifecycle event and wait for the transport to accept it,
+   * but for no longer than {@link TERMINAL_EMIT_TIMEOUT_MS}.
+   */
+  private async emitTerminal(
+    emitter: { emit(type: "agent_finished" | "agent_error", data: Record<string, unknown>): Promise<void> },
+    type: "agent_finished" | "agent_error",
+    data: Record<string, unknown>,
+  ): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const cap = new Promise<void>((resolve) => {
+      timer = setTimeout(() => {
+        log.warn("Event transport slow; not waiting further for terminal event", { type, timeoutMs: TERMINAL_EMIT_TIMEOUT_MS });
+        resolve();
+      }, TERMINAL_EMIT_TIMEOUT_MS);
+    });
+    try {
+      await Promise.race([emitter.emit(type, data), cap]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  /** Usage summary if any LLM call was recorded, otherwise null. Never throws. */
+  private usageIfAny(accumulator: LlmUsageAccumulator): UsageTelemetryData | null {
+    try {
+      const summary = accumulator.summary();
+      return summary.llmCalls > 0 ? summary : null;
+    } catch {
+      return null;
+    }
+  }
+
   async cancelTask(taskId: string, bus: ExecutionEventBus): Promise<void> {
     log.info("Cancel requested", { taskId });
     // Copilot SDK doesn't expose a direct abort — the session will be
