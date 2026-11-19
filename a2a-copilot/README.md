@@ -16,6 +16,7 @@ GitHub Copilot is a production-grade agent. It already handles multi-step planni
 - Powered by GitHub Copilot (GPT-4.1, Claude Sonnet 4.5, and more)
 - **Bring Your Own Model (BYOK)** — point at Ollama, OpenAI, Anthropic, Azure, vLLM, or any OpenAI-compatible endpoint. See [Bring Your Own Model (BYOK)](#bring-your-own-model-byok).
 - MCP tool server support — HTTP and stdio transports
+- Usage, cost and lifecycle telemetry — token/cost summary on every task, plus `agent_started` / `agent_finished` events delivered over the A2A sideband or an HTTP collector. See [Event Transport](#event-transport-observability) and [LLM Usage and Cost Telemetry](#llm-usage-and-cost-telemetry)
 - Multi-turn conversations via persistent Copilot sessions
 - JSON config file with layered overrides (JSON → env vars → CLI flags)
 - Docker-ready with corporate proxy CA support
