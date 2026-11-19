@@ -453,19 +453,25 @@ export class OpenCodeClientV2 implements OpenCodeBackend {
     async function* translate(): AsyncGenerator<unknown> {
       const toolNames = new Map<string, string>();
       const toolStarts = new Map<string, number>();
+      const steps = new Map<string, { modelID?: string; providerID?: string; started?: number }>();
       let pending: IteratorResult<unknown> | undefined = first;
       for (;;) {
         const r = pending ?? (await source.next());
         pending = undefined;
         if (r.done) return;
-        for (const ev of self.translateEvent(r.value as Json, toolNames, toolStarts)) yield ev;
+        for (const ev of self.translateEvent(r.value as Json, toolNames, toolStarts, steps)) yield ev;
       }
     }
     return { stream: translate(), abort: () => ac.abort() };
   }
 
   /** Translate one 2.x event into zero or more canonical (1.x-shaped) events. */
-  translateEvent(ev: Json, toolNames: Map<string, string>, toolStarts: Map<string, number>): unknown[] {
+  translateEvent(
+    ev: Json,
+    toolNames: Map<string, string>,
+    toolStarts: Map<string, number>,
+    steps: Map<string, { modelID?: string; providerID?: string; started?: number }> = new Map(),
+  ): unknown[] {
     const d: Json = ev?.data ?? {};
     const sessionID: string | undefined = d.sessionID;
     switch (ev?.type) {
@@ -477,6 +483,36 @@ export class OpenCodeClientV2 implements OpenCodeBackend {
             part: { type: "text", messageID: d.assistantMessageID, sessionID, text: d.delta },
           },
         }];
+      // One 2.x "step" is one LLM call. 1.x reports the same thing as a completed assistant
+      // message (tokens, cost, model), so translate a finished step into that shape: the
+      // executor then derives usage identically for both generations.
+      case "session.step.started":
+        steps.set(d.assistantMessageID, {
+          modelID: d.model?.id,
+          providerID: d.model?.providerID,
+          started: typeof d.started === "number" ? d.started : ev.created,
+        });
+        return [];
+      case "session.step.ended": {
+        const step = steps.get(d.assistantMessageID) ?? {};
+        steps.delete(d.assistantMessageID);
+        return [{
+          type: "message.updated",
+          properties: {
+            sessionID,
+            info: {
+              id: d.assistantMessageID,
+              sessionID,
+              role: "assistant",
+              modelID: step.modelID,
+              providerID: step.providerID,
+              cost: d.cost,
+              tokens: d.tokens,
+              time: { created: step.started, completed: ev.created ?? Date.now() },
+            },
+          },
+        }];
+      }
       case "session.tool.input.started":
         toolNames.set(d.id, d.name);
         return [];

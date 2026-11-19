@@ -34,18 +34,60 @@ import {
   WELL_KNOWN_PATHS,
   bootstrapSubAgents,
   createExecutionObservability,
+  LlmUsageAccumulator,
 } from "@a2a-wrapper/core";
 import type {
   EventTransport,
   EventTransportFn,
   BackendPaths,
   SynthesizedMcpDescriptor,
+  UsageCallRecord,
+  UsageTelemetryData,
 } from "@a2a-wrapper/core";
 import type { OpenCodeEvent, Part as OpenCodePart } from "./types.js";
 import { createDeferred, sleep } from "../utils/deferred.js";
 import { logger } from "../utils/logger.js";
 
 const log = logger.child("executor");
+
+/**
+ * Upper bound on how long a terminal lifecycle event (`agent_finished` /
+ * `agent_error`) may delay task completion. The event is awaited so the usage
+ * record reaches an HTTP collector *before* the caller sees the task finish,
+ * but a slow or unreachable collector must never stall tasks.
+ */
+const TERMINAL_EMIT_TIMEOUT_MS = 2_000;
+
+/**
+ * Build a usage record from a completed assistant message. OpenCode reports one
+ * assistant message per LLM call: 1.x on `message.updated`, 2.x via
+ * `session.step.ended` (translated to the same shape by the 2.x client).
+ * `cost` is OpenCode's own figure for the call (0 for free models); it is
+ * `null` only when the message carries none.
+ */
+export function usageRecordFromMessage(info: Record<string, unknown>): UsageCallRecord | null {
+  const tokens = info.tokens as Record<string, unknown> | undefined;
+  const time = info.time as Record<string, unknown> | undefined;
+  if (!tokens || typeof time?.completed !== "number") return null;
+  const cache = (tokens.cache as Record<string, unknown> | undefined) ?? {};
+  const num = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+  const provider = typeof info.providerID === "string" ? info.providerID : "";
+  const model = typeof info.modelID === "string" ? info.modelID : "";
+  const created = typeof time.created === "number" ? time.created : undefined;
+  return {
+    model: provider && model ? `${provider}/${model}` : model,
+    inputTokens: num(tokens.input),
+    outputTokens: num(tokens.output),
+    cacheReadTokens: num(cache.read),
+    cacheWriteTokens: num(cache.write),
+    reasoningTokens: num(tokens.reasoning),
+    durationMs: created !== undefined ? Math.max(0, time.completed - created) : 0,
+    timeToFirstTokenMs: null,
+    cost: typeof info.cost === "number" && Number.isFinite(info.cost) ? info.cost : null,
+    apiEndpoint: null,
+    initiator: null,
+  };
+}
 
 // ─── Trace Helpers ──────────────────────────────────────────────────────────
 
@@ -364,6 +406,12 @@ export class OpenCodeExecutor implements AgentExecutor {
       customTransport: this.customTransport,
     });
 
+    // Usage across this task's LLM calls (one assistant message each), and a latch so
+    // exactly one terminal lifecycle event (agent_finished | agent_error) is emitted.
+    const accumulator = new LlmUsageAccumulator();
+    const countedMessages = new Set<string>();
+    let lifecycleClosed = false;
+
     try {
       // 1. Register task with the SDK's ResultManager, then emit submitted status.
       // The ResultManager requires a task event (kind: "task") before it will
@@ -375,6 +423,10 @@ export class OpenCodeExecutor implements AgentExecutor {
 
       // 2. Working
       publishStatus(bus, taskId, contextId, "working", "Processing request...");
+
+      // Lifecycle bookend, delivered through the configured transport (A2A sideband
+      // artifact by default, or the HTTP/custom transport).
+      emitter.emit("agent_started", { backend: "opencode" });
 
       // 3. Session
       const sessionId = await this.sessionManager!.getOrCreate(contextId);
@@ -434,6 +486,15 @@ export class OpenCodeExecutor implements AgentExecutor {
         const info = props?.info as Record<string, unknown> | undefined;
         if (info?.id && info?.role) {
           messageRoles.set(info.id as string, info.role as string);
+        }
+        // One completed assistant message == one LLM call. 1.x repeats the event
+        // for the same message, so count each message id once.
+        if (info?.role === "assistant" && typeof info.id === "string" && !countedMessages.has(info.id)) {
+          const record = usageRecordFromMessage(info);
+          if (record) {
+            countedMessages.add(info.id);
+            accumulator.record(record);
+          }
         }
       });
 
@@ -592,6 +653,16 @@ export class OpenCodeExecutor implements AgentExecutor {
       } else {
         publishFinalArtifact(bus, taskId, contextId, accumulatedText);
       }
+
+      // `usage` is null when no LLM call was observed (for example the event stream
+      // was unavailable and the polling fallback was used) rather than a misleading
+      // zero-call summary.
+      lifecycleClosed = true;
+      await this.emitTerminal(emitter, "agent_finished", {
+        backend: "opencode",
+        usage: this.usageIfAny(accumulator),
+      });
+
       publishStatus(bus, taskId, contextId, "completed", undefined, true);
       bus.finished();
       log.info("Task completed", { taskId, len: accumulatedText.length });
@@ -604,6 +675,15 @@ export class OpenCodeExecutor implements AgentExecutor {
         ? `Cannot reach OpenCode server at ${baseUrl}. Is OpenCode running? Start it with: opencode serve`
         : `Error: ${msg}`;
       log.error("Execution failed", { taskId, error: msg });
+      if (!lifecycleClosed) {
+        lifecycleClosed = true;
+        // Tokens spent before the failure still count toward accounting.
+        await this.emitTerminal(emitter, "agent_error", {
+          backend: "opencode",
+          message: userMsg,
+          usage: this.usageIfAny(accumulator),
+        });
+      }
       publishStatus(bus, taskId, contextId, "failed", userMsg, true);
       bus.finished();
     } finally {
@@ -613,6 +693,39 @@ export class OpenCodeExecutor implements AgentExecutor {
   }
 
   // ── Cancel ──────────────────────────────────────────────────────────────
+
+  /**
+   * Emit a terminal lifecycle event and wait for the transport to accept it,
+   * but for no longer than {@link TERMINAL_EMIT_TIMEOUT_MS}.
+   */
+  private async emitTerminal(
+    emitter: { emit(type: "agent_finished" | "agent_error", data: Record<string, unknown>): Promise<void> },
+    type: "agent_finished" | "agent_error",
+    data: Record<string, unknown>,
+  ): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const cap = new Promise<void>((resolve) => {
+      timer = setTimeout(() => {
+        log.warn("Event transport slow; not waiting further for terminal event", { type, timeoutMs: TERMINAL_EMIT_TIMEOUT_MS });
+        resolve();
+      }, TERMINAL_EMIT_TIMEOUT_MS);
+    });
+    try {
+      await Promise.race([emitter.emit(type, data), cap]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  /** Usage summary if any LLM call was recorded, otherwise null. Never throws. */
+  private usageIfAny(accumulator: LlmUsageAccumulator): UsageTelemetryData | null {
+    try {
+      const summary = accumulator.summary();
+      return summary.llmCalls > 0 ? summary : null;
+    } catch {
+      return null;
+    }
+  }
 
   async cancelTask(taskId: string, bus: ExecutionEventBus): Promise<void> {
     log.info("Cancel requested", { taskId });

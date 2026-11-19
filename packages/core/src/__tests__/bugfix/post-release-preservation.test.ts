@@ -256,9 +256,11 @@ describe("Test 2d — a2a-opencode Runtime Preservation", () => {
     // accidental regression this test otherwise guards against.
     expect(relativePaths).toEqual([
       "__tests__/backend-factory.test.ts",
+      "__tests__/client-v2-usage.test.ts",
       "__tests__/client-v2.test.ts",
       "__tests__/config-schema.test.ts",
       "__tests__/env-overrides.test.ts",
+      "__tests__/event-transport-lifecycle.test.ts",
       "__tests__/live-server.test.ts",
       "__tests__/polyfills.test.ts",
       "__tests__/schema-up-to-date.test.ts",
@@ -303,6 +305,6 @@ describe("Test 2d — a2a-opencode Runtime Preservation", () => {
     }
 
     // Verify the number of files matches our expected count
-    expect(Object.keys(hashMap)).toHaveLength(31);
+    expect(Object.keys(hashMap)).toHaveLength(33);
   });
 });

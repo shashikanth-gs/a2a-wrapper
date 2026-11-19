@@ -18,6 +18,7 @@
 - Multi-turn conversations via persistent OpenCode sessions
 - SSE event streaming with automatic reconnect and polling fallback
 - Auto-approval of tool permissions with configurable overrides
+- Lifecycle and usage events (`agent_started` / `agent_finished` with token and cost summary) over the A2A sideband or an HTTP collector
 - JSON config file with layered overrides (JSON → env vars → CLI flags)
 - Docker-ready with corporate proxy CA support
 - TypeScript source with full type declarations
@@ -54,6 +55,7 @@
   - [`agentCard.skills` vs `memory.skills`](#agentcardskills-vs-memoryskills)
 - [Calling Other A2A Agents](#calling-other-a2a-agents)
 - [Event Transport (Observability)](#event-transport-observability)
+  - [Events OpenCode emits](#events-opencode-emits)
   - [Default (A2A sideband)](#default-a2a-sideband)
   - [HTTP collector](#http-collector)
   - [Custom transport (programmatic)](#custom-transport-programmatic)
@@ -550,7 +552,7 @@ See [`agents/multi-agent/`](agents/multi-agent/) for a working example.
 
 ## Event Transport (Observability)
 
-Agents emit structured trace events for MCP tool calls, reasoning, and lifecycle. By default, these flow as sideband artifacts through the A2A protocol itself — orchestrators discover them via the `urn:x-a2a:trace:v1` extension on the agent card.
+Agents emit structured trace events for tool calls and task lifecycle (including a usage summary). By default, these flow as sideband artifacts through the A2A protocol itself — orchestrators discover them via the `urn:x-a2a:trace:v1` extension on the agent card.
 
 ### Default (A2A sideband)
 
@@ -572,6 +574,57 @@ Route events to an external telemetry endpoint:
   }
 }
 ```
+
+### Events OpenCode emits
+
+Every event goes through the configured transport (A2A sideband by default, or your HTTP collector / custom transport). Each carries a unique `eventId` (UUID v4), `agentName`, `traceId` and an ISO 8601 `timestamp`.
+
+| Event | When | `data` | A2A sideband artifact |
+|---|---|---|---|
+| `agent_started` | Once per task, right after the `working` status | `{ "backend": "opencode" }` | `trace.lifecycle` (`state: "started"`) |
+| `tool_call_start` / `tool_call_end` | Around each tool call | tool name, sanitized arguments / result, duration | `trace.mcp.start` / `trace.mcp` |
+| `agent_finished` | Once, on success, **before** the `completed` status | `{ "backend": "opencode", "usage": <UsageTelemetryData \| null> }` | `trace.lifecycle` (`state: "finished"`) |
+| `agent_error` | Once, on failure, before the `failed` status | `{ "backend": "opencode", "message": "…", "usage": <UsageTelemetryData \| null> }` | `trace.lifecycle` (`state: "error"`) |
+
+Exactly one of `agent_finished` / `agent_error` closes each `agent_started`. This is identical on OpenCode 1.x and 2.x.
+
+`usage` has the shared `UsageTelemetryData` shape (the same one `a2a-copilot` reports): totals plus a per-call `calls` log, with one entry per LLM call. An `agent_finished` event as it arrives at an HTTP collector:
+
+```json
+{
+  "eventId": "6b0e3b0e-4c0a-4d7e-9c1a-2f6d5b1d3a77",
+  "eventType": "agent_finished",
+  "agentId": "…",
+  "agentName": "My OpenCode Agent",
+  "traceId": "…",
+  "parentAgentId": null,
+  "timestamp": "2026-11-19T10:00:00.000Z",
+  "data": {
+    "backend": "opencode",
+    "usage": {
+      "llmCalls": 2,
+      "model": "opencode/big-pickle",
+      "inputTokens": 10344,
+      "outputTokens": 20,
+      "cacheReadTokens": 10240,
+      "cacheWriteTokens": 0,
+      "reasoningTokens": 30,
+      "durationMs": 6100,
+      "cost": 0,
+      "calls": [{ "model": "opencode/big-pickle", "inputTokens": 10280, "...": "..." }]
+    }
+  }
+}
+```
+
+Usage notes:
+
+- `model` is `provider/model` as OpenCode reports it for the last call.
+- `cost` is **OpenCode's own figure** for each call (`0` for free models), summed. It is `null` only when OpenCode reports none; the wrapper never estimates a cost.
+- `usage` is `null` when no LLM call was observed, for example when the event stream was unavailable and the polling fallback was used. In `agent_error`, `usage` holds whatever was spent before the failure.
+- Usage covers the LLM calls made in the task's own OpenCode session. Calls made by sub-sessions that OpenCode spawns itself (its built-in `task` tool) are not included.
+- The terminal event is awaited so it reaches the collector before the task is reported finished, but for at most 2 seconds, so a slow or unreachable collector cannot stall tasks. HTTP delivery is best-effort: a failed POST is logged and not retried.
+- With `events.enabled: false` nothing is emitted on any transport.
 
 ### Custom transport (programmatic)
 
