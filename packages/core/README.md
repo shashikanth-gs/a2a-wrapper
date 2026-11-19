@@ -186,7 +186,7 @@ Pluggable transport layer for sideband observability events (MCP tool calls, age
 | `EventTransport` | Interface — implement `send(event)` for custom transports. |
 | `EventTransportFn` | Convenience type — a plain `async (event) => void` function. |
 | `AgentEvent` | Structured event with `eventId`, `eventType`, `agentId`, `traceId`, `data`. |
-| `EventType` | Union: `tool_call_start`, `tool_call_end`, `thinking`, `decision`, `agent_started`, `agent_finished`, `agent_error`. |
+| `EventType` | Union: `tool_call_start`, `tool_call_end`, `thinking`, `decision`, `agent_started`, `agent_finished`, `agent_error`, `context_window`, `rate_limit`, `background_tasks`. Only the types with a trace key (see `EVENT_TO_TRACE_KEY`) also appear as A2A sideband artifacts; `context_window` and `rate_limit` are observable on non-A2A transports only. |
 | `TRACE_EXTENSION_URI` | Constant `"urn:x-a2a:trace:v1"` — declared in agent card capabilities and on trace artifacts. |
 | `EventsConfig` | Config interface — `enabled`, `transport` (`"a2a"` or `"http"`), `httpUrl`, `httpTimeout`, `httpHeaders`. |
 

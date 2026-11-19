@@ -207,7 +207,7 @@ Full matrix + gateway metadata mapping: [otel-attribute-ownership.md](./otel-att
 
 ## Usage / tokens — do not double-count
 
-Backends (Copilot, Claude, Codex, …) already report tokens via SDK events. We keep that on the **A2A sideband** (`trace.usage`, `metadata["x-usage"]`) always — that is not OTLP.
+Backends (Copilot, Claude, Codex, …) already report tokens via SDK events. We keep that on the **A2A sideband** (`trace.usage`, `metadata["x-usage"]`) always — that is not OTLP. The task usage summary is also sent through the configured **event transport** (HTTP collector or custom) as the `usage` field of the `agent_finished` event (and `agent_error` for Copilot), so a collector can account for worker usage without reading the A2A response. Copilot, Claude and Codex do this; see each package README for the exact payload.
 
 For **OpenTelemetry**:
 
