@@ -147,8 +147,16 @@ start_opencode() {
   # Wait for it to be reachable
   for i in $(seq 1 15); do
     if pid=$(check_pid "$OC_PID_FILE"); then
-      if curl -sf "http://localhost:${OC_PORT}/health" >/dev/null 2>&1; then
+      # Any HTTP response means the server is up (2.x answers 401 without its password,
+      # 1.x answers 200). `-f` is deliberately omitted so a 401 still counts as reachable.
+      if curl -s -o /dev/null --max-time 3 "http://localhost:${OC_PORT}/api/info" 2>/dev/null; then
         ok "OpenCode started (PID ${pid}, port ${OC_PORT})"
+        # OpenCode 2.x requires a server password. If none was provided it generates a
+        # random one that the wrapper cannot know — tell the user how to fix that.
+        if [[ -z "${OPENCODE_SERVER_PASSWORD:-}" ]] && grep -qi "server password" "$OC_LOG_FILE" 2>/dev/null; then
+          warn "OpenCode 2.x generated a random server password (see ${OC_LOG_FILE})."
+          warn "Stop it, then re-run with: OPENCODE_SERVER_PASSWORD=<your-password> $0 start"
+        fi
         return 0
       fi
     fi

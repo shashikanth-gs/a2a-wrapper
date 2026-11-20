@@ -24,9 +24,13 @@
 #
 # Environment variables (all optional):
 #   OPENCODE_URL       Override the OpenCode base URL (default: from config)
+#   OPENCODE_SERVER_PASSWORD  Password for an OpenCode 2.x server (HTTP Basic auth)
+#   OPENCODE_API_VERSION      auto (default) | 1 | 2 — OpenCode server API generation
 #   PORT               A2A server port (default: from config, fallback 3000)
 #   LOG_LEVEL          debug | info | warn | error (default: info)
-#   WORKSPACE_DIR      Override the agent workspace directory
+#   MODEL              Override the model (provider/model); OPENCODE_MODEL is an alias
+#   DIRECTORY          Override the project directory the wrapper passes to OpenCode
+#                      (a path on the OpenCode server's machine)
 # =============================================================================
 
 # ---------------------------------------------------------------------------

@@ -7,7 +7,7 @@
  */
 
 import type { McpServerConfig } from "../config/types.js";
-import type { OpenCodeClientWrapper } from "./client.js";
+import type { OpenCodeBackend } from "./backend.js";
 import { sleep } from "../utils/deferred.js";
 import { logger } from "../utils/logger.js";
 
@@ -39,7 +39,7 @@ const DEFAULT_RETRY_DELAY = 1_000;
  * in the result array.
  */
 export async function registerMcpServers(
-  client: OpenCodeClientWrapper,
+  client: OpenCodeBackend,
   servers: Record<string, McpServerConfig>,
   directory?: string,
   opts?: McpManagerOptions,
@@ -102,7 +102,7 @@ export async function registerMcpServers(
  * Query the current status of all MCP servers known to OpenCode.
  */
 export async function getMcpStatus(
-  client: OpenCodeClientWrapper,
+  client: OpenCodeBackend,
   directory?: string,
 ): Promise<Record<string, { status: string; error?: string }>> {
   const raw = await client.mcpStatus(directory) as Record<string, { status: string; error?: string }>;
@@ -112,7 +112,7 @@ export async function getMcpStatus(
 // ─── Internal ───────────────────────────────────────────────────────────────
 
 async function registerOne(
-  client: OpenCodeClientWrapper,
+  client: OpenCodeBackend,
   name: string,
   config: McpServerConfig,
   directory?: string,
@@ -220,7 +220,7 @@ async function registerOne(
 }
 
 async function queryServerStatus(
-  client: OpenCodeClientWrapper,
+  client: OpenCodeBackend,
   name: string,
   directory?: string,
 ): Promise<{ status: string; error?: string }> {

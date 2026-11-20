@@ -44,6 +44,28 @@ export interface ServerConfig {
 export interface OpenCodeConfig {
   /** OpenCode server base URL (default: "http://localhost:4096") */
   baseUrl?: string;
+  /**
+   * Which OpenCode server API generation to speak.
+   *
+   * - "auto" (default): probe the server. OpenCode 2.x answers JSON on
+   *   `/api/info`; 1.x serves its web UI there. If the server is unreachable
+   *   at startup, 1.x is assumed.
+   * - "1": OpenCode 1.x wire protocol (`/session`, `/event`, ...).
+   * - "2": OpenCode 2.x wire protocol (`/api/*`).
+   */
+  apiVersion?: "auto" | "1" | "2";
+  /**
+   * Basic-auth username sent with the password (default: "opencode").
+   * OpenCode 2.x servers always expect "opencode"; change this only if a
+   * reverse proxy in front of OpenCode uses different credentials.
+   */
+  username?: string;
+  /**
+   * Server password for OpenCode 2.x (`opencode serve` prints one at startup
+   * and requires HTTP Basic auth). Prefer the `OPENCODE_SERVER_PASSWORD`
+   * environment variable over writing it into a config file.
+   */
+  password?: string;
   /** Target project directory for all OpenCode API calls */
   projectDirectory?: string;
   /** Default model (e.g. "github-copilot/claude-sonnet-4.5") */

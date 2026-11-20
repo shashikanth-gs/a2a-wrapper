@@ -10,7 +10,6 @@ import type { OpencodeClient as SdkClient } from "@opencode-ai/sdk/v2";
 import type {
   Session,
   SessionStatus,
-  PermissionRuleset,
   PermissionRequest,
   QuestionRequest,
   MessageWithParts,
@@ -18,28 +17,32 @@ import type {
   PermissionReplyValue,
   OpenCodeEvent,
 } from "./types.js";
+import { OpenCodeApiError } from "./backend.js";
+import type { OpenCodeBackend, EventStreamHandle, SessionCreateOptions } from "./backend.js";
 import { logger } from "../utils/logger.js";
+
+export { OpenCodeApiError };
+export type { EventStreamHandle };
 
 const log = logger.child("client");
 
-// ─── Error ──────────────────────────────────────────────────────────────────
+// ─── Errors ─────────────────────────────────────────────────────────────────
 
-export class OpenCodeApiError extends Error {
-  readonly statusCode: number;
-  readonly errorData: unknown;
-  constructor(message: string, statusCode: number, errorData?: unknown) {
-    super(message);
-    this.name = "OpenCodeApiError";
-    this.statusCode = statusCode;
-    this.errorData = errorData;
+/**
+ * Thrown when the 1.x client is pointed at a server that speaks the OpenCode 2.x
+ * wire protocol (`/api/*`). Only reachable when `opencode.apiVersion` is forced to
+ * "1"; with the default "auto" the 2.x client is selected instead.
+ */
+export class OpenCodeVersionError extends Error {
+  readonly serverVersion: string;
+  constructor(baseUrl: string, serverVersion: string) {
+    super(
+      `OpenCode server at ${baseUrl} is OpenCode ${serverVersion}, which serves only the V2 /api/* wire protocol, ` +
+        `but opencode.apiVersion is set to "1". Set it to "auto" (default) or "2".`,
+    );
+    this.name = "OpenCodeVersionError";
+    this.serverVersion = serverVersion;
   }
-}
-
-// ─── Event Stream Handle ────────────────────────────────────────────────────
-
-export interface EventStreamHandle {
-  readonly stream: AsyncGenerator<unknown>;
-  abort(): void;
 }
 
 // ─── Config ─────────────────────────────────────────────────────────────────
@@ -53,7 +56,8 @@ export interface ClientConfig {
 
 // ─── Client ─────────────────────────────────────────────────────────────────
 
-export class OpenCodeClientWrapper {
+export class OpenCodeClientWrapper implements OpenCodeBackend {
+  readonly kind = "v1" as const;
   private readonly sdk: SdkClient;
   private readonly cfg: Required<ClientConfig>;
   private healthTimer: ReturnType<typeof setInterval> | null = null;
@@ -90,8 +94,37 @@ export class OpenCodeClientWrapper {
   // ── Health ──────────────────────────────────────────────────────────────
 
   async health(): Promise<{ healthy: true; version: string }> {
-    const r = await this.sdk.global.health();
-    return this.unwrap(r, "health");
+    try {
+      const r = await this.sdk.global.health();
+      return this.unwrap(r, "health");
+    } catch (e) {
+      // Distinguish "OpenCode 2.x is running" from other failures so users get
+      // an actionable message instead of an opaque SDK interceptor error.
+      const v2 = await this.detectV2Server();
+      if (v2) throw new OpenCodeVersionError(this.cfg.baseUrl, v2);
+      throw e;
+    }
+  }
+
+  /** Probe the V2 `/api/info` route; returns the server version if it answers like OpenCode 2.x. */
+  private async detectV2Server(): Promise<string | undefined> {
+    try {
+      const res = await fetch(`${this.cfg.baseUrl.replace(/\/$/, "")}/api/info`, {
+        signal: AbortSignal.timeout(5_000),
+      });
+      // 1.x serves SPA HTML for unknown routes; 2.x answers JSON here. 2.x also requires a
+      // server password, so an unauthenticated 401/403 JSON reply still proves it is V2.
+      const isJson = (res.headers.get("content-type") ?? "").includes("json");
+      if (!isJson || res.status === 401 || res.status === 403 || !res.ok) {
+        // Release the unread body so the socket is not left open.
+        try { await res.body?.cancel(); } catch { /* already closed */ }
+        return isJson && (res.status === 401 || res.status === 403) ? "2.x" : undefined;
+      }
+      const body = (await res.json()) as { version?: unknown };
+      return typeof body.version === "string" && /^2\./.test(body.version) ? body.version : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   startHealthCheck(): void {
@@ -123,7 +156,7 @@ export class OpenCodeClientWrapper {
     return this.unwrap(await this.sdk.session.list({ directory: this.dir(directory), ...opts }), "session.list");
   }
 
-  async sessionCreate(directory?: string, opts?: { title?: string; parentID?: string; permission?: PermissionRuleset }): Promise<Session> {
+  async sessionCreate(directory?: string, opts?: SessionCreateOptions): Promise<Session> {
     const r = await this.sdk.session.create({ directory: this.dir(directory), title: opts?.title, parentID: opts?.parentID, permission: opts?.permission });
     const s = this.unwrap(r, "session.create");
     log.info("Session created", { id: s.id, title: s.title });
@@ -136,6 +169,13 @@ export class OpenCodeClientWrapper {
 
   async sessionDelete(sessionID: string, directory?: string): Promise<boolean> {
     return this.unwrap(await this.sdk.session.delete({ sessionID, directory: this.dir(directory) }), "session.delete");
+  }
+
+  async sessionIdle(sessionID: string, directory?: string): Promise<boolean> {
+    const statuses = await this.sessionStatus(directory);
+    const st = statuses[sessionID] as { type?: string } | undefined;
+    // 1.x only lists non-idle sessions; an explicit idle entry or no entry both mean idle.
+    return !st || st.type === "idle";
   }
 
   async sessionStatus(directory?: string): Promise<Record<string, SessionStatus>> {

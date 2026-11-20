@@ -18,6 +18,7 @@
 - Multi-turn conversations via persistent OpenCode sessions
 - SSE event streaming with automatic reconnect and polling fallback
 - Auto-approval of tool permissions with configurable overrides
+- Lifecycle and usage events (`agent_started` / `agent_finished` with token and cost summary) over the A2A sideband or an HTTP collector
 - JSON config file with layered overrides (JSON → env vars → CLI flags)
 - Docker-ready with corporate proxy CA support
 - TypeScript source with full type declarations
@@ -54,6 +55,7 @@
   - [`agentCard.skills` vs `memory.skills`](#agentcardskills-vs-memoryskills)
 - [Calling Other A2A Agents](#calling-other-a2a-agents)
 - [Event Transport (Observability)](#event-transport-observability)
+  - [Events OpenCode emits](#events-opencode-emits)
   - [Default (A2A sideband)](#default-a2a-sideband)
   - [HTTP collector](#http-collector)
   - [Custom transport (programmatic)](#custom-transport-programmatic)
@@ -112,19 +114,60 @@ Or run without installing:
 npx a2a-opencode --config agents/example/config.json
 ```
 
-> **Prerequisites:** [OpenCode](https://opencode.ai) installed and running (`opencode serve`). The wrapper connects to it on `http://localhost:4096` by default.
+> **Prerequisites:** [OpenCode](https://opencode.ai) 1.x or 2.x installed and running (`opencode serve`). The wrapper connects to it on `http://localhost:4096` by default. OpenCode 2.x also needs its server password — see [OpenCode 1.x and 2.x](#opencode-1x-and-2x).
 
 ## Tested With
 
 | Component | Version |
 |---|---|
-| OpenCode server | **v1.3.0** |
-| `@opencode-ai/sdk` | **1.3.0** |
+| OpenCode server | **1.19.6** (1.x API) and **2.3.2** (2.x API) |
+| `@opencode-ai/sdk` (1.x client) | **^1.15.13** |
+| `@opencode/client` (2.x client) | **2.3.2** |
 | `@a2a-js/sdk` | **1.0.0** |
 | A2A protocol | **v1.0 (native) + v0.3.x (backward compatible)** |
 | Node.js | **>=20** |
 
 > Other versions may work, but the above combination is what has been tested end-to-end.
+
+### OpenCode 1.x and 2.x
+
+OpenCode 2 replaced the server's wire protocol: every route moved under `/api/*`, the server requires HTTP Basic auth, and prompts are admitted to a durable inbox instead of returning a result. The wrapper supports **both** generations and picks one automatically:
+
+| `opencode.apiVersion` | Behaviour |
+|---|---|
+| `"auto"` (default) | Probes `GET /api/info`. A JSON answer (200, or 401 when a password is required) means 2.x; anything else means 1.x. If the server is unreachable at startup, 1.x is assumed. |
+| `"1"` | Force the 1.x protocol. Fails at startup with a clear error if the server turns out to be 2.x. |
+| `"2"` | Force the 2.x protocol. |
+
+**OpenCode 2.x requires a server password.** `opencode serve` prints a random one at startup. To use a known password, start the server with it and give the wrapper the same one:
+
+macOS / Linux (bash, zsh):
+
+```bash
+export OPENCODE_SERVER_PASSWORD=change-me
+opencode serve --port 4096
+npx a2a-opencode --config agents/example/config.json   # in a second terminal with the same variable set
+```
+
+Windows PowerShell:
+
+```powershell
+$env:OPENCODE_SERVER_PASSWORD = "change-me"
+opencode serve --port 4096
+npx a2a-opencode --config agents/example/config.json   # in a second terminal with the same variable set
+```
+
+Windows cmd: `set OPENCODE_SERVER_PASSWORD=change-me` (no quotes) instead of the PowerShell line.
+
+Prefer the environment variable to `opencode.password` in a config file. The OpenCode 2.x server always expects the username `opencode` (`OPENCODE_SERVER_USERNAME` is not honoured by the server); `opencode.username` exists only for reverse proxies that use different credentials. Without a password, or with a wrong one, the wrapper exits at startup with an authentication error.
+
+Behaviour differences on 2.x worth knowing:
+
+- `opencode.projectDirectory` is sent as an absolute path **on the OpenCode server's machine**. Absolute paths in either style (`/srv/proj`, `C:/proj`) are passed through untouched, so a wrapper in a Linux container can drive an OpenCode server on Windows (or the reverse). Relative paths are resolved against the wrapper's working directory.
+- Model and agent are applied when the session is created (1.x applies them on every prompt).
+- MCP servers are registered through OpenCode 2's experimental MCP routes, and the agent calls MCP tools through 2.x's code-mode `execute` tool, so progress messages read "Executing execute..." rather than the MCP tool's name.
+- OpenCode's shell tool is called `bash` on 1.x and `shell` on 2.x; the built-in auto-approve ruleset covers both.
+- `subtask` prompt parts have no 2.x equivalent and are sent as plain text.
 
 ## Architecture
 
@@ -200,6 +243,7 @@ a2a-opencode [options]
   --hostname <addr>               Bind address                     (default: 0.0.0.0)
   --advertise-host <host>         Hostname for agent card URLs     (default: localhost)
   --opencode-url <url>            OpenCode server URL              (default: http://localhost:4096)
+  --api-version <v>               OpenCode server API: auto | 1 | 2   (default: auto)
   --model <provider/model>        LLM model                        (default: provider default)
                                   e.g. anthropic/claude-sonnet-4-20250514
   --agent <name>                  OpenCode agent preset
@@ -266,11 +310,14 @@ Create a `config.json` (see `agents/example/config.json` for the fully annotated
   },
   "opencode": {
     "baseUrl": "http://localhost:4096",
+    "apiVersion": "auto",
     "model": "anthropic/claude-sonnet-4-20250514",
     "systemPrompt": "You are a specialist agent that...",
-    "contextFile": "context.md",
-    "autoApprove": true,
-    "autoAnswer": true
+    "contextFile": "context.md"
+  },
+  "features": {
+    "autoApprovePermissions": true,
+    "autoAnswerQuestions": true
   },
   "mcp": {
     "my-tools": {
@@ -293,9 +340,11 @@ Create a `config.json` (see `agents/example/config.json` for the fully annotated
 | `HOSTNAME` | Bind address | `0.0.0.0` |
 | `ADVERTISE_HOST` | Hostname in agent card URLs | `localhost` |
 | `OPENCODE_URL` | OpenCode server URL | `http://localhost:4096` |
-| `MODEL` | LLM model (`provider/model`) | _(OpenCode default)_ |
+| `OPENCODE_API_VERSION` | `auto`, `1` or `2` (OpenCode server API generation) | `auto` |
+| `OPENCODE_SERVER_PASSWORD` | OpenCode 2.x server password (HTTP Basic auth) | _(none)_ |
+| `MODEL` | LLM model (`provider/model`). `OPENCODE_MODEL` is an accepted alias | _(OpenCode default)_ |
 | `OPENCODE_AGENT` | OpenCode agent preset | _(from config)_ |
-| `DIRECTORY` | Project directory for OpenCode | _(empty)_ |
+| `DIRECTORY` | Project directory for OpenCode. (`WORKSPACE_DIR` is a separate variable read only by `server.sh` / `start.sh` to choose where `opencode serve` runs — set `DIRECTORY` to the same path if you want both to agree.) | _(empty)_ |
 | `AUTO_APPROVE` | Auto-approve tool permissions | `true` |
 | `AUTO_ANSWER` | Auto-answer questions | `true` |
 | `STREAM_ARTIFACTS` | Stream chunks in real time | `false` |
@@ -503,7 +552,7 @@ See [`agents/multi-agent/`](agents/multi-agent/) for a working example.
 
 ## Event Transport (Observability)
 
-Agents emit structured trace events for MCP tool calls, reasoning, and lifecycle. By default, these flow as sideband artifacts through the A2A protocol itself — orchestrators discover them via the `urn:x-a2a:trace:v1` extension on the agent card.
+Agents emit structured trace events for tool calls and task lifecycle (including a usage summary). By default, these flow as sideband artifacts through the A2A protocol itself — orchestrators discover them via the `urn:x-a2a:trace:v1` extension on the agent card.
 
 ### Default (A2A sideband)
 
@@ -525,6 +574,57 @@ Route events to an external telemetry endpoint:
   }
 }
 ```
+
+### Events OpenCode emits
+
+Every event goes through the configured transport (A2A sideband by default, or your HTTP collector / custom transport). Each carries a unique `eventId` (UUID v4), `agentName`, `traceId` and an ISO 8601 `timestamp`.
+
+| Event | When | `data` | A2A sideband artifact |
+|---|---|---|---|
+| `agent_started` | Once per task, right after the `working` status | `{ "backend": "opencode" }` | `trace.lifecycle` (`state: "started"`) |
+| `tool_call_start` / `tool_call_end` | Around each tool call | tool name, sanitized arguments / result, duration | `trace.mcp.start` / `trace.mcp` |
+| `agent_finished` | Once, on success, **before** the `completed` status | `{ "backend": "opencode", "usage": <UsageTelemetryData \| null> }` | `trace.lifecycle` (`state: "finished"`) |
+| `agent_error` | Once, on failure, before the `failed` status | `{ "backend": "opencode", "message": "…", "usage": <UsageTelemetryData \| null> }` | `trace.lifecycle` (`state: "error"`) |
+
+Exactly one of `agent_finished` / `agent_error` closes each `agent_started`. This is identical on OpenCode 1.x and 2.x.
+
+`usage` has the shared `UsageTelemetryData` shape (the same one `a2a-copilot` reports): totals plus a per-call `calls` log, with one entry per LLM call. An `agent_finished` event as it arrives at an HTTP collector:
+
+```json
+{
+  "eventId": "6b0e3b0e-4c0a-4d7e-9c1a-2f6d5b1d3a77",
+  "eventType": "agent_finished",
+  "agentId": "…",
+  "agentName": "My OpenCode Agent",
+  "traceId": "…",
+  "parentAgentId": null,
+  "timestamp": "2026-11-19T10:00:00.000Z",
+  "data": {
+    "backend": "opencode",
+    "usage": {
+      "llmCalls": 2,
+      "model": "opencode/big-pickle",
+      "inputTokens": 10344,
+      "outputTokens": 20,
+      "cacheReadTokens": 10240,
+      "cacheWriteTokens": 0,
+      "reasoningTokens": 30,
+      "durationMs": 6100,
+      "cost": 0,
+      "calls": [{ "model": "opencode/big-pickle", "inputTokens": 10280, "...": "..." }]
+    }
+  }
+}
+```
+
+Usage notes:
+
+- `model` is `provider/model` as OpenCode reports it for the last call.
+- `cost` is **OpenCode's own figure** for each call (`0` for free models), summed. It is `null` only when OpenCode reports none; the wrapper never estimates a cost.
+- `usage` is `null` when no LLM call was observed, for example when the event stream was unavailable and the polling fallback was used. In `agent_error`, `usage` holds whatever was spent before the failure.
+- Usage covers the LLM calls made in the task's own OpenCode session. Calls made by sub-sessions that OpenCode spawns itself (its built-in `task` tool) are not included.
+- The terminal event is awaited so it reaches the collector before the task is reported finished, but for at most 2 seconds, so a slow or unreachable collector cannot stall tasks. HTTP delivery is best-effort: a failed POST is logged and not retried.
+- With `events.enabled: false` nothing is emitted on any transport.
 
 ### Custom transport (programmatic)
 

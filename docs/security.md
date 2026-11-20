@@ -41,6 +41,7 @@ See each package README for the exact options.
 
 - **Point `WORKSPACE_DIR` at a dedicated checkout**, not at `~` and not at a repo holding production credentials.
 - **Never store credentials in config files.** Use `${ENV_VAR}` placeholders, as the shipped examples do.
+- **OpenCode 2.x servers are password-protected.** Give the wrapper the password through `OPENCODE_SERVER_PASSWORD`, never `opencode.password` in a committed config. The password travels as HTTP Basic auth, so keep the wrapper and OpenCode on the same host (or a private network), or put TLS in front of OpenCode, rather than sending it over plain HTTP across an untrusted network.
 - **Assume prompt injection.** An agent reading untrusted files, web pages or issue text can be steered by that content. Combined with shell access, this is the main real-world risk. Don't point an agent with write access at untrusted input and then let it touch anything valuable.
 - **Keep your own API keys private.** Anyone who can reach an unauthenticated agent spends your model quota.
 - **Prefer containers.** Most wrappers ship a Dockerfile; run them with a read-only root filesystem where possible and mount only the workspace.

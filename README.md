@@ -81,7 +81,7 @@ All five wrappers share the same core: A2A v1.0 native + v0.3.x backward-compati
 
 Several wrappers are provider-flexible — you are not locked into a single vendor:
 
-- **`a2a-opencode`** is multi-provider out of the box. OpenCode natively routes to Anthropic, OpenAI, GitHub Copilot, local models, and more — switch provider with one line in `config.json`.
+- **`a2a-opencode`** is multi-provider out of the box. OpenCode natively routes to Anthropic, OpenAI, GitHub Copilot, local models, and more — switch provider with one line in `config.json`. It supports both the OpenCode 1.x and 2.x server APIs and detects which one it is talking to.
 - **`a2a-copilot`** supports custom providers via GitHub Copilot's BYOK ("Bring Your Own Key") capability. Point it at a local Ollama instance, OpenAI, Anthropic, Azure OpenAI, Azure AI Foundry, vLLM, or any OpenAI-compatible endpoint using the `copilot.provider` config block. See the [a2a-copilot BYOK section](a2a-copilot/README.md#bring-your-own-model-byok) for setup and model requirements.
 - **`a2a-antigravity`** exposes Google Antigravity through A2A while keeping the public package Node-based. It creates a managed Python environment for `google-antigravity` via `a2a-antigravity setup`, then uses Gemini API key or Vertex/ADC auth.
 

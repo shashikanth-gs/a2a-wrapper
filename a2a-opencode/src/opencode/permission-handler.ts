@@ -6,7 +6,7 @@
  * permission.asked / question.asked events.
  */
 
-import type { OpenCodeClientWrapper } from "./client.js";
+import type { OpenCodeBackend } from "./backend.js";
 import type { EventStreamManager } from "./event-stream.js";
 import type {
   PermissionRequest,
@@ -31,14 +31,14 @@ export interface PermissionHandlerConfig {
 // ─── Handler ────────────────────────────────────────────────────────────────
 
 export class PermissionHandler {
-  private readonly client: OpenCodeClientWrapper;
+  private readonly client: OpenCodeBackend;
   private readonly cfg: Required<Omit<PermissionHandlerConfig, "questionAnswerer">> & {
     questionAnswerer?: PermissionHandlerConfig["questionAnswerer"];
   };
   private handledPerms = new Set<string>();
   private handledQs = new Set<string>();
 
-  constructor(client: OpenCodeClientWrapper, config?: PermissionHandlerConfig) {
+  constructor(client: OpenCodeBackend, config?: PermissionHandlerConfig) {
     this.client = client;
     this.cfg = {
       autoApproveAll: config?.autoApproveAll ?? true,

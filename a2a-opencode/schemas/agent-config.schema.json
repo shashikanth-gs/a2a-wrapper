@@ -396,6 +396,15 @@
           "description": "Default agent (e.g. \"code-assistant\")",
           "type": "string"
         },
+        "apiVersion": {
+          "description": "Which OpenCode server API generation to speak.\n\n- \"auto\" (default): probe the server. OpenCode 2.x answers JSON on   `/api/info`; 1.x serves its web UI there. If the server is unreachable   at startup, 1.x is assumed.\n- \"1\": OpenCode 1.x wire protocol (`/session`, `/event`, ...).\n- \"2\": OpenCode 2.x wire protocol (`/api/*`).",
+          "enum": [
+            "auto",
+            "1",
+            "2"
+          ],
+          "type": "string"
+        },
         "baseUrl": {
           "description": "OpenCode server base URL (default: \"http://localhost:4096\")",
           "type": "string"
@@ -412,6 +421,10 @@
           "description": "Default model (e.g. \"github-copilot/claude-sonnet-4.5\")",
           "type": "string"
         },
+        "password": {
+          "description": "Server password for OpenCode 2.x (`opencode serve` prints one at startup and requires HTTP Basic auth). Prefer the `OPENCODE_SERVER_PASSWORD` environment variable over writing it into a config file.",
+          "type": "string"
+        },
         "projectDirectory": {
           "description": "Target project directory for all OpenCode API calls",
           "type": "string"
@@ -426,6 +439,10 @@
             "append",
             "replace"
           ],
+          "type": "string"
+        },
+        "username": {
+          "description": "Basic-auth username sent with the password (default: \"opencode\"). OpenCode 2.x servers always expect \"opencode\"; change this only if a reverse proxy in front of OpenCode uses different credentials.",
           "type": "string"
         }
       },

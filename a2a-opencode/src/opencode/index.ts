@@ -5,8 +5,20 @@
  * for programmatic use without importing subdirectory modules directly.
  */
 
-export { OpenCodeClientWrapper, OpenCodeApiError } from "./client.js";
-export type { ClientConfig, EventStreamHandle } from "./client.js";
+export { OpenCodeClientWrapper, OpenCodeVersionError } from "./client.js";
+export type { ClientConfig } from "./client.js";
+export { OpenCodeClientV2 } from "./client-v2.js";
+export type { ClientV2Config } from "./client-v2.js";
+export { OpenCodeApiError, OpenCodeAuthError } from "./backend.js";
+export type {
+  OpenCodeBackend,
+  EventStreamHandle,
+  SessionCreateOptions,
+  PromptBody,
+  McpStatusMap,
+} from "./backend.js";
+export { createBackend, detectServerVersion } from "./backend-factory.js";
+export type { BackendOptions, DetectedVersion } from "./backend-factory.js";
 
 export { EventStreamManager } from "./event-stream.js";
 export type { ReconnectConfig, EventStreamOptions } from "./event-stream.js";
