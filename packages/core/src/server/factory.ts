@@ -64,6 +64,7 @@ import {
 import type { AgentCardConfig } from "../config/types.js";
 import type { EventTransport, EventTransportFn } from "../events/transport.js";
 import { instrumentExecutor } from "../telemetry/instrument.js";
+import { PEER_HEADER } from "../telemetry/propagation.js";
 import type { OtelConfig } from "../telemetry/types.js";
 import { buildAgentCard, buildAgentCardForUrls, buildLegacyAgentCard } from "./agent-card.js";
 import type { BuildAgentCardInput } from "./agent-card.js";
@@ -351,6 +352,21 @@ export async function createA2AServer<T extends BuildAgentCardInput>(
 
   // ── 4. Express app ──────────────────────────────────────────────────────
   const app = express();
+
+  // Behind a gateway the real client is in X-Forwarded-For; Express only honours
+  // it when told which proxies to trust (used by otel.propagation.trustedPeers).
+  const trustProxy = (config as unknown as { server?: { trustProxy?: boolean | number | string | string[] } }).server
+    ?.trustProxy;
+  if (trustProxy !== undefined && trustProxy !== false) app.set("trust proxy", trustProxy);
+
+  // ── Caller address ──────────────────────────────────────────────────────
+  // The A2A SDK hands handlers only the request headers, not the socket. Record
+  // the caller's address in an internal header, **overwriting** any value the
+  // client sent, so otel.propagation.trustedPeers can rely on it.
+  app.use((req, _res, next) => {
+    req.headers[PEER_HEADER] = req.ip || req.socket?.remoteAddress || "";
+    next();
+  });
 
   // ── A2A-Version response header middleware ──────────────────────────────
   // Every response includes the protocol version this server implements.

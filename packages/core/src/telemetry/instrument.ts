@@ -22,6 +22,7 @@ import {
   type TaskInvocationKind,
 } from "./attributes.js";
 import { extractA2ATraceContext, runWithTaskOtelStore, type TaskOtelStore } from "./context.js";
+import { decideInbound, resolvePropagationSettings } from "./propagation.js";
 import {
   resolveOtelEmissionPolicy,
   type OtelConfig,
@@ -108,6 +109,7 @@ export function instrumentExecutor(
   options: InstrumentExecutorOptions,
 ): A2AExecutor {
   const policy = resolveOtelEmissionPolicy(options.otel);
+  const propagation = resolvePropagationSettings(options.otel);
   const agentName = options.agentName;
   const agentId = slugAgentId(agentName);
 
@@ -150,7 +152,20 @@ export function instrumentExecutor(
       return runWithTaskOtelStore(store, () => executor.execute(ctx, bus));
     }
 
-    const links = linkToPriorAttempt(taskId, invocation, invocationKind);
+    // Relationship to the caller's trace and to any existing server span
+    // (design sections 8.2 to 8.4): parent, kind and links for the request span.
+    const inbound = decideInbound(ctx, propagation);
+    attrs["a2a.propagation.policy"] = inbound.policy;
+    attrs["a2a.propagation.source"] = inbound.source;
+    if (inbound.ambient && propagation.enrichServerSpan) {
+      for (const key of ["a2a.task.id", "a2a.context.id", "a2a.message.id", "gen_ai.conversation.id", "gen_ai.agent.name"]) {
+        const v = attrs[key];
+        if (v !== undefined) inbound.ambient.setAttribute?.(key, v);
+      }
+    }
+
+    const priorLinks = linkToPriorAttempt(taskId, invocation, invocationKind);
+    const links = [...(priorLinks ?? []), ...(inbound.links ?? [])];
     return withSpan(
       "a2a.task.execute",
       attrs,
@@ -168,7 +183,11 @@ export function instrumentExecutor(
         };
         return runWithTaskOtelStore(store, () => executor.execute(ctx, bus));
       },
-      links ? { links } : undefined,
+      {
+        kind: inbound.kind,
+        ...(inbound.parentContext !== undefined ? { parentContext: inbound.parentContext } : {}),
+        ...(links.length > 0 ? { links } : {}),
+      },
     );
   };
 

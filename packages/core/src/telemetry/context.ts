@@ -59,7 +59,7 @@ function pickString(...candidates: unknown[]): string | undefined {
   return undefined;
 }
 
-function collectMetadata(ctx: RequestContext): Record<string, unknown> {
+export function collectMetadata(ctx: RequestContext): Record<string, unknown> {
   const raw = ctx as unknown as Record<string, unknown>;
   const fromRequest = (raw.request as { params?: { metadata?: Record<string, unknown> } } | undefined)
     ?.params?.metadata;

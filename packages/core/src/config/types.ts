@@ -203,6 +203,16 @@ export interface ServerConfig {
    * @default "http"
    */
   advertiseProtocol?: "http" | "https";
+
+  /**
+   * Express `trust proxy` setting. Needed behind a gateway or reverse proxy so
+   * the caller address used by `otel.propagation.trustedPeers` is the real
+   * client (taken from `X-Forwarded-For`) and not the proxy.
+   * Accepts what Express accepts: `true`, a hop count, or a CIDR/keyword list
+   * such as `"loopback"` or `["10.0.0.0/8"]`.
+   * @default false
+   */
+  trustProxy?: boolean | number | string | string[];
 }
 
 // ─── Session Config ─────────────────────────────────────────────────────────

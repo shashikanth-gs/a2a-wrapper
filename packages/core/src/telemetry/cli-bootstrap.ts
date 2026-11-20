@@ -65,6 +65,31 @@ async function loadExporter(
 }
 
 /**
+ * Resolve `otel.exporter.headers`: `${VAR}` tokens are substituted from the
+ * environment. A header whose variable is unset keeps the literal token and a
+ * single warning names the header (never its value).
+ */
+export function resolveExporterHeaders(
+  headers: Record<string, string> | undefined,
+  env: Record<string, string | undefined> = process.env,
+): Record<string, string> | undefined {
+  if (!headers || Object.keys(headers).length === 0) return undefined;
+  const out: Record<string, string> = {};
+  for (const [name, value] of Object.entries(headers)) {
+    const resolved = value.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (token, v: string) => {
+      const found = env[v];
+      if (found === undefined) {
+        console.warn(`[a2a-wrapper/otel] otel.exporter.headers["${name}"] references unset environment variable ${v}`);
+        return token;
+      }
+      return found;
+    });
+    out[name] = resolved;
+  }
+  return out;
+}
+
+/**
  * Start a NodeSDK + OTLP HTTP exporter and register the tracer for core hooks.
  * No-op when already bootstrapped, when OTel is disabled, or when endpoint is missing.
  */
@@ -104,7 +129,11 @@ export async function bootstrapOtelSdkFromConfig(
     const serviceName = otel.serviceName ?? "a2a-wrapper";
     // CLI processes are short-lived — use SimpleSpanProcessor so spans export
     // promptly (BatchSpanProcessor often loses the last flush on SIGTERM).
-    const traceExporter = new exporter.OTLPTraceExporter({ url: tracesUrl(endpoint) });
+    const headers = resolveExporterHeaders(otel.exporter?.headers);
+    const traceExporter = new exporter.OTLPTraceExporter({
+      url: tracesUrl(endpoint),
+      ...(headers ? { headers } : {}),
+    });
     const sdk = new NodeSDK({
       serviceName,
       spanProcessors: [new SimpleSpanProcessor(traceExporter)],

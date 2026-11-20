@@ -692,6 +692,13 @@
               "description": "e.g. `http://127.0.0.1:6006` (Phoenix) or `http://127.0.0.1:4318`",
               "type": "string"
             },
+            "headers": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Extra OTLP request headers (e.g. Langfuse / Grafana Cloud Basic auth). Values support `${VAR}` environment substitution and are never logged. The standard `OTEL_EXPORTER_OTLP_HEADERS` environment variable also works and is preferred when you want to keep secrets out of config files.",
+              "type": "object"
+            },
             "protocol": {
               "description": "OTLP encoding for CLI bootstrap.\n- `http/protobuf` (default) — `@opentelemetry/exporter-trace-otlp-proto`   (Phoenix accepts only protobuf over HTTP)\n- `http/json` — `@opentelemetry/exporter-trace-otlp-http`",
               "type": "string"
@@ -704,10 +711,18 @@
           "description": "When true, map `AgentEvent` tool calls into wrapper OTel child spans. Defaults to false. Forced off when a backend OTel block is present unless  {@link  emitOverlappingBackendSpans }  is true.",
           "type": "boolean"
         },
+        "propagation": {
+          "$ref": "#/definitions/OtelPropagationConfig",
+          "description": "How an inbound W3C trace context (from the caller) is handled. See docs/design/distributed-tracing.md (sections 8.2 and 8.3). Environment overrides: `A2A_OTEL_INBOUND`, `A2A_OTEL_TRUSTED_PEERS`, `A2A_OTEL_UNTRUSTED`, `A2A_OTEL_CARRIERS`."
+        },
         "serviceName": {
           "default": "derived from agent card / wrapper name",
           "description": "Service name resource attribute for wrapper spans.",
           "type": "string"
+        },
+        "span": {
+          "$ref": "#/definitions/OtelSpanConfig",
+          "description": "How the request span relates to an existing server span. Environment overrides: `A2A_OTEL_SERVER_SPAN`, `A2A_OTEL_ENRICH_SERVER_SPAN`."
         },
         "taskUsageRollup": {
           "default": true,
@@ -717,6 +732,77 @@
         "tracerName": {
           "default": "a2a-wrapper",
           "description": "Instrumentation scope name passed to `getTracer`.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "OtelPropagationConfig": {
+      "additionalProperties": false,
+      "description": "Inbound trace-context policy (same vocabulary as Elastic APM and Datadog).",
+      "properties": {
+        "carriers": {
+          "default": [
+            "header",
+            "metadata"
+          ],
+          "description": "Where to look for an inbound `traceparent`, in order of precedence: HTTP headers, then message metadata.",
+          "items": {
+            "enum": [
+              "header",
+              "metadata"
+            ],
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "inbound": {
+          "default": "continue",
+          "description": "What to do with a valid inbound `traceparent`:\n- `continue`: join the caller's trace (remote parent). Connected graph.\n- `restart`: start a new trace and add a span link to the caller.\n- `ignore`: start a new trace and discard the caller's context.\n\nAn unauthenticated endpoint plus `continue` lets any caller choose your trace id and sampling flag; use `trustedPeers` or `restart`/`ignore` there.",
+          "enum": [
+            "continue",
+            "restart",
+            "ignore"
+          ],
+          "type": "string"
+        },
+        "trustedPeers": {
+          "default": "[] (every caller is trusted)",
+          "description": "CIDRs (or single IPs) of callers trusted to supply trace context. When non-empty, callers outside the list get the `untrusted` policy. Behind a gateway also set `server.trustProxy` so the caller address is the real client.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "untrusted": {
+          "default": "restart",
+          "description": "Policy for callers outside `trustedPeers`.",
+          "enum": [
+            "restart",
+            "ignore"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "OtelSpanConfig": {
+      "additionalProperties": false,
+      "description": "Request-span handling relative to an existing (e.g. HTTP instrumentation) server span.",
+      "properties": {
+        "enrichServerSpan": {
+          "default": false,
+          "description": "In `auto`-nest, also add `a2a.*` attributes to the existing server span.",
+          "type": "boolean"
+        },
+        "server": {
+          "default": "auto",
+          "description": "- `auto`: if an ambient recording SERVER span exists, nest under it as an   INTERNAL child (the host already extracted the context); otherwise create   our own SERVER span and extract the caller's context.\n- `own`: always create our own SERVER span and extract.\n- `nest`: never extract; always a child of the active context (INTERNAL).",
+          "enum": [
+            "auto",
+            "own",
+            "nest"
+          ],
           "type": "string"
         }
       },

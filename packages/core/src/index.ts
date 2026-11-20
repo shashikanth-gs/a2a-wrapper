@@ -183,6 +183,16 @@ export type {
   CreateExecutionObservabilityOptions,
   ExecutionObservability,
   WithSpanOptions,
+  OtelPropagationConfig,
+  OtelSpanConfig,
+  InboundPolicy,
+  UntrustedPolicy,
+  InboundCarrierName,
+  ServerSpanMode,
+  ResolvedPropagation,
+  ParsedTraceparent,
+  InboundCarrier,
+  InboundDecision,
 } from "./telemetry/index.js";
 
 export {
@@ -216,6 +226,19 @@ export {
   buildClaudeOtelEnv,
   mergeCodexOtelOverrides,
   isOpenCodeBackendOtelEnabled,
+  resolveExporterHeaders,
+  PEER_HEADER,
+  DEFAULT_PROPAGATION,
+  resolvePropagationSettings,
+  parseTraceparent,
+  sanitizeTracestate,
+  collectInboundCarrier,
+  peerOf,
+  isTrustedPeer,
+  effectiveInboundPolicy,
+  detectAmbientServerSpan,
+  buildRemoteContext,
+  decideInbound,
 } from "./telemetry/index.js";
 // ─── A2A SDK Type Re-exports ────────────────────────────────────────────────
 //

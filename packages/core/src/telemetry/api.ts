@@ -14,6 +14,13 @@ import type { OtelSpanLike, OtelSpanLinkLike, OtelTracerLike } from "./types.js"
 export interface WithSpanOptions {
   /** Span links (e.g. prior attempt of the same A2A task). */
   links?: OtelSpanLinkLike[];
+  /** OpenTelemetry `SpanKind` numeric value (INTERNAL 0, SERVER 1). Default: the API default (INTERNAL). */
+  kind?: number;
+  /**
+   * Parent OpenTelemetry `Context` for the span. The span is also made active
+   * within this context. Omit to use the active context.
+   */
+  parentContext?: unknown;
 }
 
 const require = createRequire(import.meta.url);
@@ -76,10 +83,15 @@ export async function withSpan<T>(
     return block(undefined);
   }
 
-  const span = tracer.startSpan(name, {
-    attributes,
-    ...(options?.links?.length ? { links: options.links } : {}),
-  });
+  const span = tracer.startSpan(
+    name,
+    {
+      attributes,
+      ...(options?.kind !== undefined ? { kind: options.kind } : {}),
+      ...(options?.links?.length ? { links: options.links } : {}),
+    },
+    options?.parentContext,
+  );
 
   const run = async (): Promise<T> => {
     try {
@@ -119,7 +131,7 @@ export async function withSpan<T>(
   if (api && typeof span.spanContext === "function") {
     let ctx: unknown;
     try {
-      ctx = api.trace.setSpan(api.context.active(), span);
+      ctx = api.trace.setSpan(options?.parentContext ?? api.context.active(), span);
     } catch {
       return run();
     }

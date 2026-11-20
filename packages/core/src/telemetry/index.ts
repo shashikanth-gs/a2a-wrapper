@@ -7,6 +7,8 @@
 export type {
   OtelCommonConfig,
   OtelConfig,
+  OtelPropagationConfig,
+  OtelSpanConfig,
   OtelCopilotBackendConfig,
   OtelClaudeBackendConfig,
   OtelCodexBackendConfig,
@@ -36,6 +38,7 @@ export {
 export {
   bootstrapOtelSdkFromConfig,
   shutdownOtelSdk,
+  resolveExporterHeaders,
 } from "./cli-bootstrap.js";
 
 export {
@@ -58,6 +61,29 @@ export {
 export { getCorePackageVersion, readPackageIdentity } from "./package-meta.js";
 
 export { instrumentExecutor, type InstrumentExecutorOptions } from "./instrument.js";
+
+export {
+  PEER_HEADER,
+  DEFAULT_PROPAGATION,
+  resolvePropagationSettings,
+  parseTraceparent,
+  sanitizeTracestate,
+  collectInboundCarrier,
+  peerOf,
+  isTrustedPeer,
+  effectiveInboundPolicy,
+  detectAmbientServerSpan,
+  buildRemoteContext,
+  decideInbound,
+  type InboundPolicy,
+  type UntrustedPolicy,
+  type InboundCarrierName,
+  type ServerSpanMode,
+  type ResolvedPropagation,
+  type ParsedTraceparent,
+  type InboundCarrier,
+  type InboundDecision,
+} from "./propagation.js";
 
 export { observeAgentEvent } from "./emitter-bridge.js";
 
