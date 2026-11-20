@@ -279,7 +279,7 @@
           "additionalProperties": {
             "type": "string"
           },
-          "description": "Custom HTTP headers sent with every event POST. Useful for authentication tokens: ```json { \"Authorization\": \"Bearer ${CORTEX_TOKEN}\" } ```",
+          "description": "Custom HTTP headers sent with every event POST. Values support `${VAR}` environment substitution (an unset variable is left as written and a warning naming the variable is printed once). Useful for authentication tokens: ```json { \"Authorization\": \"Bearer ${CORTEX_TOKEN}\" } ```",
           "type": "object"
         },
         "httpTimeout": {
@@ -288,15 +288,16 @@
           "type": "number"
         },
         "httpUrl": {
-          "description": "HTTP endpoint URL for the `\"http\"` transport. Required when `transport` is `\"http\"`.",
+          "description": "HTTP endpoint URL for the `\"http\"` and `\"both\"` transports. Required for those transports. Supports `${VAR}` environment substitution. Environment override: `A2A_EVENTS_HTTP_URL`.",
           "type": "string"
         },
         "transport": {
           "default": "a2a",
-          "description": "Built-in transport type.\n\n- `\"a2a\"` — publish as sideband trace artifacts on the A2A   ExecutionEventBus (default, zero dependencies).\n- `\"http\"` — POST events as JSON to  {@link  httpUrl } .\n\nFor custom transports, leave this unset and provide a transport function via the programmatic `createA2AServer()` API.",
+          "description": "Built-in transport type.\n\n- `\"a2a\"` — publish as sideband trace artifacts on the A2A   ExecutionEventBus (default, zero dependencies).\n- `\"http\"` — POST events as JSON to  {@link  httpUrl } .\n- `\"both\"` — do both. The A2A artifact and the HTTP POST carry the same   `eventId`, so consumers can de-duplicate.\n\nEnvironment override: `A2A_EVENTS_TRANSPORT`.\n\nFor custom transports, leave this unset and provide a transport function via the programmatic `createA2AServer()` API.",
           "enum": [
             "a2a",
-            "http"
+            "http",
+            "both"
           ],
           "type": "string"
         }

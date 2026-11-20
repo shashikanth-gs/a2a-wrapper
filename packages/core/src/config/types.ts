@@ -379,17 +379,22 @@ export interface EventsConfig {
    * - `"a2a"` — publish as sideband trace artifacts on the A2A
    *   ExecutionEventBus (default, zero dependencies).
    * - `"http"` — POST events as JSON to {@link httpUrl}.
+   * - `"both"` — do both. The A2A artifact and the HTTP POST carry the same
+   *   `eventId`, so consumers can de-duplicate.
+   *
+   * Environment override: `A2A_EVENTS_TRANSPORT`.
    *
    * For custom transports, leave this unset and provide a transport
    * function via the programmatic `createA2AServer()` API.
    *
    * @default "a2a"
    */
-  transport?: "a2a" | "http";
+  transport?: "a2a" | "http" | "both";
 
   /**
-   * HTTP endpoint URL for the `"http"` transport.
-   * Required when `transport` is `"http"`.
+   * HTTP endpoint URL for the `"http"` and `"both"` transports.
+   * Required for those transports. Supports `${VAR}` environment
+   * substitution. Environment override: `A2A_EVENTS_HTTP_URL`.
    */
   httpUrl?: string;
 
@@ -400,7 +405,9 @@ export interface EventsConfig {
   httpTimeout?: number;
 
   /**
-   * Custom HTTP headers sent with every event POST.
+   * Custom HTTP headers sent with every event POST. Values support `${VAR}`
+   * environment substitution (an unset variable is left as written and a
+   * warning naming the variable is printed once).
    * Useful for authentication tokens:
    * ```json
    * { "Authorization": "Bearer ${CORTEX_TOKEN}" }
