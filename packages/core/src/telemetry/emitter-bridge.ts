@@ -5,6 +5,7 @@
  * @module telemetry/emitter-bridge
  */
 
+import { toolSpanName } from "./span-naming.js";
 import { compatToolAttributes } from "./compat.js";
 import type { EventType } from "../events/transport.js";
 import { getOtelTracer } from "./api.js";
@@ -49,7 +50,7 @@ export function observeAgentEvent(eventType: EventType, data: Record<string, unk
     if (eventType === "tool_call_start") {
       const key = toolKey(data);
       const toolName = String(data.tool ?? data.name ?? key);
-      const child = tracer.startSpan(`a2a.mcp.tool ${toolName}`, {
+      const child = tracer.startSpan(toolSpanName(store.policy.spanNaming, toolName), {
         attributes: {
           "gen_ai.operation.name": "execute_tool",
           "gen_ai.tool.name": toolName,

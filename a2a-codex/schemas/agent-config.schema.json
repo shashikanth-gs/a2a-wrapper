@@ -575,6 +575,11 @@
           "$ref": "#/definitions/OtelSpanConfig",
           "description": "How the request span relates to an existing server span. Environment overrides: `A2A_OTEL_SERVER_SPAN`, `A2A_OTEL_ENRICH_SERVER_SPAN`."
         },
+        "spanNaming": {
+          "$ref": "#/definitions/OtelSpanNaming",
+          "default": "legacy",
+          "description": "Span naming scheme.\n- `\"legacy\"` (default): `a2a.task.execute`, `a2a.mcp.tool {tool}`.\n- `\"semconv\"`: OpenTelemetry GenAI names, `invoke_agent {agent}` and   `execute_tool {tool}`. Only names change; attributes are identical.   The cancel span keeps its name. Migrate dashboards and queries that   match on span name before switching.\n\nEnvironment override: `A2A_OTEL_SPAN_NAMING`."
+        },
         "taskUsageRollup": {
           "default": true,
           "description": "Stamp per-request usage rollups (`a2a.task.usage.*`, and `gen_ai.usage.*` when the wrapper is the sole OTel source) via  {@link  applyUsageSummaryToActiveSpan  } .\n\nDefault `true` when `enabled`. Sideband `x-usage` is unaffected. Set `false` only to debug de-dupe / cardinality — rarely needed because the whole bridge is already a no-op when `enabled` is false.",
@@ -589,7 +594,6 @@
       "type": "object"
     },
     "OtelCompat": {
-      "description": "OpenTelemetry configuration and emission policy types.\n\n`@a2a-wrapper/core` only peers on `@opentelemetry/api` (optional). Exporters / the SDK belong to the host application or wrapper CLI.",
       "enum": [
         "langfuse",
         "openinference"
@@ -666,6 +670,14 @@
         }
       },
       "type": "object"
+    },
+    "OtelSpanNaming": {
+      "description": "Span naming scheme (see `otel.spanNaming`).",
+      "enum": [
+        "legacy",
+        "semconv"
+      ],
+      "type": "string"
     },
     "ServerConfig": {
       "additionalProperties": false,

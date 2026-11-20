@@ -14,11 +14,28 @@
  * {@link OtelConfig.backend} (and each wrapper's schema only exposes *its*
  * backend key — see {@link OtelCopilotConfig}, {@link OtelClaudeConfig}, …).
  */
+/** Span naming scheme (see `otel.spanNaming`). */
+export type OtelSpanNaming = "legacy" | "semconv";
+
 /** Platform compatibility attribute sets (see `otel.compat`). */
+import { resolveSpanNaming } from "./span-naming.js";
 import { resolveCompat } from "./compat.js";
 export type OtelCompat = "langfuse" | "openinference";
 
 export interface OtelCommonConfig {
+  /**
+   * Span naming scheme.
+   * - `"legacy"` (default): `a2a.task.execute`, `a2a.mcp.tool {tool}`.
+   * - `"semconv"`: OpenTelemetry GenAI names, `invoke_agent {agent}` and
+   *   `execute_tool {tool}`. Only names change; attributes are identical.
+   *   The cancel span keeps its name. Migrate dashboards and queries that
+   *   match on span name before switching.
+   *
+   * Environment override: `A2A_OTEL_SPAN_NAMING`.
+   * @default "legacy"
+   */
+  spanNaming?: OtelSpanNaming;
+
   /**
    * Opt-in platform compatibility attributes, added next to the standard ones
    * (never replacing them). Default: none.
@@ -285,6 +302,8 @@ export interface OtelEmissionPolicy {
   annotateUsageCalls: boolean;
   /** Platform compat attribute sets selected by `otel.compat` / `A2A_OTEL_COMPAT`. */
   compat?: OtelCompat[];
+  /** Span naming scheme selected by `otel.spanNaming` / `A2A_OTEL_SPAN_NAMING`. */
+  spanNaming?: OtelSpanNaming;
 }
 
 /**
@@ -362,5 +381,6 @@ export function resolveOtelEmissionPolicy(otel?: OtelConfig | null): OtelEmissio
     emitTaskUsageRollup,
     annotateUsageCalls,
     compat: enabled ? resolveCompat(otel) : [],
+    spanNaming: resolveSpanNaming(otel),
   };
 }
