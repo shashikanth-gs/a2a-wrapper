@@ -1,5 +1,99 @@
 # Changelog
 
+## 1.8.0
+
+### Minor Changes
+
+- b8b0671: Support OpenCode 2.x alongside 1.x (#60). OpenCode 2 moved its whole server API under `/api/*`, requires HTTP Basic auth, and admits prompts to a durable inbox, so the 1.x client could not talk to it.
+
+  - New 2.x client built on `@opencode/client`, behind a common `OpenCodeBackend` interface. The executor, session manager, permission handler and MCP manager are unchanged in behaviour and work with either generation.
+  - `opencode.apiVersion` (`auto` | `1` | `2`, default `auto`) selects the protocol. `auto` probes `GET /api/info`; if the server is unreachable at startup, 1.x is assumed as before.
+  - New `--api-version <auto|1|2>` CLI flag. There is deliberately no password flag (it would leak into process listings and shell history); use `OPENCODE_SERVER_PASSWORD`.
+  - New `opencode.password` / `opencode.username` options and `OPENCODE_SERVER_PASSWORD` / `OPENCODE_API_VERSION` environment variables. A missing or wrong 2.x password now fails at startup with a clear message instead of at the first API call.
+  - Forcing `apiVersion: "1"` against a 2.x server also fails at startup with a clear version error.
+  - The event stream now waits (up to 5s) for the subscription to be live before a prompt is sent, and `disconnect()` aborts the underlying stream.
+  - Fix: a fatal startup error no longer aborts the process on Windows with a libuv `Assertion failed ... UV_HANDLE_CLOSING` message. The CLI now exits via `process.exitCode` (with a forced-exit fallback) and the version probes release their HTTP response bodies.
+  - `Promise.withResolvers` is polyfilled for Node 20, which `@opencode/client` needs for its event stream (Node 22+ has it natively).
+  - Absolute project directories are passed through in either POSIX or Windows style, so the wrapper and the OpenCode server may run on different operating systems.
+  - Fix: `a2a-opencode` now emits `agent_started` and exactly one `agent_finished` / `agent_error` per task through the configured event transport, as the other wrappers do. `agent_finished` carries `data.usage` (the shared `UsageTelemetryData` summary, one entry per LLM call, on both OpenCode 1.x and 2.x; `null` when no call was observed). Previously only `tool_call_*` events were emitted, although the README claimed lifecycle events. With the default A2A transport, clients now also see `trace.lifecycle` sideband artifacts. OpenCode's own `cost` figure is passed through and never estimated.
+  - README gains a tested-versions matrix (OpenCode 1.19.6 and 2.3.2) and notes on 2.x behaviour differences. The JSON schema, `.env.example`, example agent configs and `start.sh` headers, CLI `--help`, and `docs/security.md` are updated for the new options; `server.sh` warns when 2.x generated a random password.
+
+- f6efa31: feat(otel): opt-in Langfuse and Phoenix attribute sets (`otel.compat`)
+
+  - New `otel.compat: ["langfuse", "openinference"]` (env `A2A_OTEL_COMPAT`, default none). Adds `langfuse.observation.type` and the OpenInference `openinference.span.kind`, `agent.name`, `graph.node.*` (parent edge only when a parent agent is known) to the request span, and the tool equivalents to mirrored tool spans, so Langfuse and Phoenix draw their agent views.
+  - Standard attributes are never changed; with no compat selected the attribute set is identical to before.
+  - Content (`input.value`/`output.value`) and `llm.token_count.*` are intentionally not added.
+  - The JSON Schema of every wrapper gains `otel.compat`.
+
+- dda8404: feat(events): event attribution, `events.transport: "both"`, and `${VAR}` in event settings
+
+  - New `events.transport: "both"` sends each event to the A2A sideband and the HTTP collector with the same `eventId`; a failing collector never blocks the A2A copy.
+  - `events.httpUrl` and `events.httpHeaders` values support `${VAR}` substitution (unset variable: left as written, warned once, value never logged). New env overrides `A2A_EVENTS_TRANSPORT` and `A2A_EVENTS_HTTP_URL`.
+  - Every event now carries the orchestrator's `propagatedMetadata` (bounded to 64 keys / 8 KB, key charset `[A-Za-z0-9_.-]`, secret-looking keys redacted).
+  - A2A trace artifacts gain `eventId`, `parentAgentId`, `otelTraceId`, `otelSpanId` in metadata and `event_id`, `parent_agent_id`, `propagated_metadata` in data.
+  - The JSON Schema of every wrapper accepts `events.transport: "both"`.
+
+- 079ce38: feat(otel): join the caller's distributed trace (design: `docs/design/distributed-tracing.md`)
+
+  - `a2a.task.execute` now continues the W3C `traceparent` / `tracestate` sent by the caller (HTTP header for JSON-RPC and REST, message metadata as fallback), with strict validation.
+  - Behaviour change: the request span is now `SpanKind.SERVER`. When `@opentelemetry/instrumentation-http` is active the span nests under the HTTP SERVER span as `INTERNAL` instead (`otel.span.server: "auto"`), so there are no duplicate SERVER spans.
+  - New config: `otel.propagation.{inbound,trustedPeers,untrusted,carriers}`, `otel.span.{server,enrichServerSpan}`, `otel.exporter.headers`, `server.trustProxy`; env overrides `A2A_OTEL_INBOUND`, `A2A_OTEL_TRUSTED_PEERS`, `A2A_OTEL_UNTRUSTED`, `A2A_OTEL_CARRIERS`, `A2A_OTEL_SERVER_SPAN`, `A2A_OTEL_ENRICH_SERVER_SPAN`.
+  - Trust: `trustedPeers` limits who may supply trace context; the caller address is set by the server from the socket (a client `x-a2a-peer` header is overwritten). Untrusted callers get `restart` (new trace plus span link) or `ignore`.
+  - Request spans record `a2a.propagation.policy` and `a2a.propagation.source`.
+  - Event-transport events and A2A artifact data carry `otelTraceId` / `otelSpanId`.
+  - The JSON Schema of every wrapper gains the new `otel` and `server` fields.
+
+- a2bfdd2: feat(otel): Phoenix demo, package identity attrs, usage flags
+
+  - Replace Jaeger compose requirement with Arize Phoenix (`phoenix serve`, optional Docker)
+  - CLI bootstrap defaults to `http/protobuf` via `@opentelemetry/exporter-trace-otlp-proto` (Phoenix rejects JSON)
+  - Stamp `a2a.wrapper.core.version`, `a2a.wrapper.sdk`, `a2a.wrapper.sdk.version` on task spans
+  - Wire all wrapper servers with package name/version
+  - `otel.taskUsageRollup` (default true) + `otel.annotateUsageCalls` (default false; Claude/Codex per-call events)
+  - Smoke scripts: `examples/otel-stack/smoke-export.mjs` + `smoke-providers.mjs` (copilot/claude executor → Phoenix)
+
+- 55b2f9d: feat(otel): opt-in OpenTelemetry GenAI span names (`otel.spanNaming`)
+
+  - New `otel.spanNaming: "legacy" | "semconv"` (env `A2A_OTEL_SPAN_NAMING`, default `legacy`). `semconv` names the request span `invoke_agent {agent}` and mirrored tool spans `execute_tool {tool}`; the default is unchanged.
+  - Only names change, attributes are identical in both modes, and `a2a.task.cancel` is never renamed.
+  - The JSON Schema of every wrapper gains `otel.spanNaming`.
+
+### Patch Changes
+
+- a2bfdd2: feat(otel): BYOK cookout + shared mock-ollama; wire CLI OTel bootstrap
+
+  - examples/mock-ollama/ — reusable fake Ollama (OpenAI + Anthropic) for any cookout
+  - examples/otel-stack/cookout-byok.mjs layers Phoenix/OTel on that stub
+  - Hand-rolled wrapper CLIs now call bootstrapOtelSdkFromConfig / shutdownOtelSdk
+  - CLI bootstrap uses SimpleSpanProcessor for reliable short-lived export
+
+- a2bfdd2: fix(otel): per-wrapper OTel schema — common at top, backend knobs only for that package
+
+  OpenCode no longer advertises `otel.backend.codex` (and peers). Shared flags stay
+  on `otel.*`; only `otel.backend.<this-wrapper>` appears in each agent schema.
+
+- a2bfdd2: feat(otel): Phase 2 usage mapping + shared execution observability
+
+  - Hook E: `applyUsageSummaryToActiveSpan` with anti-dupe policy — `a2a.task.usage.*` rollup always; `gen_ai.usage.*` only when backend OTel is off
+  - Hook B: `createExecutionObservability` adopted by all wrappers
+  - Hook C: `annotateSessionOnTaskSpan`; W3C `injectW3cTraceHeaders` for outbound calls
+  - Docs: usage double-count rules in `docs/observability.md`
+
+- Updated dependencies [a2bfdd2]
+- Updated dependencies [f6efa31]
+- Updated dependencies [a2bfdd2]
+- Updated dependencies [dda8404]
+- Updated dependencies [079ce38]
+- Updated dependencies [a2bfdd2]
+- Updated dependencies [a2bfdd2]
+- Updated dependencies [a2bfdd2]
+- Updated dependencies [a2bfdd2]
+- Updated dependencies [a2bfdd2]
+- Updated dependencies [a2bfdd2]
+- Updated dependencies [55b2f9d]
+- Updated dependencies [98d2027]
+  - @a2a-wrapper/core@2.2.0
+
 ## 1.7.2
 
 ### Patch Changes
