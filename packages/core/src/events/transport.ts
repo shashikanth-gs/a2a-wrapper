@@ -38,6 +38,8 @@ import type { EventsConfig } from "../config/types.js";
 import { TRACE_EXTENSION_URI } from "../server/agent-card.js";
 import { observeAgentEvent } from "../telemetry/emitter-bridge.js";
 import { getTaskOtelStore } from "../telemetry/context.js";
+import { resolveEventsConfig } from "./events-config.js";
+import { sanitizePropagatedMetadata } from "./propagated-metadata.js";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -91,6 +93,11 @@ export interface AgentEvent {
   otelTraceId?: string;
   /** Span id (16 hex) of the request span active when the event was emitted. */
   otelSpanId?: string;
+  /**
+   * Orchestrator-supplied `propagated_metadata`, bounded and scrubbed
+   * (see {@link sanitizePropagatedMetadata}). Omitted when none was supplied.
+   */
+  propagatedMetadata?: Record<string, unknown>;
 }
 
 /**
@@ -139,8 +146,11 @@ export class A2ATransport implements EventTransport {
       agent_name: event.agentName,
       trace_id: event.traceId,
     };
+    data.event_id = event.eventId;
+    if (event.parentAgentId) data.parent_agent_id = event.parentAgentId;
     if (event.otelTraceId) data.otel_trace_id = event.otelTraceId;
     if (event.otelSpanId) data.otel_span_id = event.otelSpanId;
+    if (event.propagatedMetadata) data.propagated_metadata = event.propagatedMetadata;
     const state = LIFECYCLE_STATE[event.eventType];
     if (state) data.state = state;
     Object.assign(data, event.data);
@@ -160,6 +170,10 @@ export class A2ATransport implements EventTransport {
         metadata: {
           traceType: traceKey,
           timestamp: event.timestamp,
+          eventId: event.eventId,
+          ...(event.parentAgentId ? { parentAgentId: event.parentAgentId } : {}),
+          ...(event.otelTraceId ? { otelTraceId: event.otelTraceId } : {}),
+          ...(event.otelSpanId ? { otelSpanId: event.otelSpanId } : {}),
         },
         parts: [
           {
@@ -203,6 +217,26 @@ export class HttpTransport implements EventTransport {
       }
     } catch (e) {
       console.warn(`[transport:http] POST error: ${(e as Error).message}`);
+    }
+  }
+}
+
+/**
+ * Sends every event to several transports (`events.transport: "both"`).
+ *
+ * Each transport receives the **same event object**, so the same `eventId`
+ * appears on every copy and consumers can de-duplicate. One transport failing
+ * never prevents delivery on the others.
+ */
+class CompositeTransport implements EventTransport {
+  constructor(private readonly transports: EventTransport[]) {}
+
+  async send(event: AgentEvent): Promise<void> {
+    const results = await Promise.allSettled(this.transports.map((t) => t.send(event)));
+    for (const r of results) {
+      if (r.status === "rejected") {
+        console.warn(`[transport:both] a transport failed: ${(r.reason as Error)?.message ?? r.reason}`);
+      }
     }
   }
 }
@@ -279,12 +313,16 @@ export function wrapTransport(
  *
  * @throws {Error} When `transport` is `"http"` and `httpUrl` is missing.
  */
-export function createTransport(cfg: EventsConfig): EventTransport {
+export function createTransport(rawCfg: EventsConfig): EventTransport {
+  const cfg = resolveEventsConfig(rawCfg);
   if (cfg.enabled === false) return new NullTransport();
 
   const type = (cfg.transport ?? "a2a").toLowerCase();
 
   switch (type) {
+    case "both":
+      console.warn("[transport] createTransport('both') has no A2A bus context; using HTTP only. Use resolveTransport() in the executor.");
+    // falls through
     case "http": {
       if (!cfg.httpUrl) {
         throw new Error("events.httpUrl is required when transport is 'http'");
@@ -297,7 +335,7 @@ export function createTransport(cfg: EventsConfig): EventTransport {
       console.warn("[transport] createTransport('a2a') called without bus context. Use resolveTransport() in the executor.");
       return new NullTransport();
     default:
-      throw new Error(`Unknown built-in transport: "${type}". Supported: "a2a", "http". For custom transports, use the programmatic API.`);
+      throw new Error(`Unknown built-in transport: "${type}". Supported: "a2a", "http", "both". For custom transports, use the programmatic API.`);
   }
 }
 
@@ -327,7 +365,7 @@ export function resolveTransport(
   contextId: string,
   custom?: EventTransport | EventTransportFn,
 ): EventTransport {
-  const eventsConfig = cfg ?? {};
+  const eventsConfig = resolveEventsConfig(cfg);
   if (eventsConfig.enabled === false) return new NullTransport();
 
   // Programmatic custom transport takes priority
@@ -335,15 +373,17 @@ export function resolveTransport(
 
   const type = (eventsConfig.transport ?? "a2a").toLowerCase();
 
-  if (type === "http") {
+  if (type === "http" || type === "both") {
     if (!eventsConfig.httpUrl) {
-      throw new Error("events.httpUrl is required when transport is 'http'");
+      throw new Error(`events.httpUrl is required when transport is '${type}'`);
     }
-    return new HttpTransport(
+    const http = new HttpTransport(
       eventsConfig.httpUrl,
       eventsConfig.httpTimeout ?? 10_000,
       eventsConfig.httpHeaders ?? {},
     );
+    if (type === "http") return http;
+    return new CompositeTransport([new A2ATransport(bus, taskId, contextId), http]);
   }
 
   // Default: A2A sideband
@@ -379,6 +419,8 @@ export class AgentEventEmitter {
   readonly agentName: string;
   readonly traceId: string;
   readonly parentAgentId: string | null;
+  /** Bounded, scrubbed orchestrator metadata stamped on every event. */
+  readonly propagatedMetadata?: Record<string, unknown>;
   private readonly transport: EventTransport;
 
   constructor(opts: {
@@ -386,6 +428,8 @@ export class AgentEventEmitter {
     agentName: string;
     traceId: string;
     parentAgentId?: string | null;
+    /** Orchestrator `propagated_metadata`; sanitized (caps, redaction) before use. */
+    propagatedMetadata?: Record<string, unknown>;
     transport: EventTransport;
   }) {
     this.agentId = opts.agentId;
@@ -393,6 +437,7 @@ export class AgentEventEmitter {
     this.traceId = opts.traceId;
     this.parentAgentId = opts.parentAgentId ?? null;
     this.transport = opts.transport;
+    this.propagatedMetadata = sanitizePropagatedMetadata(opts.propagatedMetadata);
   }
 
   /**
@@ -415,6 +460,7 @@ export class AgentEventEmitter {
       timestamp: new Date().toISOString(),
       data,
     };
+    if (this.propagatedMetadata) event.propagatedMetadata = this.propagatedMetadata;
     // Join the event to the OpenTelemetry trace when a request span is active.
     try {
       const sc = getTaskOtelStore()?.span?.spanContext?.();

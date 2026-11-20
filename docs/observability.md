@@ -195,6 +195,19 @@ Backend or collector auth: `otel.exporter.headers` (values accept `${VAR}`, neve
 
 Design, trade-offs and measurements: [`docs/design/distributed-tracing.md`](design/distributed-tracing.md).
 
+### Event attribution and transports
+
+Sideband events (tool calls, lifecycle, usage) are stamped so a collector can join them to the trace and to the calling agent:
+
+| Field (HTTP / custom transport) | A2A artifact | Meaning |
+|---|---|---|
+| `eventId` | `metadata.eventId`, `data.event_id` | Unique per event; identical on every transport copy |
+| `otelTraceId`, `otelSpanId` | `metadata.otelTraceId/otelSpanId`, `data.otel_*` | Real W3C ids of the request span (omitted when OTel is off) |
+| `parentAgentId` | `metadata.parentAgentId`, `data.parent_agent_id` | Calling agent, from the orchestrator's `parent_agent_id` |
+| `propagatedMetadata` | `data.propagated_metadata` | Orchestrator's `propagated_metadata`, bounded (64 keys, 8 KB, key charset `[A-Za-z0-9_.-]`); values of secret-looking keys are `[redacted]` |
+
+`events.transport` accepts `a2a` (default), `http`, or `both`. With `both` the A2A artifact and the HTTP POST carry the same `eventId`; one failing never blocks the other. `events.httpUrl` and `events.httpHeaders` values accept `${VAR}`, and `A2A_EVENTS_TRANSPORT` / `A2A_EVENTS_HTTP_URL` override the JSON.
+
 ### Re-entry, resume, retries (the ~1% the wrapper must handle)
 
 The wrapper **cannot stop** the orchestrator (or another agent) from calling again:

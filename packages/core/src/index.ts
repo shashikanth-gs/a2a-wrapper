@@ -66,6 +66,13 @@ export {
   wrapTransport,
 } from "./events/transport.js";
 
+export { resolveEventsConfig, substituteEnv } from "./events/events-config.js";
+export {
+  sanitizePropagatedMetadata,
+  MAX_PROPAGATED_KEYS,
+  MAX_PROPAGATED_BYTES,
+} from "./events/propagated-metadata.js";
+
 export type {
   EventTransport,
   EventTransportFn,

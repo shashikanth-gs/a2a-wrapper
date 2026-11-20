@@ -56,6 +56,7 @@ export function createExecutionObservability(
     agentName,
     traceId: traceContext.traceId,
     parentAgentId: traceContext.parentAgentId,
+    propagatedMetadata: traceContext.metadata,
     transport,
   });
   return { emitter, traceContext, agentId, agentName };

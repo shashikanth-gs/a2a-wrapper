@@ -188,7 +188,7 @@ Pluggable transport layer for sideband observability events (MCP tool calls, age
 | `AgentEvent` | Structured event with `eventId`, `eventType`, `agentId`, `traceId`, `data`. |
 | `EventType` | Union: `tool_call_start`, `tool_call_end`, `thinking`, `decision`, `agent_started`, `agent_finished`, `agent_error`, `context_window`, `rate_limit`, `background_tasks`. Only the types with a trace key (see `EVENT_TO_TRACE_KEY`) also appear as A2A sideband artifacts; `context_window` and `rate_limit` are observable on non-A2A transports only. |
 | `TRACE_EXTENSION_URI` | Constant `"urn:x-a2a:trace:v1"` — declared in agent card capabilities and on trace artifacts. |
-| `EventsConfig` | Config interface — `enabled`, `transport` (`"a2a"` or `"http"`), `httpUrl`, `httpTimeout`, `httpHeaders`. |
+| `EventsConfig` | Config interface — `enabled`, `transport` (`"a2a"`, `"http"` or `"both"`), `httpUrl`, `httpTimeout`, `httpHeaders`. |
 
 #### Built-in transports
 
@@ -196,6 +196,11 @@ Pluggable transport layer for sideband observability events (MCP tool calls, age
 |---|---|---|
 | A2A sideband | `"a2a"` (default) | Publishes trace artifacts on the `ExecutionEventBus`. Orchestrators discover them via the `urn:x-a2a:trace:v1` extension. |
 | HTTP collector | `"http"` | POSTs each event as JSON to `httpUrl`. Supports `httpHeaders` for Bearer tokens / API keys. |
+| Both | `"both"` | Sends every event to the A2A sideband **and** the HTTP collector. Both copies carry the same `eventId`, so consumers can de-duplicate. A failing collector never blocks the A2A copy. |
+
+`httpUrl` and every `httpHeaders` value support `${VAR}` environment substitution (an unset variable is left as written and warned about once). `A2A_EVENTS_TRANSPORT` and `A2A_EVENTS_HTTP_URL` override the JSON values.
+
+Every event carries `eventId`, `agentId`, `parentAgentId`, `otelTraceId` / `otelSpanId` (when tracing is on) and `propagatedMetadata` (the orchestrator's `propagated_metadata`, limited to 64 keys / 8 KB, keys `[A-Za-z0-9_.-]`, values of secret-looking keys such as `token` or `password` replaced by `[redacted]`). On the A2A sideband the same fields appear in the artifact data (`event_id`, `parent_agent_id`, `otel_trace_id`, `otel_span_id`, `propagated_metadata`) and the artifact metadata (`eventId`, `parentAgentId`, `otelTraceId`, `otelSpanId`).
 
 #### JSON config
 
