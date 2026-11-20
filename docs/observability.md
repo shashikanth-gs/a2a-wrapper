@@ -120,6 +120,7 @@ Provider-only smoke (no Phoenix): `node examples/mock-ollama/smoke.mjs`.
 | `otel.backend.codex` | **a2a-codex only** — Hook F: merged into Codex `configOverrides.otel` |
 | `otel.backend.opencode` | **a2a-opencode only** — declares OpenCode server OTel on (de-dupe) |
 | `otel.propagation.*` / `otel.span.*` | Inbound trace-context policy and request-span kind; see [Joining the caller’s trace](#joining-the-callers-trace-distributed-tracing) |
+| `otel.spanNaming` | `legacy` (default) keeps `a2a.task.execute` / `a2a.mcp.tool {tool}`; `semconv` uses the OpenTelemetry GenAI names `invoke_agent {agent}` / `execute_tool {tool}` (see [Span naming](#span-naming)) |
 | `otel.compat` | Opt-in Langfuse / Phoenix attribute sets (see [Platform compatibility](#platform-compatibility-langfuse-and-phoenix)); default none |
 | `otel.exporter.headers` | Extra OTLP request headers (`${VAR}` substitution, never logged) |
 | `otel.emitOverlappingBackendSpans` | Unsafe; allow duplicates (debug only) |
@@ -195,6 +196,18 @@ Every request span also records `a2a.propagation.policy` (`continue`, `restart`,
 Backend or collector auth: `otel.exporter.headers` (values accept `${VAR}`, never logged) or the standard `OTEL_EXPORTER_OTLP_HEADERS`. Events sent through the event transport now carry `otelTraceId` / `otelSpanId` (and `otel_trace_id` / `otel_span_id` on A2A artifact data) so a collector can join them to the trace.
 
 Design, trade-offs and measurements: [`docs/design/distributed-tracing.md`](design/distributed-tracing.md).
+
+### Span naming
+
+`otel.spanNaming` (env `A2A_OTEL_SPAN_NAMING`) chooses the span **names**; attributes are identical in both modes.
+
+| Span | `legacy` (default) | `semconv` |
+|---|---|---|
+| Request | `a2a.task.execute` | `invoke_agent {gen_ai.agent.name}` |
+| Mirrored tool call (`mirrorAgentEvents`) | `a2a.mcp.tool {tool}` | `execute_tool {tool}` |
+| Cancel | `a2a.task.cancel` | `a2a.task.cancel` (no GenAI equivalent) |
+
+The OpenTelemetry GenAI conventions are still in Development, so `legacy` stays the default until they stabilise. Switching changes span names, so update any dashboard, alert or query that matches on them first; Langfuse and Phoenix do not depend on the name (use `otel.compat`). A future major release may flip the default; the change will be announced in the changelog.
 
 ### Platform compatibility (Langfuse and Phoenix)
 

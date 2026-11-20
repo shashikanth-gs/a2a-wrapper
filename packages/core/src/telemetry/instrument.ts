@@ -13,6 +13,7 @@
  * @module telemetry/instrument
  */
 
+import { requestSpanName } from "./span-naming.js";
 import { compatRequestAttributes } from "./compat.js";
 import type { RequestContext, ExecutionEventBus } from "@a2a-js/sdk/server";
 import type { A2AExecutor } from "../executor/types.js";
@@ -174,7 +175,7 @@ export function instrumentExecutor(
     const priorLinks = linkToPriorAttempt(taskId, invocation, invocationKind);
     const links = [...(priorLinks ?? []), ...(inbound.links ?? [])];
     return withSpan(
-      "a2a.task.execute",
+      requestSpanName(policy.spanNaming, agentName),
       attrs,
       async (span) => {
         const sc = span?.spanContext?.();

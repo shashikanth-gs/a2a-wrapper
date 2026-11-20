@@ -9,6 +9,7 @@ export type {
   OtelConfig,
   OtelPropagationConfig,
   OtelCompat,
+  OtelSpanNaming,
   OtelSpanConfig,
   OtelCopilotBackendConfig,
   OtelClaudeBackendConfig,
@@ -116,3 +117,10 @@ export {
   compatToolAttributes,
 } from "./compat.js";
 export type { CompatRequestInfo, CompatSource } from "./compat.js";
+export {
+  SPAN_NAMING_MODES,
+  resolveSpanNaming,
+  requestSpanName,
+  toolSpanName,
+} from "./span-naming.js";
+export type { SpanNamingSource } from "./span-naming.js";
