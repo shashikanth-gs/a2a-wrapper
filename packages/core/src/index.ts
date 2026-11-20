@@ -246,6 +246,13 @@ export {
   detectAmbientServerSpan,
   buildRemoteContext,
   decideInbound,
+  OtelCompat,
+  CompatRequestInfo,
+  CompatSource,
+  COMPAT_MODES,
+  resolveCompat,
+  compatRequestAttributes,
+  compatToolAttributes,
 } from "./telemetry/index.js";
 // ─── A2A SDK Type Re-exports ────────────────────────────────────────────────
 //

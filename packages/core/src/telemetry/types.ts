@@ -14,7 +14,25 @@
  * {@link OtelConfig.backend} (and each wrapper's schema only exposes *its*
  * backend key — see {@link OtelCopilotConfig}, {@link OtelClaudeConfig}, …).
  */
+/** Platform compatibility attribute sets (see `otel.compat`). */
+import { resolveCompat } from "./compat.js";
+export type OtelCompat = "langfuse" | "openinference";
+
 export interface OtelCommonConfig {
+  /**
+   * Opt-in platform compatibility attributes, added next to the standard ones
+   * (never replacing them). Default: none.
+   *
+   * - `"langfuse"`: `langfuse.observation.type` (`agent` on the request span,
+   *   `tool` on mirrored tool spans) so Langfuse draws its agent graph.
+   * - `"openinference"`: `openinference.span.kind` (`AGENT` / `TOOL`),
+   *   `agent.name`, `graph.node.*` (parent edge only when a parent agent is
+   *   known) so Phoenix shows agent icons and a graph.
+   *
+   * Environment override: `A2A_OTEL_COMPAT` (comma-separated, `none` clears).
+   */
+  compat?: OtelCompat[];
+
   /**
    * Master switch for wrapper-owned OTel instrumentation.
    * @default false
@@ -265,6 +283,8 @@ export interface OtelEmissionPolicy {
   emitTaskUsageRollup: boolean;
   /** Emit per-call `a2a.llm.call` span events (wrapper-only token source). */
   annotateUsageCalls: boolean;
+  /** Platform compat attribute sets selected by `otel.compat` / `A2A_OTEL_COMPAT`. */
+  compat?: OtelCompat[];
 }
 
 /**
@@ -341,5 +361,6 @@ export function resolveOtelEmissionPolicy(otel?: OtelConfig | null): OtelEmissio
     emitGenAiUsageAttrs,
     emitTaskUsageRollup,
     annotateUsageCalls,
+    compat: enabled ? resolveCompat(otel) : [],
   };
 }

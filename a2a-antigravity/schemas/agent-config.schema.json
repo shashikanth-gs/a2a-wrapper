@@ -549,12 +549,18 @@
     },
     "OtelCommonConfig": {
       "additionalProperties": false,
-      "description": "Common wrapper-level OTel settings — shared by every `a2a-*` package.\n\nThese are **not** provider-specific. Put only Hook F / vendor knobs under  {@link  OtelConfig.backend }  (and each wrapper's schema only exposes *its* backend key — see  {@link  OtelCopilotConfig } ,  {@link  OtelClaudeConfig } , …).",
       "properties": {
         "annotateUsageCalls": {
           "default": false,
           "description": "Emit per-LLM-call span **events** (`a2a.llm.call`) on the task span when the wrapper is the sole OTel token source. Off by default (noisy).",
           "type": "boolean"
+        },
+        "compat": {
+          "description": "Opt-in platform compatibility attributes, added next to the standard ones (never replacing them). Default: none.\n\n- `\"langfuse\"`: `langfuse.observation.type` (`agent` on the request span,   `tool` on mirrored tool spans) so Langfuse draws its agent graph.\n- `\"openinference\"`: `openinference.span.kind` (`AGENT` / `TOOL`),   `agent.name`, `graph.node.*` (parent edge only when a parent agent is   known) so Phoenix shows agent icons and a graph.\n\nEnvironment override: `A2A_OTEL_COMPAT` (comma-separated, `none` clears).",
+          "items": {
+            "$ref": "#/definitions/OtelCompat"
+          },
+          "type": "array"
         },
         "emitOverlappingBackendSpans": {
           "default": false,
@@ -618,6 +624,14 @@
         }
       },
       "type": "object"
+    },
+    "OtelCompat": {
+      "description": "OpenTelemetry configuration and emission policy types.\n\n`@a2a-wrapper/core` only peers on `@opentelemetry/api` (optional). Exporters / the SDK belong to the host application or wrapper CLI.",
+      "enum": [
+        "langfuse",
+        "openinference"
+      ],
+      "type": "string"
     },
     "OtelPropagationConfig": {
       "additionalProperties": false,

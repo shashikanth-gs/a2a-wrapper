@@ -120,6 +120,7 @@ Provider-only smoke (no Phoenix): `node examples/mock-ollama/smoke.mjs`.
 | `otel.backend.codex` | **a2a-codex only** — Hook F: merged into Codex `configOverrides.otel` |
 | `otel.backend.opencode` | **a2a-opencode only** — declares OpenCode server OTel on (de-dupe) |
 | `otel.propagation.*` / `otel.span.*` | Inbound trace-context policy and request-span kind; see [Joining the caller’s trace](#joining-the-callers-trace-distributed-tracing) |
+| `otel.compat` | Opt-in Langfuse / Phoenix attribute sets (see [Platform compatibility](#platform-compatibility-langfuse-and-phoenix)); default none |
 | `otel.exporter.headers` | Extra OTLP request headers (`${VAR}` substitution, never logged) |
 | `otel.emitOverlappingBackendSpans` | Unsafe; allow duplicates (debug only) |
 
@@ -194,6 +195,29 @@ Every request span also records `a2a.propagation.policy` (`continue`, `restart`,
 Backend or collector auth: `otel.exporter.headers` (values accept `${VAR}`, never logged) or the standard `OTEL_EXPORTER_OTLP_HEADERS`. Events sent through the event transport now carry `otelTraceId` / `otelSpanId` (and `otel_trace_id` / `otel_span_id` on A2A artifact data) so a collector can join them to the trace.
 
 Design, trade-offs and measurements: [`docs/design/distributed-tracing.md`](design/distributed-tracing.md).
+
+### Platform compatibility (Langfuse and Phoenix)
+
+Langfuse and Phoenix build their agent views from their **own** attributes, and Phoenix gives plain `gen_ai.*` spans no special treatment. `otel.compat` adds a small fixed set of those attributes **next to** the standard ones. It never changes or removes a standard attribute, and with no compat selected the attribute set is exactly what it was before.
+
+```json
+{ "otel": { "enabled": true, "compat": ["langfuse", "openinference"] } }
+```
+
+Environment override: `A2A_OTEL_COMPAT=langfuse,openinference` (`none` clears it).
+
+| Span | `langfuse` adds | `openinference` adds |
+|---|---|---|
+| Request span (`a2a.task.execute`) | `langfuse.observation.type=agent` | `openinference.span.kind=AGENT`, `agent.name`, `graph.node.id`, `graph.node.name`, and `graph.node.parent_id` **only when the caller sent `parent_agent_id`** |
+| Mirrored tool span (`a2a.mcp.tool`, needs `mirrorAgentEvents`) | `langfuse.observation.type=tool` | `openinference.span.kind=TOOL`, `tool.name` |
+
+Not added on purpose: `input.value` / `output.value` / `langfuse.observation.input|output` (they carry content) and `llm.token_count.*` (would mislabel an AGENT span as an LLM span; usage stays on `a2a.task.usage.*`).
+
+| Backend | Endpoint / protocol | Use |
+|---|---|---|
+| Langfuse | `<host>/api/public/otel`, `http/protobuf` or `http/json`, **not gRPC**; headers `Authorization: Basic <base64 pk:sk>` and `x-langfuse-ingestion-version: 4` (via `otel.exporter.headers` with `${VAR}`, or `OTEL_EXPORTER_OTLP_HEADERS`) | `compat: ["langfuse"]` |
+| Phoenix | `http://<host>:6006/v1/traces`, `http/protobuf` **only** | `compat: ["openinference"]` |
+| Grafana Tempo | OTLP gRPC `:4317` or HTTP `:4318` | No compat needed |
 
 ### Event attribution and transports
 

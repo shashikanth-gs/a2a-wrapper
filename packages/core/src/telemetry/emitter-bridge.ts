@@ -5,6 +5,7 @@
  * @module telemetry/emitter-bridge
  */
 
+import { compatToolAttributes } from "./compat.js";
 import type { EventType } from "../events/transport.js";
 import { getOtelTracer } from "./api.js";
 import { getTaskOtelStore } from "./context.js";
@@ -56,6 +57,7 @@ export function observeAgentEvent(eventType: EventType, data: Record<string, unk
           ...(data.toolKind ? { "a2a.tool.kind": String(data.toolKind) } : {}),
           ...(data.server ? { "a2a.mcp.server": String(data.server) } : {}),
           ...(data.delegation === true ? { "a2a.delegation": true } : {}),
+          ...compatToolAttributes(store.policy.compat, toolName),
         },
       });
       store.toolSpans.set(key, child);
