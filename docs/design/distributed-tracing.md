@@ -25,7 +25,7 @@ Today the wrappers do not join a caller's trace: an inbound `traceparent` is nev
 | **D1** | **W3C Trace Context is the interoperability contract.** Read it from HTTP headers first, then from message metadata, then fall back to today's legacy ids. | It is the only mechanism all three backends and every OTel-instrumented caller share. The A2A spec only *recommends* it ([R18]), and the A2A semantic conventions explicitly left propagation out of scope ([R10]), so we must accept more than one carrier. |
 | **D2** | **Configurable inbound policy `continue \| restart \| ignore`** (the vocabulary Elastic and Datadog use), default `continue`, plus optional **trusted peers**: callers outside a CIDR list are downgraded to `restart`. | Parenting is what produces a connected graph. Every surveyed product defaults to continuing the trace but exposes the choice, because unauthenticated endpoints let callers choose trace ids and sampling ([R27], [R28], [R29], [R30], [R31]). Analysis: 9.1.1. |
 | **D3** | The request span becomes **`SERVER` kind** when we own the server side, and **nests** (INTERNAL) under an existing HTTP server span when the host has HTTP instrumentation (`otel.span.server: auto`). Span *names* stay as today by default, with an opt-in `semconv` naming mode. | Tempo's service graph needs CLIENT/SERVER pairs ([R20]). Measured: an always-extract design creates a duplicate SERVER span next to HTTP auto-instrumentation (Appendix A). Renaming spans would silently break existing dashboards, so it is opt-in. |
-| **D4** | Context reaches sub-agents through **MCP `_meta.traceparent`** (SEP-414, Final) first. A per-session bridge is a fallback only if the spike shows backends do not forward context. Needs a companion change in `a2a-mcp-skillmap`. | Backends call MCP tools with no per-request context; the standard answer is `_meta` ([R14], [R15]). |
+| **D4** | Context reaches sub-agents through **both carriers the backends actually use**: MCP `_meta.traceparent` (SEP-414; Copilot) and an HTTP `traceparent` header (Claude Code). Backends that forward nothing are served by a **wrapper-side correlation registry** keyed by the ids they do send (`claudecode/toolUseId`, `ai.opencode/sessionID`). Needs a companion change in `a2a-mcp-skillmap`. | Measured on real runs (Appendix B): per-call context appears only with the backend's tracing on, and differs by backend; OpenCode forwards none. A registry is much smaller than a second MCP server per session. |
 | **D5** | Sideband events carry the **real W3C trace and span id**, plus `propagatedMetadata`; add `eventId`/`parentAgentId` to the A2A artifact; add `events.transport: "both"`; substitute `${VAR}` in event headers and exporter headers. | Today `AgentEvent.traceId` is the orchestrator's id or the `contextId`, so sideband events cannot be joined to our own spans [code]. |
 | **D6** | **Platform "graph" views via opt-in compat attributes** (`langfuse.*`, `openinference.*`), not by changing the standard attributes. | Langfuse and Phoenix key their agent views on their own attributes; Phoenix says `gen_ai.*` spans "won't get the same UI treatment" ([R22]). |
 | **D7** | **No wrapper-emitted metrics by default.** `otel.metrics.profile` (`none`, `genai-semconv`, `grafana-agent`) is reserved for opt-in later. | Verified in Grafana's dashboard definitions: **every** AI dashboard is Prometheus/Loki-driven (none works from traces alone) and the agent panels use OpenLIT vendor metric names ([R33], [R34]). Tempo, Langfuse and Phoenix derive what they need from spans. Analysis: 9.1.3. |
@@ -331,20 +331,30 @@ Not added in the baseline: `input.value`/`output.value`/`langfuse.observation.in
 
 ### 8.6 Sub-agent propagation (callers)
 
-The wrapper does not call sub-agents itself; `a2a-mcp-skillmap` does, as an MCP tool invoked by the backend CLI. Two facts shape the design: (a) backend CLIs invoke MCP tools **without per-request context**, and (b) the standard carrier for tool calls is `params._meta.traceparent` (SEP-414).
+The wrapper does not call sub-agents itself; `a2a-mcp-skillmap` does, as an MCP tool invoked by the backend CLI, and backend CLIs call MCP tools without wrapper involvement. Whether the MCP server can learn the **current request's** trace context depends on the backend. This was measured on real runs (Appendix B, spike P0-S2):
+
+| Backend (tested version) | HTTP MCP server | stdio MCP server | Condition | Backend-provided correlation id in `_meta` |
+|---|---|---|---|---|
+| **GitHub Copilot** (CLI 1.0.68) | `_meta.traceparent` | `_meta.traceparent` | Only with Copilot **telemetry on**. With the SDK's `onGetTraceContext` supplying our context, the forwarded id is **our trace id**; without it Copilot forwards its own new trace. | none |
+| **Claude Code** (2.1.323) | HTTP **`traceparent` header** (not `_meta`) | **nothing per call** (only the static spawn env) | Only with tracing (beta) **on**; an inbound `TRACEPARENT` env makes it forward **our trace id**. | `claudecode/toolUseId` (always) |
+| **OpenCode 1.19.6** | nothing | nothing | no telemetry option exists | none |
+| **OpenCode 2.3.2** | nothing | nothing | no telemetry option exists | `ai.opencode/sessionID` (always) |
+| **Codex** (0.167.2) | not testable here | not testable here | every model name was rejected for the ChatGPT login on this machine | unknown |
+| **Antigravity** | not tested | not tested | no backend OTel | unknown |
+
+Two carriers exist in the wild (`_meta` and an HTTP header), and stdio gets no per-call context from Claude Code. So the receiving side must accept **both** carriers, and a fallback is needed for the backends that forward nothing. Decision (replaces the earlier two-branch tree):
+
+1. **Carriers (Tier 1).** The sub-agent bridge accepts `params._meta.traceparent` **and** an HTTP `traceparent` header, and uses whichever is present as the parent of its A2A **CLIENT** span, then injects `traceparent` into the outgoing A2A request. This covers Copilot (stdio and HTTP) and Claude Code (HTTP only). The wrapper side is the existing Hook F (`otel.backend.copilot`, `otel.backend.claude`), which already turns the backend's telemetry on and hands it our context. It needs a companion change in `a2a-mcp-skillmap`, which today runs as a stdio server; accepting the Claude Code header means supporting an HTTP transport as well.
+2. **Correlation registry (Tier 2, replaces the "per-session wrapper-hosted bridge").** Backends that forward nothing still send their **own ids** in `_meta` (`claudecode/toolUseId`, `ai.opencode/sessionID`), and the wrapper already sees the same ids in its event stream (tool-use ids in the Claude stream; sessions for OpenCode) while it holds the active span. A small wrapper-side registry that maps those ids to the active `traceparent`, which the bridge can look up, gives context to Claude stdio and OpenCode 2.x without a second MCP server per session. OpenCode 1.x provides no id at all, so it remains attribute-only (`parent_agent_id`, `propagated_metadata`).
+3. **Always:** wrapper-side correlation attributes keep flowing as metadata, so S3-style attribution works for every backend regardless of 1 and 2.
 
 ```
-backend CLI ── tools/call (+ _meta.traceparent, if the CLI forwards it) ──▶ skillmap
-skillmap: CLIENT span "SendMessage" (parent = _meta.traceparent)
-          └─ HTTP POST to sub-agent with traceparent header (inject)
-sub-agent: SERVER span a2a.task.execute (parent = that CLIENT span)   <- this design's P1
+backend CLI ── tools/call ──▶ MCP bridge (skillmap)
+   _meta.traceparent | traceparent header | (id in _meta -> registry lookup)
+bridge: CLIENT span "SendMessage" (parent = that context)
+        └─ HTTP POST to sub-agent with traceparent header (inject)
+sub-agent: SERVER span (parent = that CLIENT span)          <- P1
 ```
-
-Decision tree (to be settled by spike P0-S2):
-
-1. **If the backends forward context in `_meta`/headers** (Claude Code documents `traceparent` on HTTP MCP requests; Copilot SDK hands `traceparent` to tool handlers; Codex/OpenCode unknown): implement *only* the skillmap side (accept `_meta.traceparent`, create the CLIENT span, inject the header). No wrapper-side bridge.
-2. **If some backends do not**: add a **per-session, wrapper-hosted MCP bridge** for those backends. Each session registers a unique bridge endpoint; the bridge knows the session's currently executing task and its active context, so it supplies the context itself. This is the "(b)" option in #49 and is Tier 2 because of its size.
-3. Whatever the case, wrapper-side correlation attributes (`parent_agent_id`, `propagated_metadata`) keep flowing as metadata so S3-style attribution still works for backends that forward nothing.
 
 ### 8.7 Sideband events
 
@@ -538,12 +548,12 @@ Sizes: S ≈ ≤1 day, M ≈ 2–4 days, L ≈ 1–2 weeks. Each phase is a sepa
 
 | ID | Question | Method | Decides |
 |---|---|---|---|
-| **P0-S1** | Does `ctx.context.state.get("headers")` carry `traceparent` for JSON-RPC, REST, **streaming** and gRPC? | **Answered for JSON-RPC blocking and streaming (Appendix A).** REST and gRPC remain: same probe, two more requests. | 8.2 mechanism (confirmed). |
-| **P0-S2** | Which backends forward trace context to MCP tool calls (`_meta.traceparent` or header)? | A tiny MCP server that logs `_meta` and headers (we already have one), driven by Copilot and OpenCode on this machine; Claude/Codex per their docs and, where installed, live. | D4 branch (1 vs 2). |
+| **P0-S1** | Does `ctx.context.state.get("headers")` carry `traceparent` for JSON-RPC, REST, **streaming** and gRPC? | **Answered:** JSON-RPC blocking and streaming (Appendix A) and REST (A.2). gRPC is not mounted by core. | 8.2 mechanism (confirmed). |
+| **P0-S2** | Which backends forward trace context to MCP tool calls (`_meta.traceparent` or header)? | **Answered (Appendix B)** for Copilot, Claude Code and OpenCode 1.x/2.x on real runs; Codex not testable on this machine; Antigravity untested. | D4 settled: both carriers plus a correlation registry (8.6). |
 | **P0-S3** | Do ADK and LangGraph clients send `traceparent` to our agent? | Minimal ADK `RemoteA2aAgent` and LangGraph A2A client scripts against a wrapper that logs headers; try with and without `opentelemetry-instrumentation-httpx`. | Docs for callers; S2 vs S3 expectations. |
 | **P0-S4** | How do Phoenix (local, per `examples/otel-stack`) and Langfuse treat a span whose remote parent was never exported? | Send a synthetic trace with a missing parent to each. | Which of `continue` / `restart` to recommend per backend (the default stays configurable). |
 | **P0-S5** | What exactly do Grafana Cloud's AI dashboards query? | **Answered (9.1.3):** Prometheus and Loki only, OpenLIT-shaped names. Remaining: confirm the translated Prometheus names against a real Grafana Cloud stack. | D7 confirmed: no default metrics. |
-| **P0-S6** | Can core record the caller's address unspoofably for `trustedPeers`? | Prototype the Express middleware that overwrites an internal header with `req.ip`; test with and without `trust proxy` and with a client-supplied header of the same name. | Whether `trustedPeers` ships in the first release (open question 3). |
+| **P0-S6** | Can core record the caller's address unspoofably for `trustedPeers`? | **Answered (A.2):** an Express middleware that overwrites an internal header with `req.ip` is unspoofable; `X-Forwarded-For` is honoured only when `trust proxy` allows it. | `trustedPeers` can ship in the first release; docs must cover `trust proxy` behind a gateway. |
 
 Exit: findings appended to this document; decisions D2/D4/D7 confirmed or changed.
 
@@ -575,7 +585,7 @@ Exit: findings appended to this document; decisions D2/D4/D7 confirmed or change
 
 ### P4: Forward to sub-agents (Tier 1)  *(companion repo + wrapper; M + companion)*
 
-Shape depends on P0-S2. Always: file the companion issue in `a2a-mcp-skillmap` (accept `_meta.traceparent`; create CLIENT span; inject `traceparent` into outgoing A2A requests; pass `parent_agent_id` and `propagated_metadata`); wrapper-side: ensure the active context is available to whatever forwards it. If P0-S2 shows gaps, scope the per-session bridge as its own design. **Acceptance:** the #49 criterion "A calls B → B's events carry A's trace id, `parentAgentId = A`, propagated metadata", demonstrated with two real wrappers and at least one backend that forwards context.
+Shape settled by P0-S2 (Appendix B, section 8.6). Companion issue in `a2a-mcp-skillmap`: accept **both** `params._meta.traceparent` and an HTTP `traceparent` header (which implies an HTTP transport as well as stdio); create the A2A CLIENT span; inject `traceparent` into outgoing A2A requests; pass `parent_agent_id` and `propagated_metadata`. Wrapper side: keep Hook F (backend telemetry on, our context handed to the backend), and add the **correlation registry** (Tier 2) mapping `claudecode/toolUseId` / `ai.opencode/sessionID` to the active `traceparent` for backends that forward nothing. **Acceptance:** the #49 criterion "A calls B → B's events carry A's trace id, `parentAgentId = A`, propagated metadata", demonstrated with two real wrappers and at least one backend per carrier (Copilot `_meta`, Claude Code header).
 
 ### P5: Semconv naming (Tier 1, opt-in)  *(core; S)*
 
@@ -624,7 +634,7 @@ The five questions raised in the first draft were analysed in [9.1](#91-decision
 
 1. Is `continue` the right shipped default for `otel.propagation.inbound`, with the documentation warning for unauthenticated endpoints? (The alternative is `restart`, which is safer but gives up the connected graph by default.)
 2. Is the `grafana-agent` metrics profile worth building at all, given it targets vendor-specific names and only the Agent dashboard? (If not, keep only `none` and `genai-semconv`.)
-3. Should `trustedPeers` ship in the first release, or follow `inbound` alone? (It needs the peer-address middleware, P0-S6; `inbound` alone needs none.)
+3. ~~Should `trustedPeers` ship in the first release?~~ Resolved by P0-S6 (A.2): the middleware is straightforward and unspoofable, so it can ship with `inbound`.
 
 ## 11. Verification strategy
 
@@ -716,3 +726,47 @@ Langfuse's `gen_ai.operation.name` → observation-type mapping and its handling
 4. The SDK span exposes `kind`, and the ambient span is recording: the `auto` detection (recording + SDK kind SERVER) is feasible in this stack. The API `Span` interface has no `kind` getter, so the check must read the SDK object defensively.
 
 **Limits.** One SDK version, JSON-RPC transport only, a synthetic executor (not a full wrapper), no sampling variations, no REST/gRPC. The script lives outside the repository; the contract tests in P1 reproduce it.
+
+### A.2 REST transport and peer-address middleware (spikes P0-S1 and P0-S6, 2026-11-20)
+
+Same server stack, with `restHandler` mounted next to `jsonRpcHandler` and an Express middleware, placed before both, that **overwrites** an internal header with the caller's address: `req.headers["x-a2a-peer"] = req.ip || req.socket.remoteAddress`. Requests were labelled by a header (not by order). Run twice: Express `trust proxy` off, and `trust proxy = "loopback"`.
+
+| Request | `trust proxy` off | `trust proxy = loopback` |
+|---|---|---|
+| JSON-RPC + `traceparent` | `traceparent` present in executor headers; peer `127.0.0.1` | same |
+| **REST** `POST /a2a/rest/message:send` (`A2A-Version: 1.0`) + `traceparent` | **`traceparent` present**; peer `127.0.0.1` | same |
+| Client sends `x-a2a-peer: 1.2.3.4` | executor sees `127.0.0.1` (**spoof overwritten**) | `127.0.0.1` (overwritten) |
+| Client sends `X-Forwarded-For: 203.0.113.9` (connection from loopback) | `127.0.0.1` (header ignored) | **`203.0.113.9`** (honoured because the loopback proxy is trusted) |
+
+Conclusions: (1) REST carries the caller's headers to the executor like JSON-RPC, so the 8.2 mechanism holds for both transports core mounts (gRPC is not mounted by core); (2) the peer-address middleware is unspoofable and behaves as documented in 8.3, including the need to configure `trust proxy` behind a gateway. Not exercised: the v0.3 REST path (a request-body mistake in the probe, not a finding), IPv6 and proxies chains beyond one hop.
+
+---
+
+## Appendix B: MCP trace-context forwarding by backend (spike P0-S2, 2026-11-20)
+
+**Question.** When a backend CLI executes an MCP tool call, does the MCP server receive W3C trace context, and in which carrier?
+
+**Method.** Two instrumented probe MCP servers, one stdio and one streamable-HTTP, each logging the raw JSON-RPC request (including `params._meta`), all HTTP headers and the process `TRACEPARENT` env var. Each backend was asked, with a tiny prompt, to call both tools (`add_numbers`, `multiply_numbers`); every run returned the correct results (5 and 20). A known inbound context (`00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01`) was supplied where a backend can accept one. Copilot was driven through `@github/copilot-sdk` (real CLI 1.0.68), OpenCode through the a2a-opencode wrapper against real servers (1.19.6 and 2.3.2), Claude Code and Codex through their own CLIs with per-invocation MCP config only.
+
+**Results (observed in the server logs)**
+
+| Backend | Mode | `tools/call` `_meta` (stdio / HTTP) | HTTP `traceparent` header | stdio server env `TRACEPARENT` |
+|---|---|---|---|---|
+| Copilot | no telemetry (with or without a supplied context, or env only) | `progressToken` only / same | none | only what was passed to the CLI at spawn |
+| Copilot | telemetry on, no supplied context | `traceparent` (Copilot's own new trace) / same | none | – |
+| Copilot | telemetry on + `onGetTraceContext` | `traceparent` with **our trace id**, fresh span id / same | none | – |
+| Claude Code | plain | `claudecode/toolUseId` + `progressToken` / same | none | none |
+| Claude Code | tracing beta on | same (no traceparent) / same | **yes** (Claude's own trace) | none |
+| Claude Code | tracing beta on + `TRACEPARENT` env | same / same | **yes, our trace id**, fresh span id | the static value inherited at spawn |
+| OpenCode 1.19.6 | default, and with `TRACEPARENT` on the server process | `progressToken` only / same | none | the static value inherited at spawn |
+| OpenCode 2.3.2 | default, and with `TRACEPARENT` on the server process | `ai.opencode/sessionID` + `progressToken` / same | none | the static value inherited at spawn |
+| Codex 0.167.2 | any | **not testable**: all tried model names (default, `gpt-5-codex`, `gpt-5`, `gpt-5.1-codex`, `o4-mini`) were rejected for the ChatGPT login on this machine | – | – |
+
+**Conclusions**
+
+1. Per-call context reaches an MCP server **only when the backend's own tracing is on**, and the carrier differs by backend: `_meta.traceparent` (Copilot) or an HTTP header (Claude Code). Both can carry **our** trace id when we hand the backend our context (Hook F does this).
+2. stdio MCP servers get no per-call context from Claude Code; the env var is fixed at spawn and cannot identify a request.
+3. OpenCode (either generation) forwards no trace context; OpenCode 2.x and Claude Code do send their own session or tool-use id in `_meta`, which a wrapper-side registry can resolve (8.6).
+4. The earlier plan assumed one carrier (`_meta`); there are two, so the receiving bridge must accept both.
+
+**Limits.** One version of each tool; one prompt per mode; Claude Code's tracing is a **beta** feature and Copilot's behaviour was observed on SDK-driven runs (the a2a-copilot wrapper's Hook F uses the same options but was not re-run here); Codex untested; Antigravity untested; only unauthenticated loopback MCP servers. Probe scripts and logs are outside the repository.
