@@ -872,8 +872,8 @@ export class CopilotExecutor implements AgentExecutor {
   }
 
   /**
-   * Cancel a running task: abort the backend Copilot turn, then publish
-   * `canceled`.
+   * Cancel a running task: publish `canceled`, then abort the backend Copilot
+   * turn (and wait for the abort, so the response means the turn has stopped).
    *
    * - Unknown / already finished task (or one that is already completing):
    *   a silent no-op, so repeated or late cancels are idempotent and never
@@ -895,14 +895,18 @@ export class CopilotExecutor implements AgentExecutor {
       return;
     }
     run.canceled = true;
+
+    // Publish the terminal event BEFORE waking `execute` and before awaiting the
+    // abort: once `execute` returns, the SDK closes the task's event bus, so a
+    // `canceled` published after a slow abort() would be lost and the stored task
+    // would stay "working" (tasks/cancel then fails with TaskNotCancelable).
+    publishStatus(bus, taskId, run.contextId, "canceled", undefined, true);
+    bus.finished();
     run.cancelSignal.resolve();
 
     if (run.session) {
       await this.abortSession(taskId, run.session, run.contextId);
     }
-
-    publishStatus(bus, taskId, run.contextId, "canceled", undefined, true);
-    bus.finished();
   }
 
   /** Abort the backend turn; fall back to discarding the session. Never throws. */

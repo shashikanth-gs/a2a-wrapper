@@ -330,6 +330,28 @@ describe("cancelTask is safe and idempotent", () => {
 // ─── Abort failure and cleanup of handles ────────────────────────────────────
 
 describe("abort failure handling and handle cleanup", () => {
+  it("publishes canceled before a slow abort() settles (the SDK closes the bus once execute returns)", async () => {
+    const { executor, session, bus } = setup(makeConfig({ streaming: true }));
+    let finishAbort!: () => void;
+    session.abort.mockImplementation(() => new Promise<void>((r) => { finishAbort = r; }));
+
+    const running = executor.execute(makeCtx(), bus);
+    await tick();
+    const cancelling = executor.cancelTask("task-1", bus);
+    await tick();
+
+    // abort() has not answered yet, but the terminal event is already out and
+    // execute has unwound; nothing is left to publish after the SDK closes the bus.
+    expect(session.abort).toHaveBeenCalledTimes(1);
+    expect(terminals(bus.events)).toEqual([TaskState.TASK_STATE_CANCELED]);
+    expect(bus.finished).toHaveBeenCalledTimes(1);
+    await running;
+
+    finishAbort();
+    await cancelling;
+    expect(terminals(bus.events)).toEqual([TaskState.TASK_STATE_CANCELED]);
+  });
+
   it("abort() rejecting still cancels, and discards the session so the next turn starts clean", async () => {
     const { executor, session, sessionManager, bus } = setup(makeConfig({ streaming: true }));
     session.abort.mockRejectedValue(new Error("connection lost"));
