@@ -43,6 +43,7 @@ export const DEFAULTS: Readonly<DefaultAgentConfig> = Object.freeze({
   },
   opencode: {
     baseUrl: "http://localhost:4096",
+    apiVersion: "auto",
     projectDirectory: "",
     model: "",
     agent: "",

@@ -41,6 +41,7 @@ Options:
   --hostname <addr>           Bind address                   (default: 0.0.0.0)
   --advertise-host <host>     Hostname for agent card URLs    (default: localhost)
   --opencode-url <url>        OpenCode server URL             (default: http://localhost:4096)
+  --api-version <v>           OpenCode server API: auto | 1 | 2  (default: auto = detect 1.x vs 2.x)
   --directory <path>          Project directory for OpenCode
   --model <provider/model>    LLM model                      (default: provider's default)
                               Examples: anthropic/claude-sonnet-4-20250514, github-copilot/gpt-4o
@@ -56,6 +57,11 @@ Options:
   --log-level <level>         Log level: debug | info | warn | error  (default: info)
   --help                      Show this help message
   --version                   Show version
+
+Environment:
+  OPENCODE_SERVER_PASSWORD    Password for an OpenCode 2.x server (HTTP Basic auth). Set it in the
+                              environment rather than a flag or config file.
+  OPENCODE_URL, OPENCODE_API_VERSION, MODEL, DIRECTORY, PORT, LOG_LEVEL, ... see the README.
 
 Examples:
   npx a2a-opencode                                       # start with built-in defaults on port 3000
@@ -75,6 +81,7 @@ function parseCliArgs(): { configPath?: string; overrides: Partial<AgentConfig> 
       hostname:           { type: "string" },
       "advertise-host":   { type: "string" },
       "opencode-url":     { type: "string" },
+      "api-version":      { type: "string" },
       directory:          { type: "string",  short: "d" },
       model:              { type: "string",  short: "m" },
       agent:              { type: "string" },
@@ -117,9 +124,15 @@ function parseCliArgs(): { configPath?: string; overrides: Partial<AgentConfig> 
   }
 
   // OpenCode
-  if (values["opencode-url"] || values.directory || values.model || values.agent) {
+  const apiVersion = values["api-version"] as string | undefined;
+  if (apiVersion !== undefined && !["auto", "1", "2"].includes(apiVersion)) {
+    console.error(`Invalid --api-version "${apiVersion}". Expected auto, 1 or 2.`);
+    process.exit(2);
+  }
+  if (values["opencode-url"] || apiVersion || values.directory || values.model || values.agent) {
     overrides.opencode = {} as AgentConfig["opencode"];
     if (values["opencode-url"])   overrides.opencode!.baseUrl = values["opencode-url"] as string;
+    if (apiVersion)               overrides.opencode!.apiVersion = apiVersion as "auto" | "1" | "2";
     if (values.directory)         overrides.opencode!.projectDirectory = values.directory as string;
     if (values.model)             overrides.opencode!.model = values.model as string;
     if (values.agent)             overrides.opencode!.agent = values.agent as string;
@@ -154,6 +167,20 @@ function parseCliArgs(): { configPath?: string; overrides: Partial<AgentConfig> 
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────
+
+/**
+ * Exit with `code` without calling `process.exit()` while handles are still closing.
+ *
+ * Calling `process.exit()` while HTTP sockets (undici/fetch) are mid-close can abort the
+ * process on Windows with a libuv "Assertion failed: !(handle->flags & UV_HANDLE_CLOSING)"
+ * message and a bogus exit code. Setting `process.exitCode` lets the event loop drain and
+ * exit naturally on every platform; the unref'd timer force-exits only if something else
+ * (e.g. an exporter or lingering connection) keeps the loop alive.
+ */
+function exitGracefully(code: number): void {
+  process.exitCode = code;
+  setTimeout(() => process.exit(code), 2_000).unref();
+}
 
 async function main() {
   const { configPath, overrides } = parseCliArgs();
@@ -201,7 +228,7 @@ async function main() {
     await handle.shutdown();
     await shutdownOtelSdk();
     await new Promise((r) => setTimeout(r, 300));
-    process.exit(0);
+    exitGracefully(0);
   };
 
   process.on("SIGINT",  () => void shutdown("SIGINT"));
@@ -210,5 +237,5 @@ async function main() {
 
 main().catch((err) => {
   log.error("Fatal error", { error: (err as Error).message, stack: (err as Error).stack });
-  process.exit(1);
+  exitGracefully(1);
 });

@@ -5,7 +5,7 @@
  * Extracted from executor to keep each module focused.
  */
 
-import type { OpenCodeClientWrapper } from "./client.js";
+import type { OpenCodeBackend } from "./backend.js";
 import type { Session, PermissionRuleset } from "./types.js";
 import type { SessionConfig, FeatureFlags } from "../config/types.js";
 import { logger } from "../utils/logger.js";
@@ -14,7 +14,7 @@ const log = logger.child("sessions");
 
 // ─── Auto-Allow Permissions ─────────────────────────────────────────────────
 
-const AUTO_ALLOW_PERMISSIONS: PermissionRuleset = [
+export const AUTO_ALLOW_PERMISSIONS: PermissionRuleset = [
   { permission: "read",  pattern: "*", action: "allow" },
   { permission: "edit",  pattern: "*", action: "allow" },
   { permission: "bash",  pattern: "*", action: "allow" },
@@ -33,13 +33,20 @@ interface SessionEntry {
   lastUsed: number;
 }
 
+/** Model and agent applied when a session is created (required by OpenCode 2.x). */
+export interface SessionDefaults {
+  model?: { providerID: string; modelID: string };
+  agent?: string;
+}
+
 // ─── Manager ────────────────────────────────────────────────────────────────
 
 export class SessionManager {
-  private readonly client: OpenCodeClientWrapper;
+  private readonly client: OpenCodeBackend;
   private readonly sessionCfg: Required<SessionConfig>;
   private readonly autoApprove: boolean;
   private readonly directory: string;
+  private readonly defaults: SessionDefaults;
 
   private contextMap = new Map<string, SessionEntry>();
   private taskMap = new Map<string, string>(); // taskId → sessionId
@@ -47,12 +54,14 @@ export class SessionManager {
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
-    client: OpenCodeClientWrapper,
+    client: OpenCodeBackend,
     sessionCfg: Required<SessionConfig>,
     features: Required<FeatureFlags>,
     directory: string,
+    defaults: SessionDefaults = {},
   ) {
     this.client = client;
+    this.defaults = defaults;
     this.sessionCfg = sessionCfg;
     this.autoApprove = features.autoApprovePermissions;
     this.directory = directory;
@@ -104,6 +113,8 @@ export class SessionManager {
       {
         title,
         permission: this.autoApprove ? AUTO_ALLOW_PERMISSIONS : undefined,
+        model: this.defaults.model,
+        agent: this.defaults.agent,
       },
     );
 
