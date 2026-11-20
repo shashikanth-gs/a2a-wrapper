@@ -396,7 +396,8 @@ describe("abort failure handling and handle cleanup", () => {
     for (const ev of ["assistant.usage", "session.usage_info", "session.idle"]) {
       expect(session.listenerCount(ev)).toBe(0);
     }
-    expect((executor as any).runs.size).toBe(0);
+    expect((executor as any).runs.has("task-1")).toBe(false);
+    expect((executor as any).taskSessions.size).toBe(0);
   });
 
   it("non-streaming: the prompt timeout timer is cleared after a normal completion", async () => {
