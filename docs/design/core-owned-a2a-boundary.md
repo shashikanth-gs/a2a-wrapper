@@ -1,6 +1,6 @@
 # Core-owned A2A boundary
 
-Status: proposal, for discussion. Related: #64 (A2A conformance epic), #65, #66, #67, #68, #69, #71, #57, #49.
+Status: proposal, for discussion. The data model and provider contract are in [core-data-model.md](core-data-model.md), designed from evidence in [research/](research/); where they differ (abort outcome, `run.ask` handle, no `inbox`), that document supersedes sections 4 to 7 here. Related: #64 (A2A conformance epic), #65, #66, #67, #68, #69, #71, #57, #49.
 
 ## 1. Principles
 
