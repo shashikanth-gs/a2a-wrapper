@@ -8,6 +8,7 @@ export type {
   OtelCommonConfig,
   OtelConfig,
   OtelPropagationConfig,
+  OtelCompat,
   OtelSpanConfig,
   OtelCopilotBackendConfig,
   OtelClaudeBackendConfig,
@@ -108,3 +109,10 @@ export {
   mergeCodexOtelOverrides,
   isOpenCodeBackendOtelEnabled,
 } from "./backend-passthrough.js";
+export {
+  COMPAT_MODES,
+  resolveCompat,
+  compatRequestAttributes,
+  compatToolAttributes,
+} from "./compat.js";
+export type { CompatRequestInfo, CompatSource } from "./compat.js";

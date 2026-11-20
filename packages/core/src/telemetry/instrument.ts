@@ -13,6 +13,7 @@
  * @module telemetry/instrument
  */
 
+import { compatRequestAttributes } from "./compat.js";
 import type { RequestContext, ExecutionEventBus } from "@a2a-js/sdk/server";
 import type { A2AExecutor } from "../executor/types.js";
 import { withSpan } from "./api.js";
@@ -151,6 +152,12 @@ export function instrumentExecutor(
       };
       return runWithTaskOtelStore(store, () => executor.execute(ctx, bus));
     }
+
+    // Opt-in Langfuse / Phoenix attributes (otel.compat). Standard attributes are never changed.
+    Object.assign(
+      attrs,
+      compatRequestAttributes(policy.compat, { agentId, agentName, parentAgentId: trace.parentAgentId }),
+    );
 
     // Relationship to the caller's trace and to any existing server span
     // (design sections 8.2 to 8.4): parent, kind and links for the request span.
