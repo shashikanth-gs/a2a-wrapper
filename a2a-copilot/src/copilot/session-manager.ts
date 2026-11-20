@@ -40,6 +40,12 @@ export interface CopilotSession {
    */
   sendAndWait(params: { prompt: string }, timeoutMs?: number): Promise<{ data?: { content?: string } } | undefined>;
   /**
+   * Abort the message currently being processed. The session stays valid and
+   * can take new messages. Rejects if the session is disconnected or the
+   * connection fails.
+   */
+  abort(): Promise<void>;
+  /**
    * Disconnect this session and release all SDK-side resources.
    * Session data on disk is preserved for later resumption.
    */

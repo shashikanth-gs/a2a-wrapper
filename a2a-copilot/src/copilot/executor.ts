@@ -14,7 +14,7 @@ import { readFile as fsReadFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { AgentConfig, McpStdioServerConfig } from "../config/types.js";
-import { SessionManager } from "./session-manager.js";
+import { SessionManager, type CopilotSession } from "./session-manager.js";
 import { McpEvidenceHooks } from "./mcp-hooks.js";
 import {
   publishStatus,
@@ -43,7 +43,7 @@ import type {
   ContextWindowSnapshot,
   UsageTelemetryData,
 } from "@a2a-wrapper/core";
-import { createDeferred } from "../utils/deferred.js";
+import { createDeferred, type Deferred } from "../utils/deferred.js";
 import { logger } from "../utils/logger.js";
 
 const log = logger.child("executor");
@@ -56,6 +56,26 @@ const log = logger.child("executor");
  * race the POST), but a slow or unreachable collector must never stall tasks.
  */
 const TERMINAL_EMIT_TIMEOUT_MS = 2_000;
+
+/**
+ * Upper bound on how long `cancelTask` waits for the SDK to acknowledge
+ * `session.abort()`. A hung abort must not hang the A2A cancel request; on
+ * timeout the session is discarded instead (see {@link CopilotExecutor.cancelTask}).
+ */
+const ABORT_TIMEOUT_MS = 5_000;
+
+/** Per-task state shared between `execute` and `cancelTask`. */
+interface RunState {
+  contextId: string;
+  /** Set once the session is resolved; undefined while still being created. */
+  session?: CopilotSession;
+  /** `cancelTask` has claimed this run: `execute` must publish nothing more. */
+  canceled: boolean;
+  /** `execute` has begun publishing its terminal result; a late cancel is a no-op. */
+  finalizing: boolean;
+  /** Resolved by `cancelTask` so a parked `execute` wakes up immediately. */
+  cancelSignal: Deferred<void>;
+}
 
 /**
  * Heuristic: detect when an assistant "response" is actually a tool call
@@ -90,6 +110,8 @@ export class CopilotExecutor implements AgentExecutor {
   private readonly config: Required<AgentConfig>;
   private client: CopilotClient | null = null;
   private sessionManager: SessionManager | null = null;
+  /** taskId → in-flight run state, shared by execute() and cancelTask(). */
+  private readonly runs = new Map<string, RunState>();
   private mcpHooks: McpEvidenceHooks | null = null;
   private initialized = false;
   /** Optional custom event transport supplied via programmatic API. */
@@ -329,9 +351,27 @@ export class CopilotExecutor implements AgentExecutor {
 
   // ── Execute ─────────────────────────────────────────────────────────────
 
-  async execute(ctx: RequestContext, bus: ExecutionEventBus): Promise<void> {
+  async execute(ctx: RequestContext, rawBus: ExecutionEventBus): Promise<void> {
     const { taskId, contextId, userMessage, task } = ctx;
     await this.initialize();
+
+    // Per-task cancel state. Every event this turn publishes goes through a
+    // guarded bus that drops everything once `cancelTask` has claimed the task,
+    // so late events from the aborted turn can never reach a finished task.
+    const run: RunState = {
+      contextId,
+      canceled: false,
+      finalizing: false,
+      cancelSignal: createDeferred<void>(),
+    };
+    const bus: ExecutionEventBus = {
+      publish: (event) => { if (!run.canceled) rawBus.publish(event); },
+      finished: () => { if (!run.canceled) rawBus.finished(); },
+      on: (...a: any[]) => { (rawBus as any).on(...a); return bus; },
+      off: (...a: any[]) => { (rawBus as any).off(...a); return bus; },
+      once: (...a: any[]) => { (rawBus as any).once(...a); return bus; },
+      removeAllListeners: (...a: any[]) => { (rawBus as any).removeAllListeners(...a); return bus; },
+    } as ExecutionEventBus;
 
     const { emitter } = createExecutionObservability({
       agentName: this.config.agentCard.name,
@@ -352,6 +392,7 @@ export class CopilotExecutor implements AgentExecutor {
     // Exactly one terminal lifecycle event (agent_finished | agent_error) per task.
     let lifecycleClosed = false;
 
+    this.runs.set(taskId, run);
     try {
       // 1. Register task with the SDK's ResultManager, then emit submitted status.
       // The ResultManager requires a task event (kind: "task") before it will
@@ -371,6 +412,14 @@ export class CopilotExecutor implements AgentExecutor {
       // 3. Get or create Copilot session
       const { sessionId, session, isNew } = await this.sessionManager!.getOrCreate(contextId);
       this.sessionManager!.trackTask(taskId, sessionId, contextId);
+      run.session = session;
+      // Canceled while the session was being created: nothing was sent yet,
+      // so there is nothing to abort — just don't start the turn.
+      if (run.canceled) {
+        lifecycleClosed = true;
+        await this.finishCanceled(emitter, accumulator, taskId);
+        return;
+      }
       annotateSessionOnTaskSpan({ reused: !isNew, sessionId });
 
       // 4. Build prompt
@@ -578,12 +627,18 @@ export class CopilotExecutor implements AgentExecutor {
             }
           });
 
-          await done;
+          await Promise.race([done, run.cancelSignal.promise]);
         } finally {
           clearTimeout(timer);
           for (const unsub of unsubs) {
             if (typeof unsub === "function") unsub();
           }
+        }
+
+        if (run.canceled) {
+          lifecycleClosed = true;
+          await this.finishCanceled(emitter, accumulator, taskId);
+          return;
         }
 
         // If we timed out but have content, append a note
@@ -641,23 +696,35 @@ export class CopilotExecutor implements AgentExecutor {
         });
 
         const timeoutMs = this.config.timeouts.prompt ?? 600_000;
-        const timeout = new Promise<never>((_, rej) =>
-          setTimeout(() => rej(new Error(`Prompt timeout after ${timeoutMs}ms`)), timeoutMs),
-        );
+        let promptTimer: ReturnType<typeof setTimeout> | undefined;
+        const timeout = new Promise<never>((_, rej) => {
+          promptTimer = setTimeout(() => rej(new Error(`Prompt timeout after ${timeoutMs}ms`)), timeoutMs);
+        });
 
         try {
           const response = await Promise.race([
             copilotSession.sendAndWait({ prompt: promptText }, timeoutMs),
             timeout,
+            run.cancelSignal.promise.then(() => undefined),
           ]);
           // SDK 1.0.0: sendAndWait returns AssistantMessageEvent | undefined
           accumulatedText = (response as any)?.data?.content ?? "";
         } catch (e) {
-          if (!(e as Error).message.includes("timeout")) throw e;
-          log.warn("Prompt timed out", { taskId, timeoutMs });
+          // An abort() makes sendAndWait reject; that is the cancel, not a failure.
+          if (!run.canceled) {
+            if (!(e as Error).message.includes("timeout")) throw e;
+            log.warn("Prompt timed out", { taskId, timeoutMs });
+          }
         } finally {
+          clearTimeout(promptTimer);
           unsubUsage();
           unsubCtxWin();
+        }
+
+        if (run.canceled) {
+          lifecycleClosed = true;
+          await this.finishCanceled(emitter, accumulator, taskId);
+          return;
         }
       }
 
@@ -687,7 +754,8 @@ export class CopilotExecutor implements AgentExecutor {
           "with robust tool-calling support (e.g. qwen3.6, llama3.3, mistral-nemo).";
       }
 
-      // 6. Finalize
+      // 6. Finalize — from here the task completes; a late cancel is a no-op.
+      run.finalizing = true;
       if (this.config.features.streamArtifactChunks) {
         publishLastChunkMarker(bus, taskId, contextId, streamArtifactId, accumulatedText);
       } else {
@@ -732,6 +800,17 @@ export class CopilotExecutor implements AgentExecutor {
       log.info("Task completed", { taskId, len: accumulatedText.length });
 
     } catch (error) {
+      if (run.canceled) {
+        // The failure is a side effect of the abort (cancelTask already
+        // published `canceled`); don't report it as a task failure.
+        log.info("Execution ended by cancellation", { taskId, error: (error as Error).message });
+        if (!lifecycleClosed) {
+          lifecycleClosed = true;
+          await this.finishCanceled(emitter, accumulator, taskId);
+        }
+        return;
+      }
+      run.finalizing = true;
       const msg = (error as Error).message ?? String(error);
       const isConnErr = msg.includes("ECONNREFUSED") || msg.includes("ENOTFOUND") || msg.includes("connect") || msg.includes("socket");
       const isAuthErr = msg.includes("onPermissionRequest") || msg.toLowerCase().includes("permission") || msg.includes("handler is required");
@@ -754,6 +833,7 @@ export class CopilotExecutor implements AgentExecutor {
       publishStatus(bus, taskId, contextId, "failed", userMsg, true);
       bus.finished();
     } finally {
+      if (this.runs.get(taskId) === run) this.runs.delete(taskId);
       this.sessionManager!.untrackTask(taskId);
       this.mcpHooks?.clearEmitter();
     }
@@ -791,17 +871,77 @@ export class CopilotExecutor implements AgentExecutor {
     }
   }
 
+  /**
+   * Cancel a running task: abort the backend Copilot turn, then publish
+   * `canceled`.
+   *
+   * - Unknown / already finished task (or one that is already completing):
+   *   a silent no-op, so repeated or late cancels are idempotent and never
+   *   publish to a finished task.
+   * - The run is claimed synchronously (`run.canceled`) before anything is
+   *   awaited, so a completion racing this call cannot also publish a terminal
+   *   state, and late SDK events are dropped by `execute`'s guarded bus.
+   * - `session.abort()` stops the in-flight turn and keeps the session usable
+   *   for the next message in the same context. If the abort fails or does not
+   *   answer within {@link ABORT_TIMEOUT_MS}, the session is destroyed so the
+   *   next message starts on a clean one instead of interleaving with the
+   *   still-running turn.
+   */
   async cancelTask(taskId: string, bus: ExecutionEventBus): Promise<void> {
     log.info("Cancel requested", { taskId });
-    // Copilot SDK doesn't expose a direct abort — the session will be
-    // cleaned up by TTL or on the next getOrCreate call.
-    const sessionId = this.sessionManager?.getSessionForTask(taskId);
-    if (sessionId) {
-      log.info("Session will be cleaned up on next use", { taskId, sessionId });
+    const run = this.runs.get(taskId);
+    if (!run || run.canceled || run.finalizing) {
+      log.debug("No cancelable run for task", { taskId, known: !!run });
+      return;
     }
-    const ctxId = this.sessionManager?.getContextForTask(taskId) ?? "";
-    publishStatus(bus, taskId, ctxId, "canceled", undefined, true);
+    run.canceled = true;
+    run.cancelSignal.resolve();
+
+    if (run.session) {
+      await this.abortSession(taskId, run.session, run.contextId);
+    }
+
+    publishStatus(bus, taskId, run.contextId, "canceled", undefined, true);
     bus.finished();
+  }
+
+  /** Abort the backend turn; fall back to discarding the session. Never throws. */
+  private async abortSession(taskId: string, session: CopilotSession, contextId: string): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        session.abort(),
+        new Promise<never>((_, rej) => {
+          timer = setTimeout(() => rej(new Error(`abort timed out after ${ABORT_TIMEOUT_MS}ms`)), ABORT_TIMEOUT_MS);
+        }),
+      ]);
+      log.info("Session turn aborted", { taskId, sessionId: session.sessionId });
+    } catch (e) {
+      log.warn("Abort failed; discarding session", { taskId, sessionId: session.sessionId, error: (e as Error).message });
+      try {
+        await this.sessionManager?.destroySession(contextId);
+      } catch { /* best effort */ }
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * Close the lifecycle of a canceled run. `cancelTask` owns the A2A terminal
+   * event; this only reports `agent_error` through the event transport so a
+   * collector sees exactly one terminal event, with the usage spent so far.
+   */
+  private async finishCanceled(
+    emitter: { emit(type: "agent_finished" | "agent_error", data: Record<string, unknown>): Promise<void> },
+    accumulator: LlmUsageAccumulator,
+    taskId: string,
+  ): Promise<void> {
+    log.info("Execution canceled", { taskId });
+    await this.emitTerminal(emitter, "agent_error", {
+      backend: "copilot",
+      message: "Task canceled",
+      usage: this.usageIfAny(accumulator),
+    });
   }
 
   // ── Helpers ─────────────────────────────────────────────────────────────
