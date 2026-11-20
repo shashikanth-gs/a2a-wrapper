@@ -37,6 +37,7 @@ import type { ExecutionEventBus } from "@a2a-js/sdk/server";
 import type { EventsConfig } from "../config/types.js";
 import { TRACE_EXTENSION_URI } from "../server/agent-card.js";
 import { observeAgentEvent } from "../telemetry/emitter-bridge.js";
+import { getTaskOtelStore } from "../telemetry/context.js";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -82,6 +83,14 @@ export interface AgentEvent {
   timestamp: string;
   /** Event-type-specific structured payload. */
   data: Record<string, unknown>;
+  /**
+   * W3C trace id (32 hex) of the request span active when the event was emitted.
+   * Unlike {@link traceId} (the orchestrator-supplied or context id), this joins
+   * the event to the OpenTelemetry trace. Omitted when OTel is off.
+   */
+  otelTraceId?: string;
+  /** Span id (16 hex) of the request span active when the event was emitted. */
+  otelSpanId?: string;
 }
 
 /**
@@ -130,6 +139,8 @@ export class A2ATransport implements EventTransport {
       agent_name: event.agentName,
       trace_id: event.traceId,
     };
+    if (event.otelTraceId) data.otel_trace_id = event.otelTraceId;
+    if (event.otelSpanId) data.otel_span_id = event.otelSpanId;
     const state = LIFECYCLE_STATE[event.eventType];
     if (state) data.state = state;
     Object.assign(data, event.data);
@@ -404,6 +415,16 @@ export class AgentEventEmitter {
       timestamp: new Date().toISOString(),
       data,
     };
+    // Join the event to the OpenTelemetry trace when a request span is active.
+    try {
+      const sc = getTaskOtelStore()?.span?.spanContext?.();
+      if (sc?.traceId && sc?.spanId) {
+        event.otelTraceId = sc.traceId;
+        event.otelSpanId = sc.spanId;
+      }
+    } catch {
+      /* tracing must never affect event delivery */
+    }
     try {
       await this.transport.send(event);
     } catch (e) {

@@ -81,7 +81,79 @@ export interface OtelCommonConfig {
      * - `http/json` — `@opentelemetry/exporter-trace-otlp-http`
      */
     protocol?: string;
+    /**
+     * Extra OTLP request headers (e.g. Langfuse / Grafana Cloud Basic auth).
+     * Values support `${VAR}` environment substitution and are never logged.
+     * The standard `OTEL_EXPORTER_OTLP_HEADERS` environment variable also works
+     * and is preferred when you want to keep secrets out of config files.
+     */
+    headers?: Record<string, string>;
   };
+
+  /**
+   * How an inbound W3C trace context (from the caller) is handled.
+   * See docs/design/distributed-tracing.md (sections 8.2 and 8.3).
+   * Environment overrides: `A2A_OTEL_INBOUND`, `A2A_OTEL_TRUSTED_PEERS`,
+   * `A2A_OTEL_UNTRUSTED`, `A2A_OTEL_CARRIERS`.
+   */
+  propagation?: OtelPropagationConfig;
+
+  /**
+   * How the request span relates to an existing server span.
+   * Environment overrides: `A2A_OTEL_SERVER_SPAN`, `A2A_OTEL_ENRICH_SERVER_SPAN`.
+   */
+  span?: OtelSpanConfig;
+}
+
+/** Inbound trace-context policy (same vocabulary as Elastic APM and Datadog). */
+export interface OtelPropagationConfig {
+  /**
+   * What to do with a valid inbound `traceparent`:
+   * - `continue`: join the caller's trace (remote parent). Connected graph.
+   * - `restart`: start a new trace and add a span link to the caller.
+   * - `ignore`: start a new trace and discard the caller's context.
+   *
+   * An unauthenticated endpoint plus `continue` lets any caller choose your
+   * trace id and sampling flag; use `trustedPeers` or `restart`/`ignore` there.
+   * @default "continue"
+   */
+  inbound?: "continue" | "restart" | "ignore";
+  /**
+   * CIDRs (or single IPs) of callers trusted to supply trace context. When
+   * non-empty, callers outside the list get the `untrusted` policy. Behind a
+   * gateway also set `server.trustProxy` so the caller address is the real client.
+   * @default [] (every caller is trusted)
+   */
+  trustedPeers?: string[];
+  /**
+   * Policy for callers outside `trustedPeers`.
+   * @default "restart"
+   */
+  untrusted?: "restart" | "ignore";
+  /**
+   * Where to look for an inbound `traceparent`, in order of precedence:
+   * HTTP headers, then message metadata.
+   * @default ["header", "metadata"]
+   */
+  carriers?: Array<"header" | "metadata">;
+}
+
+/** Request-span handling relative to an existing (e.g. HTTP instrumentation) server span. */
+export interface OtelSpanConfig {
+  /**
+   * - `auto`: if an ambient recording SERVER span exists, nest under it as an
+   *   INTERNAL child (the host already extracted the context); otherwise create
+   *   our own SERVER span and extract the caller's context.
+   * - `own`: always create our own SERVER span and extract.
+   * - `nest`: never extract; always a child of the active context (INTERNAL).
+   * @default "auto"
+   */
+  server?: "auto" | "own" | "nest";
+  /**
+   * In `auto`-nest, also add `a2a.*` attributes to the existing server span.
+   * @default false
+   */
+  enrichServerSpan?: boolean;
 }
 
 /** Copilot CLI OTel knobs (only meaningful on `a2a-copilot`). */
@@ -215,9 +287,13 @@ export interface OtelTracerLike {
   startSpan(
     name: string,
     options?: {
+      /** OpenTelemetry `SpanKind` numeric value (INTERNAL 0, SERVER 1, CLIENT 2, ...). */
+      kind?: number;
       attributes?: Record<string, string | number | boolean>;
       links?: OtelSpanLinkLike[];
     },
+    /** Parent OpenTelemetry `Context`; omit to use the active context. */
+    context?: unknown,
   ): OtelSpanLike;
 }
 

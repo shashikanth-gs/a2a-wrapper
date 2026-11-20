@@ -119,6 +119,8 @@ Provider-only smoke (no Phoenix): `node examples/mock-ollama/smoke.mjs`.
 | `otel.backend.claude` | **a2a-claude only** — Hook F: `CLAUDE_CODE_ENABLE_TELEMETRY` + `OTEL_*` + `TRACEPARENT` |
 | `otel.backend.codex` | **a2a-codex only** — Hook F: merged into Codex `configOverrides.otel` |
 | `otel.backend.opencode` | **a2a-opencode only** — declares OpenCode server OTel on (de-dupe) |
+| `otel.propagation.*` / `otel.span.*` | Inbound trace-context policy and request-span kind; see [Joining the caller’s trace](#joining-the-callers-trace-distributed-tracing) |
+| `otel.exporter.headers` | Extra OTLP request headers (`${VAR}` substitution, never logged) |
 | `otel.emitOverlappingBackendSpans` | Unsafe; allow duplicates (debug only) |
 
 Every wrapper stamps package identity on `a2a.task.execute`:
@@ -154,6 +156,44 @@ One **request** = one wrapper span + backend children (not one merged span):
 a2a.task.execute          ← wrapper (Node), one per inbound request
   └─ Copilot / Claude …   ← backend CLI/runtime (same collector, parent-linked when configured)
 ```
+
+### Joining the caller's trace (distributed tracing)
+
+By default `a2a.task.execute` joins the trace of whoever called the agent, so an orchestrator, the wrapper and the backend show up as one connected trace. The wrapper reads a W3C `traceparent` (and `tracestate`) from the HTTP request headers (JSON-RPC and REST, blocking and streaming), then from the A2A message `metadata` as a fallback for callers that cannot set headers. Invalid values (wrong length, upper case, all-zero ids, version `ff`, repeated headers) are ignored, never half-trusted.
+
+```json
+{
+  "otel": {
+    "enabled": true,
+    "propagation": {
+      "inbound": "continue",
+      "trustedPeers": ["10.0.0.0/8"],
+      "untrusted": "restart",
+      "carriers": ["header", "metadata"]
+    },
+    "span": { "server": "auto", "enrichServerSpan": false }
+  },
+  "server": { "trustProxy": "loopback" }
+}
+```
+
+| Setting | Env override | Values (default first) | Meaning |
+|---|---|---|---|
+| `otel.propagation.inbound` | `A2A_OTEL_INBOUND` | `continue` \| `restart` \| `ignore` | `continue` joins the caller's trace. `restart` starts a new trace and adds a span link to the caller. `ignore` starts a new trace and discards the caller's context. |
+| `otel.propagation.trustedPeers` | `A2A_OTEL_TRUSTED_PEERS` (comma list) | `[]` | CIDRs or IPs allowed to supply trace context. Empty means everyone. Callers outside the list get `untrusted`. Unknown addresses fail closed. |
+| `otel.propagation.untrusted` | `A2A_OTEL_UNTRUSTED` | `restart` \| `ignore` | Policy for callers outside `trustedPeers`. |
+| `otel.propagation.carriers` | `A2A_OTEL_CARRIERS` | `["header","metadata"]` | Where to look, in order of precedence. |
+| `otel.span.server` | `A2A_OTEL_SERVER_SPAN` | `auto` \| `own` \| `nest` | `auto` nests under an existing recording SERVER span (for example from `@opentelemetry/instrumentation-http`) and otherwise creates its own SERVER span. `own` always creates one (duplicates a SERVER span if HTTP instrumentation is active). `nest` never extracts and always uses an INTERNAL span. |
+| `otel.span.enrichServerSpan` | `A2A_OTEL_ENRICH_SERVER_SPAN` | `false` | Copy `a2a.task.id`, `a2a.context.id`, `a2a.message.id`, `gen_ai.conversation.id` and `gen_ai.agent.name` onto the ambient HTTP SERVER span. |
+| `server.trustProxy` | none | Express `trust proxy` value | Set behind a gateway so the caller address used by `trustedPeers` is the real client, not the proxy. |
+
+Trust, in one paragraph: an unauthenticated endpoint plus `continue` lets any caller choose your trace id and sampling decision, which can force sampling or pollute another team's trace. For public or semi-public endpoints use `trustedPeers` (with `untrusted: "restart"`) or set `inbound` to `restart`/`ignore`. The caller address comes from the socket (or `X-Forwarded-For` only when `server.trustProxy` allows it); a client-supplied `x-a2a-peer` header is always overwritten.
+
+Every request span also records `a2a.propagation.policy` (`continue`, `restart`, `ignore`, or `nested`) and `a2a.propagation.source` (`header`, `metadata`, or `none`), so you can see why a trace was or was not connected.
+
+Backend or collector auth: `otel.exporter.headers` (values accept `${VAR}`, never logged) or the standard `OTEL_EXPORTER_OTLP_HEADERS`. Events sent through the event transport now carry `otelTraceId` / `otelSpanId` (and `otel_trace_id` / `otel_span_id` on A2A artifact data) so a collector can join them to the trace.
+
+Design, trade-offs and measurements: [`docs/design/distributed-tracing.md`](design/distributed-tracing.md).
 
 ### Re-entry, resume, retries (the ~1% the wrapper must handle)
 
