@@ -439,6 +439,17 @@ export async function createA2AServer<T extends BuildAgentCardInput>(
   // legacyCompat: v0.3-shaped JSON-RPC method names / REST requests are
   // transparently translated to v1.0 by the SDK, as long as the agent card
   // declares a mirrored v0.3 interface per binding (see agent-card.ts).
+  // SDK >=1.2.1 selects the v0.3 JSON-RPC translator by an exact match on
+  // A2A-Version "0.3" (older SDKs sniffed the body). Real v0.3 clients also
+  // send "0.3.0"/"0.3.x"; fold those into "0.3" so they stay on the legacy path.
+  const normalizeLegacyVersionHeader: RequestHandler = (req, _res, next) => {
+    const v = req.header(A2A_VERSION_HEADER);
+    if (v && /^0\.3(\.\d+)*$/.test(v.trim())) {
+      req.headers[A2A_VERSION_HEADER.toLowerCase()] = "0.3";
+    }
+    next();
+  };
+  app.use("/a2a/jsonrpc", normalizeLegacyVersionHeader);
   app.use(
     "/a2a/jsonrpc",
     jsonRpcHandler({
