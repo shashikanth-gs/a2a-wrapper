@@ -70,8 +70,10 @@ today. Detail and sources: `research/provider-*.md`.
   `run.ask`, and turns the result back. Persistence, expiry, authorization, idempotency and A2A rendering are core.
 - **D3. A run outlives `execute()`.** Core owns a `RunHandle` keyed by task; each SDK `execute()` is an *attachment*
   to it (section 4). This is the central mechanism and needs a spike (section 8).
-- **D4. Default for a message to a working task is `held`** (queued as the next turn of that context), never a second
-  concurrent run. A caller can opt into steering per message; core then asks the provider's `steer`.
+- **D4. A message to a running task carries a caller-chosen `delivery`:** `queue` (default when the caller says
+  nothing: becomes the next turn of that context), `steer` (inject into the running turn), or `interrupt` (abort
+  the running turn, then run the message as a new turn). Core never lets the SDK start a second concurrent
+  `execute()` for a live run.
 - **D5. Unknown never approves.** Only an explicit `selected` outcome on an `allow_*` option approves. Unknown
   kinds, outcomes, expired, unavailable and malformed replies all deny.
 - **D6. Every open union round-trips unknown members**, so a core upgrade never needs a provider upgrade and the
@@ -214,7 +216,7 @@ interface CoreMessage {
   role: "user" | "agent";
   parts: CorePart[];
   from: CoreCaller;
-  delivery?: Open<"auto" | "steer" | "queue">;           // caller intent; default "queue" (D4)
+  delivery?: Open<"queue" | "steer" | "interrupt">;      // caller intent; default "queue" (D4)
   idempotencyKey?: string;
   at: string;
   meta?: Meta;
@@ -229,7 +231,16 @@ type SteerOutcome =
 Provider handler: `steer?(run, message): Promise<SteerOutcome>`. The outcomes map to evidence: Copilot
 `delivery: steering | queued`, OpenCode 2 `steer | queue`, Claude `priority now | next | later`, Codex app-server
 `turn/steer` (or `rejected: not-steerable` for review/compact turns), Antigravity workaround (cancel and re-run, then
-`inserted`). A provider without `steer` gets the core default: `held`.
+`inserted`). A provider without `steer` gets the core default: a `steer` request is answered `held`, and the response says so; core
+never silently changes the caller's choice.
+
+`interrupt` is composed by core from `abort` plus a new turn in the context's lane, so it works for every provider that
+implements `abort` (all five) and needs no new handler. Its outcome is `{ state: "interrupted" }` (the old turn
+ended with the A2A state `canceled` for that turn, the new message starts the next turn on the same context).
+
+```ts
+type DeliveryResult = SteerOutcome | { state: "interrupted" };
+```
 
 ### 3.5 Abort
 
@@ -299,6 +310,27 @@ interface ProviderExecutor {
 
 Capabilities are the handlers present plus the values returned. Nothing says "this provider supports steering".
 
+### 3.9 Interaction policy
+
+"Auto-answer" means an interaction is answered by policy instead of by a person. Today every wrapper does this
+silently (Copilot approves everything; OpenCode replies `always` and saves a permanent rule). Core makes it explicit
+and configurable, and keeps today's behaviour as the default so nothing changes until an operator opts in:
+
+```jsonc
+"interactions": {
+  "mode": "auto",            // "auto" (default): providers keep their native config; core asks nobody
+                             // "ask": core asks the A2A client via input-required / auth-required
+  "timeoutMs": 600000,       // ask mode: expiry for an unanswered interaction
+  "onTimeout": "deny",       // "deny" | "fail": what the provider sees (outcome "expired")
+  "autoAnswer": [            // ask mode: rules answered without a person; first match wins
+    { "match": { "kind": "permission", "risk": "low" }, "answer": { "kind": "allow_once" } }
+  ]
+}
+```
+
+In `ask` mode, unmatched interactions go to the client, and an unanswered one expires into a denial (D5). The
+authorization middleware (decision 3) later decides *who* may answer; this policy decides *whether* a person is asked.
+
 ## 4. A2A mapping and the run model (core internal)
 
 The SDK calls `execute()` per request and tears the bus down when it returns, except at `input-required` and
@@ -311,8 +343,8 @@ The SDK calls `execute()` per request and tears the bus down when it returns, ex
   provider call keeps running in the background, parked on `run.ask`.
 - The reply's `execute()` **resolves the pending interaction** (it does not call `provider.run` again), attaches to the
   same `RunHandle`, forwards the remaining events, and returns at the next terminal or interrupted state.
-- A message to a working task is intercepted by core before any provider call: `held` by default (D4), or
-  `steer` when the caller opts in. Core never lets the SDK start a second `execute()` for a live run.
+- A message to a working task is intercepted by core before any provider call: handled per its `delivery` (D4:
+  `queue` by default, `steer`, or `interrupt`). Core never lets the SDK start a second `execute()` for a live run.
 - Because the SDK does not re-drive streams at `auth-required`, core completes the attachment with that status and
   expects a fresh request after the out-of-band step. Spike to confirm.
 
@@ -356,16 +388,19 @@ The SDK calls `execute()` per request and tears the bus down when it returns, ex
 
 ## 8. Open decisions and spikes
 
-Decisions (I recommend the first option in each):
+Decisions (settled 2026-11-21):
 
-1. Message to a running task with no opt-in: `held` (queue) or `rejected`? Recommend `held`.
-2. `secret` questions over A2A: refuse and require out-of-band entry, or allow with redaction? Recommend refuse unless
-   the transport is authenticated and the client declared the extension.
-3. Who may answer a permission: task owner only, owner plus configured approvers, or any caller? Recommend owner plus
-   approvers, which requires fixing authentication first.
-4. A2A SDK 1.2 as a prerequisite for interactions, or workaround inside core on 1.0? Recommend upgrade.
-5. Codex: move to `app-server` (experimental) to gain interactions, or stay on exec-only (no interactions)?
-6. Default auto-answer policy when no client can answer (deny, or a configured allow-list)? Recommend deny.
+1. **Message to a running task:** the caller chooses `delivery` per message: `queue` (default), `steer` or
+   `interrupt` (section 3.4).
+2. **Secret questions:** allowed in v1. We assume an authenticated or local deployment. The `secret` flag stays in the
+   model so redaction (logs, store, traces) and refusal rules can be added later without a model change.
+3. **Who may answer:** deferred, and designed as middleware. Core routes every interaction reply, steer and cancel
+   through one choke point, `authorize(caller, action, target)`, which is allow-all in v1. The caller identity is
+   recorded in `by` from the start (`anonymous` for now), so adding the check later changes no data model.
+4. **A2A SDK:** upgrade to the latest release (1.3.0 at the research snapshot) before any interaction work.
+5. **Codex:** stays on the exec SDK for now. It offers no interactions or steering until revisited; core defaults apply
+   (a `steer` request is `held`; permission requests cannot arise because exec mode cannot prompt).
+6. **Auto-answer policy:** see 3.9. Default preserves today's per-wrapper behaviour; asking a client is opt-in.
 
 Spikes before implementation:
 
