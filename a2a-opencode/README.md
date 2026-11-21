@@ -121,7 +121,7 @@ npx a2a-opencode --config agents/example/config.json
 | Component | Version |
 |---|---|
 | OpenCode server | **1.19.6** (1.x API) and **2.3.2** (2.x API) |
-| `@opencode-ai/sdk` (1.x client) | **^1.15.13** |
+| `@opencode-ai/sdk` (1.x client) | **^1.19.6** |
 | `@opencode/client` (2.x client) | **2.3.2** |
 | `@a2a-js/sdk` | **1.0.0** |
 | A2A protocol | **v1.0 (native) + v0.3.x (backward compatible)** |
