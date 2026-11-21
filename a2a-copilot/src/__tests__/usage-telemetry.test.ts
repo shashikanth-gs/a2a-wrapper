@@ -143,6 +143,7 @@ function makeMockSession(sessionId = "sess-1") {
     sendAndWait: vi.fn(async (_params: { prompt: string }) => {
       return { data: { content: "assistant response" } };
     }),
+    abort: vi.fn(async () => {}),
     disconnect: vi.fn(async () => {}),
     destroy: vi.fn(async () => {}),
     emit(event: string, data?: unknown) {
@@ -447,15 +448,26 @@ describe("10.4 metadata[\"x-usage\"] absent on failed, canceled, rejected events
   it("canceled event published by cancelTask has no metadata[\"x-usage\"]", async () => {
     const executor = new CopilotExecutor(makeConfig({ streaming: true }));
     const bus = makeMockBus();
+    const session = makeMockSession();
+    session.abort = vi.fn(async () => {});
+    // The turn never idles on its own: it is running when the cancel arrives.
+    session.send = vi.fn(async () => {});
 
-    // cancelTask doesn't need the session to be set up
+    vi.spyOn(executor as any, "initialize").mockResolvedValue(undefined);
     (executor as any).sessionManager = {
+      getOrCreate: vi.fn(async () => ({ sessionId: session.sessionId, session, isNew: true })),
+      trackTask: vi.fn(),
+      untrackTask: vi.fn(),
       getSessionForTask: vi.fn(() => undefined),
       getContextForTask: vi.fn(() => "ctx-1"),
-      untrackTask: vi.fn(),
+      destroySession: vi.fn(async () => {}),
     };
+    (executor as any).mcpHooks = { setEmitter: vi.fn(), clearEmitter: vi.fn() };
 
+    const running = executor.execute(makeContext({ taskId: "task-cancel" }), bus as any);
+    await new Promise((r) => setTimeout(r, 0));
     await executor.cancelTask("task-cancel", bus as any);
+    await running;
 
     const canceledEvents = bus.events.filter(
       (e: any) => isStatusUpdate(e) && e.data?.status?.state === TaskState.TASK_STATE_CANCELED,

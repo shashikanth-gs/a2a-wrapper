@@ -98,6 +98,13 @@ export { BaseSessionManager, type SessionEntry } from "./session/base-session-ma
 // ─── Executor ───────────────────────────────────────────────────────────────
 
 export type { A2AExecutor } from "./executor/types.js";
+export {
+  TaskRunRegistry,
+  CANCELED,
+  DEFAULT_ABORT_TIMEOUT_MS,
+  type TaskRun,
+  type CancelHooks,
+} from "./executor/task-runs.js";
 
 // ─── CLI ────────────────────────────────────────────────────────────────────
 
