@@ -72,12 +72,17 @@ Express Server  (a2a-codex)
   │  ├─ /context/build                → Trigger context discovery
   │  └─ /health                       → Health check
   ▼
-CodexExecutor
-  ├─ SessionManager  (contextId → Codex Thread)
+@a2a-wrapper/core  (everything A2A: task lifecycle, cancel, queue, contextId → Codex thread binding)
+  │  ProviderExecutor contract
+  ▼
+CodexProvider
+  ├─ CodexTurn       (one turn: ThreadEvent → artifacts, trace events, usage)
   ├─ EventMapper     (ThreadEvent → A2A sideband events)
   └─ @openai/codex-sdk
-       └─ Codex Thread (sandboxed repository operations)
+       └─ Codex Thread (sandboxed repository operations; a rollout file on disk, resumable by id)
 ```
+
+Core owns the A2A protocol and `@a2a-js/sdk`; this package only knows the Codex SDK and CLI.
 
 ## Required Environment Variables
 
@@ -167,6 +172,7 @@ All settings live in a single JSON config file. Priority order: **built-in defau
   "session": {
     "reuseByContext": true,
     "ttl": 3600000,
+    "idleTtl": 1800000,
     "cleanupInterval": 300000
   },
 
@@ -195,7 +201,7 @@ All settings live in a single JSON config file. Priority order: **built-in defau
 | `workspace-write` | Writes within `workingDirectory` only (default) | General engineering tasks |
 | `danger-full-access` | Unrestricted | Only inside an isolated container or VM |
 
-> **Security note:** Never use `danger-full-access` outside a fully isolated environment. The executor logs a warning on startup if this mode is set.
+> **Security note:** Never use `danger-full-access` outside a fully isolated environment. The wrapper logs a warning on startup if this mode is set.
 
 ### Approval policy
 
@@ -205,6 +211,8 @@ All settings live in a single JSON config file. Priority order: **built-in defau
 | `on-failure` | Approve only when a command fails |
 | `untrusted` | Approve tools from untrusted sources |
 | `on-request` | **Not supported** — interactive approvals are incompatible with headless A2A execution |
+
+**There are no approvals and no questions to answer.** a2a-codex drives Codex through the exec SDK (`@openai/codex-sdk`, one `codex exec` process per turn), which has no channel for asking a person: Codex runs with the approval policy above, and a tool call it cannot run unapproved fails inside Codex. So, unlike a2a-copilot, a2a-claude and a2a-opencode, there is no `interactions` config section and a task never goes to `input-required`. (For MCP tools that need approval under `never`, see `defaultToolsApprovalMode` in the MCP section.) Interactive approvals would need Codex's app-server protocol, which is experimental and not used here.
 
 ## AGENTS.md and `.agents/skills/`
 
@@ -303,9 +311,42 @@ By default, `a2a-codex` buffers the full response and publishes a single artifac
 
 Set `features.streamArtifactChunks: true` (or `STREAM_ARTIFACTS=true`) to stream delta chunks as the model generates them. Use this only if your client handles `append: true` artifact updates correctly.
 
+## Conversations and restarts
+
+Messages that carry the same `contextId` continue the same Codex **thread**. The thread id (from the `thread.started` event, before any output) is bound to the `contextId` by core (`run.bind`) and the next message resumes it with the SDK's `resumeThread(id, options)`, so the model remembers earlier turns. The thread options (model, sandbox, approval policy, network, web search, additional directories) are per run and are passed on resume too. Turns of one context run one after the other (core's per-context lane); a message for a context that is busy waits for it.
+
+A thread Codex no longer has (`codex exec resume` answers `no rollout found for thread id ...`, or the rollout file is gone) is not an error: core forgets the binding and runs the same turn once more on a fresh thread. This is reported only while the thread is being opened, before the turn publishes anything.
+
+> **Resume after a restart needs a durable `RunStore`.** The default store is in memory, so with the defaults **nothing survives a restart**: the `contextId` to thread binding is gone and the next message starts a new Codex thread (the old one stays on disk under `$CODEX_HOME/sessions`, unused). Core ships only the in-memory store today; a durable one is tracked in #69. To keep conversations across restarts supply your own `RunStore` (see core's `RunStore` interface and its contract test suite):
+>
+> ```typescript
+> import { createA2AServer, resolveConfig } from "a2a-codex";
+> const handle = await createA2AServer(resolveConfig("agent.json"), { runStore: new MyDurableRunStore() });
+> ```
+>
+> Tasks themselves are in memory either way (an in-flight task does not survive a restart; its thread, a file on disk, does).
+
+- `session.reuseByContext: false` (or `session.ttl <= 0`) gives every task its own thread and binds nothing.
+- `session.ttl` (default 1 hour) is the **maximum age** of a context's thread, as it always was: a context resumes its thread only while the thread is younger than `ttl`, however recently it was used; after that the next message starts a new thread.
+- `session.idleTtl` (unset by default) is an optional **idle** expiry, measured from the last use of the context.
+- `session.cleanupInterval` (default 5 minutes) is how often the wrapper forgets the bindings of contexts idle for longer than `ttl`. The threads stay on disk.
+- Start-up validation (`validateBindingsOnStart` in core) can drop bindings whose thread is gone: the wrapper answers by looking for the thread's rollout file under `$CODEX_HOME/sessions` (`~/.codex/sessions`), and says "unknown" when that directory cannot be read.
+
+## A message for a running task: queue and interrupt
+
+Send a second message to a task that is still running and choose what it means with the message metadata `urn:a2a-wrapper:delivery:v1`:
+
+| Delivery | What happens in a2a-codex |
+|---|---|
+| `queue` (default) | The message waits (in core) and runs as the next turn of the same task, on the same thread. |
+| `steer` | **Not supported by the exec SDK**: the running `codex exec` process cannot be talked to. Core says so honestly (`queued`, reason `steer-unsupported`) and runs the message as the next turn, like `queue`. |
+| `interrupt` | The running turn is aborted (the CLI process is killed), then the message runs next on the same thread. |
+
+The caller gets one `Message` carrying the result under `urn:a2a-wrapper:delivery-result:v1`. The two turns of a task publish their answers as separate `response` artifacts (`response-<taskId>-<turn>`).
+
 ## Cancellation
 
-Call `CancelTask` (v1 JSON-RPC) or `tasks/cancel` (v0.3 JSON-RPC) to cancel an in-flight task. For HTTP+JSON, use `POST /a2a/rest/tasks/{taskId}:cancel` with v1 or `POST /a2a/rest/v1/tasks/{taskId}:cancel` with v0.3. The executor calls `abortController.abort()` on the Codex `runStreamed` call. Cancellation is idempotent — multiple calls for the same task ID are safe.
+Call `CancelTask` (v1 JSON-RPC) or `tasks/cancel` (v0.3 JSON-RPC) to cancel an in-flight task. For HTTP+JSON, use `POST /a2a/rest/tasks/{taskId}:cancel` with v1 or `POST /a2a/rest/v1/tasks/{taskId}:cancel` with v0.3. Core publishes `canceled` at once; the wrapper aborts the signal it passed to the Codex `runStreamed` call, which kills the CLI process of the turn. The thread stays on disk and takes the next message of the context. Cancellation is idempotent — multiple calls for the same task ID are safe.
 
 ## Context API
 
@@ -411,19 +452,23 @@ const handle = await createA2AServer(config);
 process.on("SIGTERM", () => handle.shutdown());
 ```
 
-Or use the executor directly:
+`createA2AServer(config, options?)` takes `{ runStore?, eventTransport? }` and returns `{ provider, registry, executor, server, app, shutdown }`: `provider` is the `CodexProvider` (a `ProviderExecutor` of `@a2a-wrapper/core`), `registry` core's run runtime.
 
 ```typescript
-import { CodexExecutor, resolveConfig } from "a2a-codex";
-
-const config = resolveConfig("agents/example/config.json");
-const executor = new CodexExecutor(config);
-await executor.initialize();
-
 // Build a context summary of the repository
-const summary = await executor.buildContext();
+const summary = await handle.provider.buildContext();
 console.log(summary);
 ```
+
+### Breaking changes (major release) and migration
+
+`CodexProvider` implements `@a2a-wrapper/core`'s `ProviderExecutor`; a2a-codex no longer depends on `@a2a-js/sdk` (only core does).
+
+- **`CodexExecutor` and `SessionManager` are removed** (also from `a2a-codex/codex`), with no shim. Use `CodexProvider` (a `ProviderExecutor`: `run`, `abort`, `abortOrphan`, `release`, `probeSession`) behind core's run runtime. It is not an SDK `AgentExecutor`: there is no `execute(ctx, bus)` or `cancelTask`; cancel and queueing go through the A2A endpoints (or core's `RunRegistry`).
+- **`createA2AServer(config, options?)`** now takes `{ runStore?, eventTransport? }` and returns a `ProviderServerHandle` (`provider`, `registry`, `executor`, `server`, `app`, `shutdown`): `executor` is core's executor (it used to be the `CodexExecutor`). Use `handle.provider.buildContext()` where you used `executor.buildContext()`. Custom event transports are passed as `{ eventTransport }` (it used to be set on `executor.customTransport`).
+- **Codex threads are resumed.** Before, a context kept its thread only in memory and `resumeThread` was never called (#100); now the thread id is bound to the `contextId` and resumed (with a durable `RunStore`, also across restarts: see "Conversations and restarts").
+- `session.ttl` keeps its meaning (maximum age of a context's thread); `session.idleTtl` is new and optional.
+- **`x-usage` is what the task spent.** Codex reports `turn.completed.usage` as a running total of the whole thread; the old executor published that total as every task's usage (so it grew with each turn of a conversation). Core now diffs the readings per thread, and keeps the previous reading with the context binding (also across restarts with a durable store). A resumed thread whose previous reading was lost reports no tokens for that one task, then is exact.
 
 ## Live Smoke Test
 
@@ -460,7 +505,10 @@ Set `RUN_CODEX_INTEGRATION_TESTS=true` to include the live integration test in `
 - **Interactive approvals not supported.** `approvalPolicy: "on-request"` is rejected at startup. Headless A2A execution cannot present approval prompts to a human. Use `"never"` (default) for automated operation.
 - **Buffered mode is the safe default.** `streamArtifactChunks: false` is the default. Some A2A clients (including the A2A Inspector) work best with complete, non-appending artifacts. Enable streaming only if your client handles `append: true` artifact updates.
 - **MCP config is baked at startup.** MCP servers are registered with the Codex SDK at construction time. Runtime MCP registration is not possible — all servers must be declared in `config.json` before the agent starts.
-- **One thread per A2A context.** Each A2A `contextId` maps to exactly one Codex thread. Turns within a context are serialized. Concurrent turns on the same context are queued, not parallelized.
+- **One thread per A2A context.** Each A2A `contextId` maps to exactly one Codex thread (resumed by id, also after a restart when the run store is durable). Turns within a context are serialized by core's lane. Concurrent turns on the same context are queued, not parallelized.
+- **No steering, no approvals.** The exec SDK cannot talk to a running turn and cannot ask a person: `steer` is answered by core with an honest `queued` (`steer-unsupported`) and `interrupt` aborts the turn; there is no `interactions` section and no `input-required`. Both would need Codex's experimental app-server protocol, which this wrapper does not use.
+- **`timeouts.prompt` is not applied** (it never was for Codex): a turn runs until Codex ends it or the task is canceled.
+- In `streamArtifactChunks` mode the stored task holds the response text twice (the chunks, then the last-chunk marker with the full text, both appended). This is the behaviour of earlier releases and is kept.
 - **Docker: shell sandboxing requires elevated privileges.** Codex wraps every shell command in `bwrap` (Bubblewrap), which creates Linux user namespaces. Standard Docker containers block unprivileged namespace creation, so shell tool calls fail inside a container unless you run with `--privileged` or `--security-opt=seccomp:unconfined`. For local development, running with `server.sh` directly (no Docker) is recommended.
 - **ChatGPT subscription: OAuth tokens expire.** When using ChatGPT Plus/Pro authentication (via `codex login`), the tokens in `~/.codex/auth.json` are short-lived. When they expire the agent returns auth errors; re-run `codex login` on the host to refresh. For long-running or unattended deployments, `OPENAI_API_KEY` is more reliable.
 - **ChatGPT subscription: model.** The default `auto` picks a model your account lists, so the desktop app's default in `~/.codex/config.toml` is ignored. A model you pin yourself must be in `codex debug models`; Codex rejects others with "model not supported when using Codex with a ChatGPT account".
