@@ -401,6 +401,21 @@ describe("a message to a task parked on an interaction", () => {
     expect(h.provider.runs).toHaveLength(1);
   });
 
+  it("a slow authorize that outlasts the claim TTL keeps its claim (the holder refreshes it): a second reply still cannot take it and break the first stream", async () => {
+    const h = build({}, { mode: "ask" }, { replyClaimTtlMs: 60, authorize: async (_by, action) => { if (action === "answer") await tick(300); return true; } });
+    const { call, answer, taskId } = await park(h);
+    const id = await interactionId(h, taskId);
+    const winner = stream(h, dataMessage(taskId, { interactionId: id, optionId: "once" }));
+    await tick(150); // well past the TTL, authorize still pending
+    const loser = await stream(h, dataMessage(taskId, { interactionId: id, optionId: "no" }));
+    expect(answerOf(loser).result).toMatchObject({ state: "rejected", reason: "reply-conflict" });
+    expect(await answer).toMatchObject({ outcome: "selected", optionId: "once" });
+    call.view.complete({ text: "ok" });
+    const w = await winner;
+    expect(w.error).toBeUndefined(); // the first reply's stream was never broken by a second snapshot
+    expect(kinds(w.events).at(-1)).toBe("status:TASK_STATE_COMPLETED");
+  });
+
   it("known limit N3: a plain text message that arrives AFTER the interaction was answered is an ordinary message (queued), not a reply", async () => {
     const h = build({}, { mode: "ask" });
     const { call, answer, taskId } = await park(h);

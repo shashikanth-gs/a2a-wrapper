@@ -148,6 +148,10 @@ export class RunHandle {
   replyAttaching = false;
   /** When the {@link replyAttaching} claim was taken (ms since epoch): a claim whose request never reached `execute()` goes stale. */
   replyClaimedAt = 0;
+  /** Token of the current reply claim: only its holder may release or refresh it. */
+  replyToken = 0;
+  /** `steer` handlers in flight. While any is, the task cannot go terminal: the message may still need a turn. */
+  steering = 0;
   /**
    * An `interrupt` with no follow-up content stopped the turn: the task waits in `input-required` (marked interrupted)
    * for the next message, holding its context lane. `parked` is set too, so the next message attaches like a reply.

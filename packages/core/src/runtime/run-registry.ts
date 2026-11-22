@@ -102,6 +102,8 @@ const TERMINAL_WRITE_ATTEMPTS = 3;
 const SWEEP_CONCURRENCY = 4;
 /** A reply claim whose request never reached `execute()` (the SDK failed in between) is stale after this long. */
 const REPLY_CLAIM_TTL_MS = 15_000;
+/** Default bound for a provider's `steer` handler. A timeout is ambiguous (the provider may have taken the message). */
+const DEFAULT_STEER_TIMEOUT_MS = 30_000;
 /** How long an interrupted task (an `interrupt` with no follow-up message) waits for the next message. */
 export const DEFAULT_INTERRUPTED_TIMEOUT_MS = 10 * 60_000;
 
@@ -161,7 +163,16 @@ export interface RunRegistryOptions {
   detached?: DetachedPublisherFactory;
   /** Upper bound for `abort` / `abortOrphan` / `release`. Default {@link DEFAULT_ABORT_TIMEOUT_MS}. */
   abortTimeoutMs?: number;
-  /** Upper bound for the provider's `steer` handler. Default: `abortTimeoutMs`. */
+  /**
+   * How long a reply claim nobody refreshes stays held before it may be taken over (a wedge breaker only: the holder refreshes
+   * it every third of this while its request lives). Default 15 seconds.
+   */
+  replyClaimTtlMs?: number;
+  /**
+   * Upper bound for the provider's `steer` handler. Default 30 seconds. A steer that times out is AMBIGUOUS (the provider
+   * may have taken the message): it is answered `rejected` / `steer-failed` and remembered by message id, so a caller that
+   * wants to resend deliberately must use a NEW message id.
+   */
   steerTimeoutMs?: number;
   /**
    * How long a task that an `interrupt` with no follow-up message left in `input-required` waits for its next message
@@ -252,6 +263,7 @@ export class RunRegistry {
   /** Runs of which an orphan abort was already started (runId). */
   private readonly orphanClaims = new Set<string>();
   private readonly chains = new Map<string, Promise<void>>();
+  private replyTokenSeq = 0;
   private readonly background = new Set<Promise<unknown>>();
   /**
    * Per-task bookkeeping the A2A publishers share (which streamed artifacts already have their first chunk, so a reply's new
@@ -265,6 +277,7 @@ export class RunRegistry {
   private detachedFactory?: DetachedPublisherFactory;
   private readonly abortTimeoutMs: number;
   private readonly steerTimeoutMs: number;
+  private readonly replyClaimTtlMs: number;
   private readonly interruptedTimeoutMs: number;
   private readonly now: () => string;
   private readonly newId: () => string;
@@ -278,7 +291,8 @@ export class RunRegistry {
     this.interactions = options.interactions ?? new InteractionsRuntime({ policy: options.interactionPolicy });
     this.detachedFactory = options.detached;
     this.abortTimeoutMs = options.abortTimeoutMs ?? DEFAULT_ABORT_TIMEOUT_MS;
-    this.steerTimeoutMs = options.steerTimeoutMs ?? this.abortTimeoutMs;
+    this.replyClaimTtlMs = options.replyClaimTtlMs ?? REPLY_CLAIM_TTL_MS;
+    this.steerTimeoutMs = options.steerTimeoutMs ?? DEFAULT_STEER_TIMEOUT_MS;
     this.interruptedTimeoutMs = options.interruptedTimeoutMs ?? DEFAULT_INTERRUPTED_TIMEOUT_MS;
     this.now = options.now ?? (() => new Date().toISOString());
     this.newId = options.newId ?? (() => randomUUID());
@@ -400,20 +414,33 @@ export class RunRegistry {
    * snapshot (it would land inside the winner's lifecycle stream and break it) and must not start anything. Returns
    * `false` when the run is not parked or the claim is taken.
    */
-  beginReply(taskId: string): boolean {
+  beginReply(taskId: string): number | undefined {
     const h = this.handles.get(taskId);
-    if (!h || h.phase !== "active" || !h.parked) return false;
-    // A claim is released when its request's execute() ends; one whose request never got that far goes stale.
-    if (h.replyAttaching && Date.now() - h.replyClaimedAt < REPLY_CLAIM_TTL_MS) return false;
+    if (!h || h.phase !== "active" || !h.parked) return undefined;
+    // The holder keeps its claim fresh ({@link touchReply}) while its request is alive; a claim nobody refreshes for the TTL
+    // (its request never reached `execute()`, the SDK failed in between) is a wedge and may be taken over.
+    if (h.replyAttaching && Date.now() - h.replyClaimedAt < this.replyClaimTtlMs) return undefined;
     h.replyAttaching = true;
     h.replyClaimedAt = Date.now();
-    return true;
+    h.replyToken = ++this.replyTokenSeq;
+    return h.replyToken;
   }
 
-  /** Release the {@link beginReply} claim (the winner's `execute()` is over). */
-  endReply(taskId: string): void {
+  /** How often a claim holder should call {@link touchReply}. */
+  get replyClaimKeepaliveMs(): number {
+    return Math.max(1, Math.floor(this.replyClaimTtlMs / 3));
+  }
+
+  /** The holder of claim `token` is still working (its `execute()` entered, `authorize` is pending): push the stale deadline out. */
+  touchReply(taskId: string, token: number): void {
     const h = this.handles.get(taskId);
-    if (h) h.replyAttaching = false;
+    if (h && h.replyAttaching && h.replyToken === token) h.replyClaimedAt = Date.now();
+  }
+
+  /** Release claim `token` (the winner's `execute()` is over). A stale holder cannot release a newer claim. */
+  endReply(taskId: string, token: number): void {
+    const h = this.handles.get(taskId);
+    if (h && h.replyToken === token) h.replyAttaching = false;
   }
 
   /**
@@ -661,12 +688,37 @@ export class RunRegistry {
     if (!running) return this.queueIt(handle, message, init, "no-active-turn");
 
     const view = this.makeView(handle, running);
-    const r = await this.bounded(() => this.provider.steer!(view, message), this.steerTimeoutMs);
+    // While the handler is in flight the task cannot go terminal: the turn may end under it and the message still needs a turn.
+    handle.steering++;
+    try {
+      return await this.steerSettled(handle, message, init, running, await this.bounded(() => this.provider.steer!(view, message), this.steerTimeoutMs));
+    } finally {
+      handle.steering--;
+      this.advance(handle); // the turn that ended while the steer was in flight can finalize now (or the queued message starts)
+    }
+  }
+
+  private steerSettled(
+    handle: RunHandle,
+    message: CoreMessage,
+    init: ExecuteInit,
+    running: RunTurn,
+    r: { ok: true; value: SteerOutcome | undefined } | { ok: false; error: Error },
+  ): DeliveryDecision {
+    const taskId = handle.taskId;
     if (!r.ok) {
       // Ambiguous: the provider may have taken it. Remembered, so a retry of the same message id cannot deliver twice.
       return { result: this.rejected(taskId, message.id, "steer-failed", r.error.message), resumed: false, cache: true };
     }
     const outcome = r.value as SteerOutcome | undefined;
+    if (handle.phase !== "active") {
+      return { result: this.rejected(taskId, message.id, "task-ended", "the task ended while the steer was in flight"), resumed: false, cache: true };
+    }
+    if (outcome && typeof outcome === "object" && outcome.state === "inserted" && !running.live) {
+      // The turn the provider folded the message into had ended by the time it answered: it may never have seen it. Err toward
+      // delivering: run it as the next turn and say so, never report `inserted` for a message that may be lost.
+      return this.queueIt(handle, message, init, "turn-ended-during-steer");
+    }
     if (outcome && typeof outcome === "object" && outcome.state === "queued") {
       const held = (outcome as { handle?: unknown }).handle;
       if (typeof held !== "string" || held === "") {
@@ -919,7 +971,7 @@ export class RunRegistry {
     }
     handle.lastOutcome = outcome;
     // More turns follow: what this one produced is output NOW (the terminal status carries only the last turn).
-    if (handle.queue.length > 0 || handle.held.size > 0) this.publishTurnResult(handle, outcome);
+    if (handle.queue.length > 0 || handle.held.size > 0 || handle.steering > 0) this.publishTurnResult(handle, outcome);
     this.advance(handle);
   }
 
@@ -955,7 +1007,7 @@ export class RunRegistry {
       this.kick(handle);
       return;
     }
-    if (handle.held.size > 0 || handle.awaitingNextTurn || handle.stopping || !handle.lastOutcome) return;
+    if (handle.held.size > 0 || handle.steering > 0 || handle.awaitingNextTurn || handle.stopping || !handle.lastOutcome) return;
     this.finalize(handle, handle.lastOutcome);
   }
 

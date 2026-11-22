@@ -29,18 +29,19 @@ import type { RunRegistry } from "../runtime/run-registry.js";
 /** Buses handed out for a request that only gets an answer, never the run's stream. */
 const privateBuses = new WeakSet<object>();
 /** Call contexts that took the parked task's reply claim when their bus was created. */
-const replyClaims = new WeakSet<object>();
+const replyClaims = new WeakMap<object, number>();
 
 /** Is `bus` a private answer bus (see the module doc)? */
 export function isPrivateBus(bus: ExecutionEventBus): boolean {
   return privateBuses.has(bus);
 }
 
-/** Did the request with this call context take the parked task's reply claim (the caller must release it)? Consumes the mark. */
-export function takeReplyClaim(context: ServerCallContext | undefined): boolean {
-  if (!context || !replyClaims.has(context)) return false;
+/** The token of the parked task's reply claim the request with this call context took (the caller must release it), or `undefined`. Consumes the mark. */
+export function takeReplyClaim(context: ServerCallContext | undefined): number | undefined {
+  if (!context) return undefined;
+  const token = replyClaims.get(context);
   replyClaims.delete(context);
-  return true;
+  return token;
 }
 
 export class RunEventBusManager extends DefaultExecutionEventBusManager {
@@ -58,8 +59,9 @@ export class RunEventBusManager extends DefaultExecutionEventBusManager {
   override createOrGetByTaskId(taskId: string, context?: ServerCallContext): ExecutionEventBus {
     if (this.registry.isLive(taskId)) {
       // A parked task may be answered: one request (the claim winner) carries the run on, on the shared bus.
-      if (context && this.registry.isParked(taskId) && this.registry.beginReply(taskId)) {
-        replyClaims.add(context);
+      const token = context && this.registry.isParked(taskId) ? this.registry.beginReply(taskId) : undefined;
+      if (context && token !== undefined) {
+        replyClaims.set(context, token);
         this.contexts.set(taskId, context);
         return super.createOrGetByTaskId(taskId, context);
       }

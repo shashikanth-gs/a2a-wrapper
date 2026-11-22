@@ -147,11 +147,12 @@ describe("RunEventBusManager: which request gets which bus", () => {
     const first = manager.createOrGetByTaskId("t1", c1);
     const second = manager.createOrGetByTaskId("t1", c2);
     expect(isPrivateBus(first)).toBe(false);
-    expect(takeReplyClaim(c1)).toBe(true);
-    expect(takeReplyClaim(c1)).toBe(false); // consumed
+    const token = takeReplyClaim(c1);
+    expect(token).toEqual(expect.any(Number));
+    expect(takeReplyClaim(c1)).toBeUndefined(); // consumed
     expect(isPrivateBus(second)).toBe(true);
-    expect(takeReplyClaim(c2)).toBe(false);
-    registry.endReply("t1");
+    expect(takeReplyClaim(c2)).toBeUndefined();
+    registry.endReply("t1", token!);
     expect(isPrivateBus(manager.createOrGetByTaskId("t1", ctx()))).toBe(false); // released: the next one may carry it
   });
 
@@ -167,6 +168,34 @@ describe("RunEventBusManager: which request gets which bus", () => {
     vi.setSystemTime(Date.now() + 16_000);
     const c3 = ctx();
     expect(isPrivateBus(manager.createOrGetByTaskId("t1", c3))).toBe(false);
-    expect(takeReplyClaim(c3)).toBe(true);
+    expect(takeReplyClaim(c3)).toEqual(expect.any(Number));
+  });
+
+  it("a stale holder's endReply cannot release a NEWER claim; a refreshed claim does not go stale", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const { manager, registry, start } = await setup("ask");
+    const call = await start();
+    void call.view.ask({ kind: "confirm", title: "ok?" });
+    await vi.waitFor(() => expect(registry.isParked("t1")).toBe(true));
+    const c1 = ctx();
+    manager.createOrGetByTaskId("t1", c1);
+    const old = takeReplyClaim(c1)!;
+    // The keepalive holds the claim far beyond the TTL...
+    for (let i = 0; i < 4; i++) {
+      vi.setSystemTime(Date.now() + 10_000);
+      registry.touchReply("t1", old);
+      expect(isPrivateBus(manager.createOrGetByTaskId("t1", ctx()))).toBe(true);
+    }
+    // ...until it is abandoned: the TTL breaks the wedge and a newer claim is taken.
+    vi.setSystemTime(Date.now() + 16_000);
+    const c2 = ctx();
+    manager.createOrGetByTaskId("t1", c2);
+    const newer = takeReplyClaim(c2)!;
+    expect(newer).not.toBe(old);
+    registry.endReply("t1", old); // the old winner finally ends: it must not release the newer claim
+    expect(isPrivateBus(manager.createOrGetByTaskId("t1", ctx()))).toBe(true);
+    registry.touchReply("t1", old); // nor refresh it
+    registry.endReply("t1", newer);
+    expect(isPrivateBus(manager.createOrGetByTaskId("t1", ctx()))).toBe(false);
   });
 });

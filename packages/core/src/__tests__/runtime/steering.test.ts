@@ -342,13 +342,65 @@ describe("steer x provider capability", () => {
     expect(s.provider.steer).not.toHaveBeenCalled();
   });
 
+  it("a steer in flight when the turn completes: the task stays open, and `inserted` is NOT reported for a message the ended turn may never have seen (it runs as the next turn)", async () => {
+    let release!: (o: { state: "inserted" }) => void;
+    const s = setup({ steer: () => new Promise((r) => (release = r as never)) });
+    const first = await startRun(s);
+    const m = makeMessage("steer", "late steer");
+    const pending = deliver(s, m);
+    await tick();
+    first.call.view.complete({ text: "one" }); // the turn ends under the in-flight steer
+    await tick();
+    await tick();
+    expect(first.publisher.terminal()).toEqual([]); // not terminal while a steer is in flight
+    release({ state: "inserted" });
+    expect(await pending).toEqual({ state: "queued", taskId: "t1", messageId: m.id, holder: "core", position: 1, reason: "turn-ended-during-steer" });
+    await until(() => s.provider.runs.length === 2, "the message runs");
+    expect(inputText(s.provider.runs[1])).toBe("late steer");
+    s.provider.runs[1].view.complete({ text: "two" });
+    expect(await first.done).toBe("ended");
+    expect(first.publisher.terminal().map((t) => t.state)).toEqual(["completed"]);
+  });
+
+  it("a steer that is rejected after the turn ended: reported rejected, nothing queued, and the task then finishes (exactly one terminal)", async () => {
+    let release!: (o: { state: "rejected"; reason: string }) => void;
+    const s = setup({ steer: () => new Promise((r) => (release = r as never)) });
+    const first = await startRun(s);
+    const m = makeMessage("steer", "x");
+    const pending = deliver(s, m);
+    await tick();
+    first.call.view.complete({ text: "one" });
+    await tick();
+    expect(first.publisher.terminal()).toEqual([]);
+    release({ state: "rejected", reason: "no-active-turn" });
+    expect(await pending).toMatchObject({ state: "rejected", reason: "no-active-turn" });
+    expect(await first.done).toBe("ended");
+    expect(first.publisher.terminal().map((t) => t.state)).toEqual(["completed"]);
+    expect(s.provider.runs).toHaveLength(1);
+    expect(await records(s)).toEqual([]);
+  });
+
+  it("a steer that is rejected after the turn ended still lets a task whose last turn failed end failed", async () => {
+    let release!: (o: { state: "rejected"; reason: string }) => void;
+    const s = setup({ steer: () => new Promise((r) => (release = r as never)) });
+    const first = await startRun(s);
+    const pending = deliver(s, makeMessage("steer", "x"));
+    await tick();
+    first.call.view.fail({ message: "boom" });
+    await tick();
+    release({ state: "rejected", reason: "not-steerable" });
+    await pending;
+    await first.done;
+    expect(first.publisher.terminal().map((t) => [t.state, t.text])).toEqual([["failed", "boom"]]);
+  });
+
   it("a steer that the provider answers after the task ended is rejected task-ended, not reported queued", async () => {
     let release!: (o: { state: "queued"; handle: string }) => void;
     const s = setup({ steer: () => new Promise((r) => (release = r as never)) });
     const first = await startRun(s);
     const pending = deliver(s, makeMessage("steer", "late"));
     await tick();
-    first.call.view.complete({ text: "done" }); // the turn ends and the task goes terminal while the steer is pending
+    await s.registry.cancel("t1", ANONYMOUS_CALLER); // the task ends while the steer is pending
     await first.done;
     release({ state: "queued", handle: "h-late" });
     expect(await pending).toMatchObject({ state: "rejected", reason: "task-ended" });

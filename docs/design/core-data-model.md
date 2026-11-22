@@ -803,8 +803,8 @@ itself (`interactionPolicy`); the seam for a different one (`InteractionRuntime`
   await). The snapshot is now a one-shot synchronous claim per park (`registry.beginReply`, cleared when that attachment
   leaves or the run parks or resumes again). A reply that loses the claim publishes no snapshot, does not call
   `registry.execute`, is never queued as a turn, and is not used. Since #109 the claim is taken when the shared bus is handed out (`RunEventBusManager.createOrGetByTaskId`),
-  and the loser has a private bus: it is answered with a Message (`rejected` / `reply-conflict`), never an error (3.12). A claim
-  whose request never reached `execute()` goes stale after 15 seconds.
+  and the loser has a private bus: it is answered with a Message (`rejected` / `reply-conflict`), never an error (3.12). The claim
+  carries a token (only its holder can refresh or release it) and is kept fresh while the holder's request lives (3.12).
 - **Process-local versus stored state.** Everything about an interaction's life is in the store: the record (state, result,
   `seq`, handle) and, for "was this already answered", `getPending` (the in-process `settledIds` set is only a cache in front of
   it, so a duplicate structured reply after a restart is still recognised). Deliberately process-local: the per-run state on a
@@ -937,6 +937,34 @@ Measured with the real `DefaultRequestHandler` and a bare executor (no core runt
 - **`RunStore` contract.** `__tests__/runtime/run-store-contract.ts` exports `runStoreContractTests(name, factory)`, a suite over
   every `RunStore` method (runs, bindings, queued messages with the atomic `claimQueued`, pending interactions). `InMemoryRunStore`
   runs it; a SQLite or Postgres store is verified by the same call with its own factory (the factory must return an empty store).
+
+**Round 2 (review of #119).**
+
+- **A steer that races turn end.** `RunHandle.steering` counts in-flight `steer` handlers; while any is in flight the task cannot
+  go terminal (`advance`), and the turn that ended under it publishes its result as output. When the handler answers `inserted`
+  but the turn it was given is no longer live, the message may never have been seen: core queues it as the next turn and reports
+  `queued` with `reason: "turn-ended-during-steer"` (it errs toward delivering, so the rare duplicate is accepted over a lost
+  message). A `rejected` after the turn ended is reported as is and the task then finishes. A steer answered after the task was
+  canceled is `rejected` / `task-ended`.
+- **Reply claim.** `beginReply` returns a token, `endReply(taskId, token)` releases only that claim, and the holder refreshes it
+  (`touchReply`, every third of `replyClaimTtlMs`, default 15 s) from when its `execute()` is entered for as long as it lives, so a
+  slow `authorize` cannot let a second reply take the claim and break the first reply's stream. The TTL is only a wedge breaker. If
+  the SDK fails between creating the bus and calling `execute()` (the push-notification config save of `message/stream` throws),
+  core cannot see it: the park stays claimed until the TTL passes, then the next reply takes over.
+- **`steerTimeoutMs`** defaults to 30 s. A steer that times out is ambiguous (the provider may have taken the message), is answered
+  `rejected` / `steer-failed` and remembered by message id: to resend deliberately a caller must use a NEW message id.
+- **Telling the ack from an answer.** The Message that answers a message to a working task has role `agent` and carries the task and
+  context ids and readable text, so a client could mistake it for the agent's answer. It is recognisable by its metadata
+  `urn:a2a-wrapper:delivery-result:v1` (a client that knows the key checks it first), it arrives as the ONLY event of the request,
+  and it never appears in the task's own stream, artifacts or history. A client that ignores the key should treat a bare Message
+  answering a message it sent to a running task as an acknowledgement.
+- **A non-final turn's failure** is reported as a `working` status ("The previous turn failed: ..."); if a later turn succeeds the
+  final task state is `completed` and the earlier failure survives only in that status message and the history.
+- **History.** The SDK appends every user message to `task.history` before `execute()`, so a deduplicated or rejected message is
+  still in the history, and a duplicate message id may be appended twice.
+- **Process-local state.** `deliveries` (dedupe) and `queueSeq` live on the run handle: after a restart the handle is new, the
+  ordering key restarts above the stored records (`listQueued`), and a message id already stored is recognised from the store
+  (`reason: "duplicate"`).
 
 **Known limits, documented not coded.**
 

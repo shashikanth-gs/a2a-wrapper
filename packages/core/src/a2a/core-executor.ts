@@ -46,6 +46,7 @@ import { createBusPublisher } from "./bus-publisher.js";
 
 const log = createLogger("core-executor");
 
+
 /** What a request with a private bus hands the registry as its stream: nothing, its answer is the one Message. */
 const SILENT_PUBLISHER: RunPublisher = {
   status() {},
@@ -80,15 +81,15 @@ export class CoreExecutor implements A2AExecutor {
     // A snapshot on a run that DOES have a stream attached would break that stream, so never then.
     const parked = live && this.registry.isParked(ctx.taskId);
     // The bus manager takes the park's reply claim when it hands the shared bus out; without it, claim here.
-    let claimed = takeReplyClaim(ctx.context);
+    let claimToken = takeReplyClaim(ctx.context);
     if (!live) {
       if (ctx.task) bus.publish({ kind: "task", data: ctx.task });
       else publishTask(bus, ctx.taskId, ctx.contextId);
     } else if (parked) {
       // One snapshot per park, claimed synchronously: with two replies in flight a second snapshot would land inside the
       // first one's lifecycle stream and break it.
-      claimed = claimed || this.registry.beginReply(ctx.taskId);
-      if (!claimed) {
+      claimToken = claimToken ?? this.registry.beginReply(ctx.taskId);
+      if (claimToken === undefined) {
         // Only without the bus manager (it gives the loser a private bus): this request starts nothing and is never
         // queued as a turn. Say so on the shared bus with a plain status (harmless inside the winner's stream).
         const pub = createBusPublisher(bus, { taskId: ctx.taskId, contextId: ctx.contextId }, this.registry.publisherState);
@@ -97,7 +98,16 @@ export class CoreExecutor implements A2AExecutor {
       }
       if (ctx.task) bus.publish({ kind: "task", data: ctx.task });
     }
+    const claimed = claimToken !== undefined;
     const ids = { taskId: ctx.taskId, contextId: ctx.contextId };
+    // The claim holder keeps its claim fresh for as long as this request lives (a slow `authorize` can outlast the stale TTL).
+    let keepalive: ReturnType<typeof setInterval> | undefined;
+    if (claimToken !== undefined) {
+      const token = claimToken;
+      this.registry.touchReply(ctx.taskId, token);
+      keepalive = setInterval(() => this.registry.touchReply(ctx.taskId, token), this.registry.replyClaimKeepaliveMs);
+      keepalive.unref?.();
+    }
     try {
       const caller = callerFromContext(ctx);
       const outcome = await this.registry.execute({
@@ -130,7 +140,8 @@ export class CoreExecutor implements A2AExecutor {
       if (!live) throw e;
       log.warn(`execute() for live task ${ctx.taskId} failed; swallowed`, { error: e instanceof Error ? e.message : String(e) });
     } finally {
-      if (claimed) this.registry.endReply(ctx.taskId);
+      clearInterval(keepalive);
+      if (claimToken !== undefined) this.registry.endReply(ctx.taskId, claimToken);
     }
   }
 
