@@ -1037,7 +1037,7 @@ session reaches the provider through the existing `RequestIds.session` / `coreRe
 **Bind (`run.bind`).** Persists a `ContextBinding` through the `RunStore`: `owner` and `tenant` = the caller (and tenant) of the
 turn that bound, `createdAt`, `updatedAt` and `lastUsedAt` = now, `session = {ref, meta, issuer}` with `issuer =
 "<ProviderInfo.id>@<ProviderInfo.sessionFormat ?? '1'>"` (or `RunRegistryOptions.issuer`). A rebind replaces the session and keeps the owner
-and `createdAt`. A bind after a cancel (or from a stopped or retried-away turn) is a silent drop (the `live()` gate). A bind
+(`createdAt` restarts only when the ref differs, see `bindingMaxAgeMs`). A bind after a cancel (or from a stopped or retried-away turn) is a silent drop (the `live()` gate). A bind
 from a stale turn cannot overwrite a newer one: every turn has a process-wide start order, writes of one context are applied
 through one promise chain in call order (a slow store cannot reorder them), and a bind from a turn older than the last turn
 that bound is dropped (the real case: a provider-held message started a newer turn through `beginHeldTurn` while the older
@@ -1086,8 +1086,9 @@ context has a run). The orphan sweep runs first, so the sessions of orphaned run
 **Hard maximum age: `bindingMaxAgeMs`.** A binding older than this (measured from `createdAt`, the start of the bound session, and never
 extended by use) is deleted and released when its context next resumes, exactly like an idle-TTL expiry, and removed by
 `sweepBindings`; the turn starts fresh and its `bind` creates a new binding with a new age. It is independent of `bindingTtlMs` and
-both may be set. A rebind of the same context keeps `createdAt`, so a provider that starts a new session for a context deletes
-the old binding first (every abort-discard and `session-not-found` path does).
+both may be set. A rebind that names a DIFFERENT session ref resets `createdAt` (the owner is kept), so the age is always the age
+of the session the binding names, also when a provider replaces a context's session without deleting the binding first (the
+Claude provider does: it binds the new session id of a fresh `query`); binding the same ref again (to refresh `meta`) keeps it.
 
 **Binding GC: `sweepBindings({olderThanMs?})`.** Removes bindings whose `lastUsedAt` is older than `olderThanMs` (default
 `bindingTtlMs`; with neither nothing is removed) and whose context has no non-terminal run: no run in this process (live,
