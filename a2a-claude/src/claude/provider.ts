@@ -72,6 +72,8 @@ export class ClaudeProvider implements ProviderExecutor {
   private client: ClaudeClientLike | null = null;
   /** taskId to the turn running for it (cancel, steering). */
   private readonly turns = new Map<string, ClaudeTurn>();
+  /** How many turns each task has had, so a later turn of a task gets its own response artifact ids. Bounded. */
+  private readonly turnCounts = new Map<string, number>();
   private initialized = false;
   private initializing: Promise<void> | null = null;
 
@@ -267,6 +269,7 @@ export class ClaudeProvider implements ProviderExecutor {
     // Stop what is running: a Claude process this provider spawned must not outlive it.
     await Promise.all([...this.turns.values()].map((t) => t.abort("shutdown").catch(() => undefined)));
     this.turns.clear();
+    this.turnCounts.clear();
     this.client = null;
     this.initialized = false;
     this.initializing = null;
@@ -279,6 +282,11 @@ export class ClaudeProvider implements ProviderExecutor {
     await this.initialize();
     run.progress("Processing request...");
 
+    const turnOrdinal = this.turnCounts.get(req.taskId) ?? 0;
+    this.turnCounts.delete(req.taskId);
+    this.turnCounts.set(req.taskId, turnOrdinal + 1);
+    if (this.turnCounts.size > 1000) this.turnCounts.delete(this.turnCounts.keys().next().value as string);
+
     const turn = new ClaudeTurn({
       config: this.config,
       client: this.client!,
@@ -287,6 +295,7 @@ export class ClaudeProvider implements ProviderExecutor {
       ...(this.customTransport ? { customTransport: this.customTransport } : {}),
       reuse: this.reuseSessions,
       interactive: this.interactive,
+      turnOrdinal,
       ...(this.config.timeouts.steerAck !== undefined ? { steerAckMs: this.config.timeouts.steerAck } : {}),
     });
     this.turns.set(req.taskId, turn);

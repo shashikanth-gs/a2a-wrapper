@@ -79,9 +79,7 @@ export const DEFAULT_STEER_ACK_MS = 5_000;
 export const ABORT_END_WAIT_MS = 3_000;
 /** How long a graceful `interrupt` of the turn is given before the process is ended anyway. */
 const INTERRUPT_GRACE_MS = 2_000;
-/** How long the turn waits for a queued steered message to start when the CLI reports nothing queued. */
-const HELD_START_WAIT_MS = 5_000;
-/** How long it waits when the CLI reports queued turns. */
+/** How long the turn waits for a queued steered message to start when the CLI reports queued turns (else `steerAck`). */
 const HELD_QUEUED_WAIT_MS = 60_000;
 
 const RESULT_ERRORS: Record<string, string> = {
@@ -107,6 +105,8 @@ export interface TurnOptions {
   /** Install `canUseTool`: a person or a rule can answer permission requests and questions. */
   interactive: boolean;
   steerAckMs?: number;
+  /** 0 for the first turn of the task, then 1, 2, ... (a queued message or an interrupt starts another turn of the same task). */
+  turnOrdinal?: number;
 }
 
 /** One output segment: the turn itself, then one per steered message that started its own turn. */
@@ -122,6 +122,8 @@ interface Segment {
   structured: unknown;
   lastResult: SDKMessageLike | null;
   byModel: Record<string, ModelUsage>;
+  /** `complete` was called for it. */
+  completed: boolean;
 }
 
 /** A steered message the turn has not seen the end of. */
@@ -207,13 +209,20 @@ export class ClaudeTurn {
       structured: undefined,
       lastResult: null,
       byModel: {},
+      completed: false,
     };
   }
 
-  /** The id of the response artifact of the segment's current round (`response-<taskId>-<round>`, as it always was). */
+  /**
+   * The id of the response artifact of the segment's current round: `response-<taskId>-<round>`, as it always was for the first
+   * turn of a task. Another turn of the task (a queued message) and a steered message that starts its own turn get their own ids,
+   * so a later answer never replaces an earlier one.
+   */
   private artifactId(seg: Segment): string {
-    const t = this.request.taskId;
-    return seg.index === 0 ? `response-${t}-${seg.round}` : `response-${t}-s${seg.index}-${seg.round}`;
+    const ordinal = this.opts.turnOrdinal ?? 0;
+    const turn = ordinal > 0 ? `-t${ordinal}` : "";
+    const segment = seg.index > 0 ? `-s${seg.index}` : "";
+    return `response-${this.request.taskId}${turn}${segment}-${seg.round}`;
   }
 
   // ─── Running the turn ─────────────────────────────────────────────────────
@@ -331,12 +340,12 @@ export class ClaudeTurn {
         // Steered messages that have not started: this segment ends, the task goes on with the message's own turn.
         const waiting = this.holdPending();
         if (waiting > 0) {
-          this.completeSegment(seg);
+          this.completeSegment(seg, false);
           this.armHeldTimer(waiting, msg);
           continue;
         }
 
-        this.completeSegment(seg);
+        this.completeSegment(seg, true);
         this.input.close();
         break;
       }
@@ -363,18 +372,23 @@ export class ClaudeTurn {
       }
 
       if (!this.ended) {
-        // The iterator ended while we were still holding (the CLI died, or it closed input on us). Complete with whatever the
-        // last round left rather than hanging until the prompt timeout.
         const seg = this.seg;
-        log.info("SDK iterator ended while the task was still held open", {
-          taskId: this.request.taskId,
-          liveBackgroundTasks: this.backgroundTasks.size,
-        });
-        this.publishRound(seg);
-        // This is the round that completes the task, so it owes the `agent_finished` bookend; the mapper's latch keeps it to one.
-        seg.mapper.emitFinishedBookend(seg.lastResult);
         this.dropAllHeld("the session ended before the message started");
-        this.completeSegment(seg);
+        if (seg.completed) {
+          // The turn already completed and only a steered message was awaited, which never started.
+          this.end();
+        } else {
+          // The iterator ended while we were still holding (the CLI died, or it closed input on us). Complete with whatever the
+          // last round left rather than hanging until the prompt timeout.
+          log.info("SDK iterator ended while the task was still held open", {
+            taskId: this.request.taskId,
+            liveBackgroundTasks: this.backgroundTasks.size,
+          });
+          this.publishRound(seg);
+          // This is the round that completes the task, so it owes the `agent_finished` bookend; the mapper's latch keeps it to one.
+          seg.mapper.emitFinishedBookend(seg.lastResult);
+          this.completeSegment(seg, true);
+        }
       }
     } catch (err) {
       // A detected rate limit outranks whatever the teardown threw: the `break` awaits iterator.return().
@@ -470,9 +484,13 @@ export class ClaudeTurn {
     }
   }
 
-  /** End one segment successfully: `complete` with `x-usage` (and core's usage key, with the per-model breakdown). */
-  private completeSegment(seg: Segment): void {
-    this.end();
+  /**
+   * End one segment successfully: `complete` with `x-usage` (and core's usage key, with the per-model breakdown).
+   * `terminal`: nothing follows (no steered message is still to start), so the turn is over.
+   */
+  private completeSegment(seg: Segment, terminal: boolean): void {
+    if (terminal) this.end();
+    seg.completed = true;
     let meta: Record<string, unknown> = {};
     let usage: CoreUsage | undefined;
     try {
@@ -685,7 +703,7 @@ export class ClaudeTurn {
   private armHeldTimer(waiting: number, msg: SDKMessageLike): void {
     this.clearHeldTimer();
     const queued = typeof msg.queued_turn_count === "number" ? msg.queued_turn_count : 0;
-    const ms = queued > 0 ? HELD_QUEUED_WAIT_MS : Math.max(this.steerAckMs, HELD_START_WAIT_MS);
+    const ms = queued > 0 ? HELD_QUEUED_WAIT_MS : this.steerAckMs;
     this.heldTimer = setTimeout(() => {
       if (this.steers.size === 0) return;
       log.warn("Steered message never started; dropping it", { taskId: this.request.taskId, waiting });
