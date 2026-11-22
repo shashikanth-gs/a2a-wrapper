@@ -58,6 +58,7 @@ export interface QueryOptionsLike {
   persistSession?: boolean;
   includePartialMessages?: boolean;
   mcpServers?: Record<string, unknown>;
+  mcpServersDelivery?: "argv" | "initialize";
   resume?: string;
   abortController?: AbortController;
 }
@@ -171,6 +172,12 @@ export function buildQueryOptions(
     persistSession: true,
     includePartialMessages: config.features.streamArtifactChunks === true,
     mcpServers: Object.keys(mcpServers).length > 0 ? mcpServers : undefined,
+    // Bundled CLI: send servers in the initialize request (argv delivery is deprecated).
+    // A custom executable may predate 'initialize', so it explicitly stays on argv.
+    mcpServersDelivery:
+      Object.keys(mcpServers).length > 0
+        ? (claude.executablePathOverride ? "argv" : "initialize")
+        : undefined,
     resume: turn.resume,
     abortController: turn.abortController,
   };
