@@ -1,5 +1,121 @@
 # Changelog
 
+## 2.2.0
+
+### Minor Changes
+
+- ba063f9: Add `TaskRunRegistry`: provider-neutral task cancellation (#66). It owns the A2A rules every wrapper otherwise re-implements: run claiming, a guarded event bus that drops late events once a task is canceled, publishing `canceled` before the backend abort is awaited (the SDK closes the bus once `execute` returns), idempotent no-op cancels for unknown or finished tasks, and a bounded abort with an `onAbortFailed` hook. Wrappers supply only how to abort their backend. Also exports `TaskRun`, `CancelHooks`, `CANCELED` and `DEFAULT_ABORT_TIMEOUT_MS`.
+- 8a7e7d3: Default `model` is now `auto` everywhere: no wrapper pins a model name in code (#95).
+
+  - Core: new `AUTO_MODEL`, `isAutoModel` and `normalizeModel`. Unset, empty, `auto` and `default` (any case) all mean "let the provider choose".
+  - a2a-copilot: the default changes from `claude-sonnet-4.5` to `auto`, passed as the literal `auto`, which the Copilot runtime accepts (the old default is rejected by the runtime bundled with `@github/copilot-sdk` 1.0.34). Example configs no longer pin models. A custom BYOK provider still requires an explicit model.
+  - a2a-codex: `auto` (the new default) picks the first model Codex lists for the logged-in account (`codex debug models`, then the `models_cache.json` fallback, then Codex's own default), so a stale model pinned in `~/.codex/config.toml` is no longer inherited. Explicit names still win.
+  - a2a-claude, a2a-opencode, a2a-antigravity: `auto`/`default`/empty resolve to unset so the backend applies its own default.
+
+- f6efa31: feat(otel): opt-in Langfuse and Phoenix attribute sets (`otel.compat`)
+
+  - New `otel.compat: ["langfuse", "openinference"]` (env `A2A_OTEL_COMPAT`, default none). Adds `langfuse.observation.type` and the OpenInference `openinference.span.kind`, `agent.name`, `graph.node.*` (parent edge only when a parent agent is known) to the request span, and the tool equivalents to mirrored tool spans, so Langfuse and Phoenix draw their agent views.
+  - Standard attributes are never changed; with no compat selected the attribute set is identical to before.
+  - Content (`input.value`/`output.value`) and `llm.token_count.*` are intentionally not added.
+  - The JSON Schema of every wrapper gains `otel.compat`.
+
+- a2bfdd2: feat(otel): optional OpenTelemetry task spans via `@opentelemetry/api`
+
+  - Optional peer `@opentelemetry/api` (no SDK/exporter in core)
+  - `instrumentExecutor` in `createA2AServer` for `a2a.task.execute` / cancel
+  - `AgentEventEmitter` respects emission policy (no duplicate tool spans when backend OTel is on)
+  - Exports: `setOtelTracer`, `withSpan`, `extractA2ATraceContext`, `getW3cTraceContext`, `resolveOtelEmissionPolicy`, …
+
+- dda8404: feat(events): event attribution, `events.transport: "both"`, and `${VAR}` in event settings
+
+  - New `events.transport: "both"` sends each event to the A2A sideband and the HTTP collector with the same `eventId`; a failing collector never blocks the A2A copy.
+  - `events.httpUrl` and `events.httpHeaders` values support `${VAR}` substitution (unset variable: left as written, warned once, value never logged). New env overrides `A2A_EVENTS_TRANSPORT` and `A2A_EVENTS_HTTP_URL`.
+  - Every event now carries the orchestrator's `propagatedMetadata` (bounded to 64 keys / 8 KB, key charset `[A-Za-z0-9_.-]`, secret-looking keys redacted).
+  - A2A trace artifacts gain `eventId`, `parentAgentId`, `otelTraceId`, `otelSpanId` in metadata and `event_id`, `parent_agent_id`, `propagated_metadata` in data.
+  - The JSON Schema of every wrapper accepts `events.transport: "both"`.
+
+- 079ce38: feat(otel): join the caller's distributed trace (design: `docs/design/distributed-tracing.md`)
+
+  - `a2a.task.execute` now continues the W3C `traceparent` / `tracestate` sent by the caller (HTTP header for JSON-RPC and REST, message metadata as fallback), with strict validation.
+  - Behaviour change: the request span is now `SpanKind.SERVER`. When `@opentelemetry/instrumentation-http` is active the span nests under the HTTP SERVER span as `INTERNAL` instead (`otel.span.server: "auto"`), so there are no duplicate SERVER spans.
+  - New config: `otel.propagation.{inbound,trustedPeers,untrusted,carriers}`, `otel.span.{server,enrichServerSpan}`, `otel.exporter.headers`, `server.trustProxy`; env overrides `A2A_OTEL_INBOUND`, `A2A_OTEL_TRUSTED_PEERS`, `A2A_OTEL_UNTRUSTED`, `A2A_OTEL_CARRIERS`, `A2A_OTEL_SERVER_SPAN`, `A2A_OTEL_ENRICH_SERVER_SPAN`.
+  - Trust: `trustedPeers` limits who may supply trace context; the caller address is set by the server from the socket (a client `x-a2a-peer` header is overwritten). Untrusted callers get `restart` (new trace plus span link) or `ignore`.
+  - Request spans record `a2a.propagation.policy` and `a2a.propagation.source`.
+  - Event-transport events and A2A artifact data carry `otelTraceId` / `otelSpanId`.
+  - The JSON Schema of every wrapper gains the new `otel` and `server` fields.
+
+- a2bfdd2: feat(otel): Phase 2 usage mapping + shared execution observability
+
+  - Hook E: `applyUsageSummaryToActiveSpan` with anti-dupe policy — `a2a.task.usage.*` rollup always; `gen_ai.usage.*` only when backend OTel is off
+  - Hook B: `createExecutionObservability` adopted by all wrappers
+  - Hook C: `annotateSessionOnTaskSpan`; W3C `injectW3cTraceHeaders` for outbound calls
+  - Docs: usage double-count rules in `docs/observability.md`
+
+- a2bfdd2: feat(otel): Phase 3 backend passthrough (Hook F)
+
+  - Core helpers: Copilot telemetry/onGetTraceContext, Claude OTel env + TRACEPARENT, Codex otel overrides
+  - `withSpan` activates real OTel context so parent-link works
+  - Shared `otel.exporter` endpoint inheritance
+  - Wire Copilot / Claude / Codex; OpenCode/Antigravity documented
+
+- a2bfdd2: feat(otel): Phase 4 CLI bootstrap, span links, Jaeger demo stack
+
+  - `bootstrapOtelSdkFromConfig` / `shutdownOtelSdk` via dynamic import in `createCli`
+  - Span links on continue/retry invocations
+  - Optional peers for sdk-node + OTLP HTTP exporter
+  - `examples/otel-stack` docker-compose (Jaeger OTLP)
+
+- a2bfdd2: feat(otel): Phase 5 attribute ownership + gateway ID mapping
+
+  - docs/otel-attribute-ownership.md aligned with draft GenAI A2A #254
+  - Span attrs: gen_ai.operation.name, a2a.method.name, session.id, a2a.gateway.\*
+  - extractA2ATraceContext reads conversation/session/passkey/spectrum/ticket metadata
+  - Claude + Codex applyUsageSummaryToActiveSpan + x-usage on completed turns
+
+- a2bfdd2: feat(otel): Phoenix demo, package identity attrs, usage flags
+
+  - Replace Jaeger compose requirement with Arize Phoenix (`phoenix serve`, optional Docker)
+  - CLI bootstrap defaults to `http/protobuf` via `@opentelemetry/exporter-trace-otlp-proto` (Phoenix rejects JSON)
+  - Stamp `a2a.wrapper.core.version`, `a2a.wrapper.sdk`, `a2a.wrapper.sdk.version` on task spans
+  - Wire all wrapper servers with package name/version
+  - `otel.taskUsageRollup` (default true) + `otel.annotateUsageCalls` (default false; Claude/Codex per-call events)
+  - Smoke scripts: `examples/otel-stack/smoke-export.mjs` + `smoke-providers.mjs` (copilot/claude executor → Phoenix)
+
+- 55b2f9d: feat(otel): opt-in OpenTelemetry GenAI span names (`otel.spanNaming`)
+
+  - New `otel.spanNaming: "legacy" | "semconv"` (env `A2A_OTEL_SPAN_NAMING`, default `legacy`). `semconv` names the request span `invoke_agent {agent}` and mirrored tool spans `execute_tool {tool}`; the default is unchanged.
+  - Only names change, attributes are identical in both modes, and `a2a.task.cancel` is never renamed.
+  - The JSON Schema of every wrapper gains `otel.spanNaming`.
+
+### Patch Changes
+
+- dc4be8a: chore(deps): upgrade `@a2a-js/sdk` to ^1.3.0
+
+  - Bumps the SDK range (dependency and peer range in core) from ^1.0.0 to ^1.3.0
+  - core: the SDK now routes v0.3 JSON-RPC requests by an exact `A2A-Version: 0.3` header; `createA2AServer` normalizes `0.3.x` values (e.g. `0.3.0`) to `0.3` so legacy clients keep working
+
+- a2bfdd2: feat(otel): BYOK cookout + shared mock-ollama; wire CLI OTel bootstrap
+
+  - examples/mock-ollama/ — reusable fake Ollama (OpenAI + Anthropic) for any cookout
+  - examples/otel-stack/cookout-byok.mjs layers Phoenix/OTel on that stub
+  - Hand-rolled wrapper CLIs now call bootstrapOtelSdkFromConfig / shutdownOtelSdk
+  - CLI bootstrap uses SimpleSpanProcessor for reliable short-lived export
+
+- a2bfdd2: fix(otel): per-wrapper OTel schema — common at top, backend knobs only for that package
+
+  OpenCode no longer advertises `otel.backend.codex` (and peers). Shared flags stay
+  on `otel.*`; only `otel.backend.<this-wrapper>` appears in each agent schema.
+
+- 98d2027: Add `claude.outputFormat` to request structured JSON output from the Claude
+  session. Maps 1:1 onto the Claude Agent SDK's `Options.outputFormat`
+  (`{ type: "json_schema", schema }`) and is validated at startup. When set, the
+  SDK's `structured_output` is published as an `application/json` data part on the
+  `response` artifact, alongside the existing text part — text-only clients are
+  unaffected, and behaviour is unchanged when `outputFormat` is omitted.
+
+  The core change adds an optional, backward-compatible `structuredData` parameter
+  to `publishFinalArtifact` / `publishLastChunkMarker`.
+
 ## 2.1.1
 
 ### Patch Changes
