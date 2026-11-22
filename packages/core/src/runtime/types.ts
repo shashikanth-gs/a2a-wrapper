@@ -16,6 +16,7 @@ import type {
   CoreInteractionResult,
   CoreMessage,
   CoreRequest,
+  DeliveryResult,
   AskOptions,
   CoreTaskState,
   CoreUsage,
@@ -95,7 +96,7 @@ export interface AuthTarget {
  */
 export type Authorizer = (
   by: CoreCaller,
-  action: "cancel" | "interrupt" | "answer" | (string & {}),
+  action: "cancel" | "interrupt" | "answer" | "steer" | "queue" | (string & {}),
   target: AuthTarget,
 ) => boolean | Promise<boolean>;
 
@@ -119,8 +120,21 @@ export interface ExecuteInit {
   publisher: RunPublisher;
   /** Builds the provider request once the ids and the context's session are known. */
   request(ids: RequestIds): CoreRequest;
-  /** The incoming message, kept in the queue record when this request has to wait. */
+  /** The incoming message, kept in the queue record when this request has to wait. Its `delivery` says what to do with it. */
   message?: CoreMessage;
+  /**
+   * May this request carry the run's event stream when the message resumes the run (a reply, an `interrupt` of a
+   * parked task, a message that continues an interrupted task)? Default `true`. The A2A layer sets `false` for a
+   * request that has a private ack-only stream (a message to a working task, design doc 3.12): the registry then
+   * never attaches its publisher to the run and never waits for the run on its behalf.
+   */
+  carriesStream?: boolean;
+  /**
+   * Called synchronously, exactly once, with what core did with a message that arrived for a LIVE task, before the
+   * request waits or returns and before any event of a resumed run. `resumed` is true when this request now carries
+   * the run's stream. The A2A layer renders it to the caller (design doc 3.12).
+   */
+  onDelivery?(result: DeliveryResult, info: { resumed: boolean }): void;
 }
 
 /** How an `execute()` ended, for the A2A layer: what to do with the SDK call. */
@@ -132,7 +146,12 @@ export type ExecuteOutcome =
   /** The task already had a running turn: this request is queued as its next turn. Nothing ran. */
   | "queued"
   /** The request was a reply to a pending interaction and was consumed by it. */
-  | "reply";
+  | "reply"
+  /**
+   * The message was delivered by its `delivery` and nothing queued: `steer` inserted or rejected, an `interrupt`
+   * that stopped a turn, a rejection. The `DeliveryResult` went to `onDelivery`.
+   */
+  | "delivered";
 
 /**
  * The seam for the interactions runtime (issue #108). The registry never builds
@@ -148,7 +167,11 @@ export interface InteractionRuntime {
    * the reply to a pending interaction (it is consumed here and must not start a turn).
    * Must never throw.
    */
-  handleReply?(handle: RunInteractionHandle, init: ExecuteInit): boolean | Promise<boolean>;
+  handleReply?(
+    handle: RunInteractionHandle,
+    init: ExecuteInit,
+    options?: HandleReplyOptions,
+  ): boolean | Promise<boolean>;
   /**
    * The restart sweep re-created a live run for a task whose interactions carry a provider
    * handle: put these (still open) records back in front of the run. Their asks are answered
@@ -167,6 +190,21 @@ export interface InteractionRuntime {
     parts: readonly CorePart[],
     isNew: boolean,
   ): Promise<readonly CorePart[] | undefined>;
+}
+
+/** How the registry asks the interactions runtime to treat a message that may be a reply. */
+export interface HandleReplyOptions {
+  /**
+   * Re-publish the presented interaction with a hint when the message cannot be used as a reply (the default, today's
+   * behaviour for a message with no `delivery`). `false` for an explicit `delivery: "queue"`: a message that is not a
+   * reply is then NOT consumed (resolve `false`), so the registry queues it behind the interaction.
+   */
+  reprompt?: boolean;
+  /**
+   * Can this request carry the run's stream? When `false` and an interaction is presented the message cannot be a reply
+   * to it (its stream is private): resolve `false` without touching the run.
+   */
+  carriesStream?: boolean;
 }
 
 /** What the registry gives its interactions runtime. */

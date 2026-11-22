@@ -5,8 +5,10 @@ import {
   ANONYMOUS_CALLER,
   type AbortOutcome,
   type CoreRequest,
+  type CoreMessage,
   type CoreTaskRun,
   type ProviderExecutor,
+  type SteerOutcome,
 } from "../../index.js";
 import type { ExecuteInit, RunPublisher } from "../../index.js";
 
@@ -49,6 +51,8 @@ export interface FakeProvider extends ProviderExecutor {
   abort: ReturnType<typeof vi.fn>;
   abortOrphan: ReturnType<typeof vi.fn>;
   release: ReturnType<typeof vi.fn>;
+  /** Present only when the provider was made with a `steer` handler. */
+  steer: ReturnType<typeof vi.fn>;
 }
 
 /** A provider whose run() stays pending until the test settles it. */
@@ -57,6 +61,10 @@ export function makeProvider(
     abort?: (...a: any[]) => Promise<AbortOutcome>;
     abortOrphan?: (...a: any[]) => Promise<AbortOutcome>;
     run?: (req: CoreRequest, view: CoreTaskRun) => Promise<void>;
+    /** Give the provider a `steer` handler. Absent: the provider has none (core's fallback applies). */
+    steer?: (view: CoreTaskRun, message: CoreMessage) => Promise<SteerOutcome> | SteerOutcome;
+    /** Make a provider with NO `abort` handler. */
+    noAbort?: boolean;
   } = {},
 ): FakeProvider {
   const runs: RunCall[] = [];
@@ -75,7 +83,42 @@ export function makeProvider(
     abortOrphan: vi.fn(opts.abortOrphan ?? (async () => ({ stopped: "confirmed", session: "reusable" }) as AbortOutcome)),
     release: vi.fn(async () => {}),
   };
+  if (opts.noAbort) delete (p as { abort?: unknown }).abort;
+  if (opts.steer) (p as { steer?: unknown }).steer = vi.fn(async (view: CoreTaskRun, m: CoreMessage) => opts.steer!(view, m));
   return p as unknown as FakeProvider;
+}
+
+let messageSeq = 0;
+
+/** A core message for a task that is already running. */
+export function makeMessage(
+  delivery?: string,
+  text: string | undefined = "next",
+  over: Partial<CoreMessage> = {},
+): CoreMessage {
+  return {
+    id: `msg-${++messageSeq}`,
+    role: "user",
+    parts: text === undefined ? [] : [{ kind: "text", text }],
+    from: ANONYMOUS_CALLER,
+    ...(delivery ? { delivery } : {}),
+    at: "t",
+    ...over,
+  };
+}
+
+/** The request builder a queued message's turn uses: input is the message's own text. */
+export function requestFor(taskId: string, message: CoreMessage, contextId = "ctx") {
+  return (ids: { runId: string; turnId: string; session?: { ref: string } }): CoreRequest => ({
+    ...ids,
+    taskId,
+    contextId,
+    input: message.parts,
+    history: [],
+    caller: { ...ANONYMOUS_CALLER },
+    correlation: { eventId: "e", metadata: {} },
+    extensions: new Map(),
+  });
 }
 
 export function makeInit(

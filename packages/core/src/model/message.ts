@@ -68,8 +68,14 @@ export type DeliveryResult =
       messageId: string;
       /** Who holds the message: the provider's own queue, or core's per-context lane. */
       holder: "provider" | "core";
-      /** 1-based position in the holder's queue, when known. */
+      /** 1-based position in the holder's queue at the moment of delivery, when known. */
       position?: number;
+      /**
+       * Why the message was queued instead of delivered the way the caller asked, when it was not: a core
+       * fallback (`steer-unsupported`, `interrupt-unsupported`, `interaction-presented`, `no-active-turn`,
+       * `continues-interrupted-task`, `duplicate`). Absent for a plain `queue`.
+       */
+      reason?: string;
     }
   | { state: "interrupted"; taskId: string; messageId: string }
   | { state: "rejected"; taskId: string; messageId: string; reason: string; detail?: string };
@@ -101,4 +107,27 @@ export function deliveryFromSteer(taskId: string, messageId: string, outcome: St
       };
     }
   }
+}
+
+/** The three caller intents for a message sent to a running task (design decision D4). */
+export type DeliveryKind = "queue" | "steer" | "interrupt";
+
+/** What a message's `delivery` field means. A value core does not know is `unsupported`, never guessed. */
+export type ResolvedDelivery =
+  | { kind: DeliveryKind; /** The caller said so; absent `delivery` is an implicit `queue`. */ explicit: boolean }
+  | { kind: "unsupported"; explicit: true; value: string };
+
+/** Resolve `message.delivery`: absent is an implicit `queue`; a string core does not know is `unsupported`. */
+export function resolveDelivery(delivery: string | undefined | null): ResolvedDelivery {
+  if (delivery === undefined || delivery === null || delivery === "") return { kind: "queue", explicit: false };
+  if (delivery === "queue" || delivery === "steer" || delivery === "interrupt") return { kind: delivery, explicit: true };
+  return { kind: "unsupported", explicit: true, value: String(delivery) };
+}
+
+/**
+ * Does the message carry anything to act on? Text that is empty or whitespace does not count; a file, a data part or
+ * a part core does not model does. An `interrupt` with no content is "stop and wait" (design doc 3.4).
+ */
+export function messageHasContent(message: Pick<CoreMessage, "parts">): boolean {
+  return message.parts.some((p) => (p.kind === "text" ? p.text.trim() !== "" : true));
 }
