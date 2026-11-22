@@ -206,6 +206,11 @@ export interface CoreError {
   >;
   /** The caller may retry the same request later (a rate limit, a transient backend error). */
   retryable?: boolean;
+  /**
+   * Machine-readable extras for the caller, rendered as metadata of the failed or rejected status (for example when a rate
+   * limit resets). Must be JSON-safe. `code` and `retryable` above win over a key of the same name here.
+   */
+  meta?: Meta;
   detail?: unknown;
 }
 
