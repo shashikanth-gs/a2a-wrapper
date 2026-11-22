@@ -1,0 +1,5 @@
+---
+"@a2a-wrapper/core": minor
+---
+
+Add the core-owned run runtime and cancel entry point (#107). `RunRegistry` owns one run per task with a single terminal claim shared by complete, fail, reject, cancel and expiry; `cancel(taskId, by)` claims synchronously, settles pending interactions and queued messages, publishes exactly one `canceled` status before awaiting anything and runs `provider.abort` in the background, applying the `AbortOutcome` (binding cleared and `release` called on `discard`). Cancel now works at `input-required` after `execute()` returned, `interrupt` stops a turn without ending the task, two `execute()` calls never run the provider concurrently, and the next turn of a context waits for the abort to settle. Orphans (a task the SDK cancels with no event bus, or left active across a restart) reach `abortOrphan` through `OrphanGuardTaskStore` and `RunRegistry.sweep`. Also adds `InMemoryRunStore`, `CoreExecutor`, `RunEventBusManager`, the opt-in `runRegistry` server option and the `unknown` queued-message state. `TaskRunRegistry` is unchanged for wrappers: it is now a shim over the same run handle.

@@ -169,7 +169,8 @@ provider returned in `SteerOutcome.queued`; it is REQUIRED there (a provider wit
 go terminal. **Liveness backstop:** if `provider.run()` settles while held handles are neither begun nor dropped, core
 treats them as dropped (and reports it), so a provider that forgets cannot keep a task open forever. Without these calls
 `complete()` of the running turn would end the task and the held message's output would arrive after it is terminal and
-be dropped. These are types only here; the runtime is issue #107.
+be dropped. The cancel/abort side of the runtime is implemented (issue #107, section 3.10); the steering and
+interaction runtimes that drive `beginHeldTurn` / `dropHeld` / `ask` are #109 and #108.
 
 `signal.reason` is the `AbortReason` core stopped the run for (`cancel`, `interrupt`, `shutdown`), and an interrupt
 aborts the signal too, so a provider reading only the signal can tell a stop-and-continue from a stop-for-good.
@@ -425,7 +426,7 @@ to the `TaskStore` (`dist/server/index.js`, `cancelTask`, about lines 3233-3263)
 `RunRecord` but has no live handle (the process restarted, the bus was settled) would be canceled in the store while
 the backend keeps working. Core therefore (a) wraps `TaskStore.save` to detect a `CANCELED` transition for a task whose
 `RunRecord` is active with no live handle and calls `abortOrphan`, and (b) runs a startup sweep over active
-`RunRecord`s. Neither is implemented yet.
+`RunRecord`s. Both are implemented (#107, section 3.10).
 
 ### 3.6 Persistence records (core's `TaskStore` extension)
 
@@ -463,7 +464,8 @@ interface QueuedMessageRecord extends RecordHeader {     // a message held for a
   taskId: string; contextId: string;
   message: CoreMessage;                                  // live; encodeRecord stores bytes as $bytes:v1
   holder: "provider" | "core"; position?: number; handle?: string;
-  state: "queued" | "running" | "done" | "dropped";
+  state: "queued" | "running" | "done" | "dropped" | "unknown";   // unknown: provider-held, fate not confirmed by the sweep
+  reason?: string;                                       // why it ended dropped or unknown
 }
 ```
 
@@ -577,6 +579,52 @@ and configurable, and keeps today's behaviour as the default so nothing changes 
 
 In `ask` mode, unmatched interactions go to the client, and an unanswered one expires into a denial (D5). The
 authorization middleware (decision 3) later decides *who* may answer; this policy decides *whether* a person is asked.
+
+### 3.10 Run runtime: the cancel entry point (implemented, #107)
+
+Code: `packages/core/src/runtime/` (SDK-free: `RunRegistry`, `RunHandle`, `RunStore`) and `a2a/` (`CoreExecutor`,
+`RunEventBusManager`, `OrphanGuardTaskStore`, `createBusPublisher`). The choices the implementation made:
+
+- **One `RunHandle` per task, lifetime = the terminal claim.** `active -> (finalizing | canceling | expiring) -> ended`,
+  claimed synchronously and once. Registered at the first `execute()` (or lane admission), removed after the terminal
+  event is published and the stream closed. `TaskRunRegistry` stays as a shim over the same handle and behaves as before
+  (it awaits the abort; the core entry point does not).
+- **`cancel(taskId, by)`**: `authorize` (sync or async, allow-all by default) -> sync claim -> settle pending interactions,
+  drop core-queued and provider-held messages (records get `state: "dropped"`, `reason`) -> persist `RunRecord.state =
+  canceled` and publish ONE `canceled` status, close the stream -> abort the signal (reason `cancel`) -> `provider.abort`
+  in the background with a timeout. The RPC awaits only the record write. The abort outcome is recorded on
+  `RunRecord.cancel.abort`; `session: "discard"` (or a rejection/timeout = `ABORT_FAILED_OUTCOME`) deletes the
+  `ContextBinding` and calls `provider.release`. With no `abort` handler core waits (bounded) for `run()` to settle and
+  counts that as `confirmed` / `reusable`.
+- **Context lane.** Turns of one context run one at a time. The lane slot of a canceled run is released only after its abort
+  outcome is applied, so the next task never reuses a session the backend may still be stopping. A run still waiting in
+  the lane when canceled is removed: `canceled` is published, the provider is never called.
+- **`interrupt`** (`RunRegistry.interrupt`) aborts the turn's signal with reason `interrupt` and calls
+  `abort(info, "interrupt")`; no terminal claim, no `canceled`, the task stays non-terminal and continues with the next
+  turn (the interrupting message, or one that arrives later). The lane waits for that abort too.
+- **A second `execute()` on a live task never starts a provider call.** The reply-to-interaction case is routed to the
+  interactions runtime (`InteractionRuntime.handleReply`, #108); otherwise the message is queued as the next turn (default
+  delivery, D4) with a `QueuedMessageRecord`, claimed `queued -> running` by compare-and-set before its turn runs.
+- **Pending interactions** register `PendingHook`s on the handle; cancel (and expiry) settle them `canceled` inside the
+  claim. `ask` answers `unavailable` until the interactions runtime exists. `RunRegistry.expire` is the third claim.
+- **Orphans.** `RunRegistry.handleStoreCancel(taskId)` is what `OrphanGuardTaskStore` calls when the SDK saves `CANCELED`:
+  if the `RunRecord` is non-terminal and no live handle or in-flight terminal write exists, the record is marked
+  canceled and `abortOrphan(info)` runs in the background (a live handle is canceled through the normal path instead).
+  `RunRegistry.cancel` on a task with no handle but an active record does the same and publishes `canceled` on the bus
+  it was given. `RunRegistry.sweep` is the startup pass: `active` records only (`interrupted` ones are left to the
+  interactions runtime, an unknown state is reported and never assumed finished), one `abortOrphan` per run; core-queued
+  `queued` records are claimed and replayed only through a caller-supplied `replay` hook and only when the session is
+  reusable, `running` ones are dropped and never replayed; provider-held ones become `dropped` on `confirmed`, `unknown`
+  otherwise; a task that cannot continue is failed (and the A2A store told through `endTask`). A missing `abortOrphan`
+  handler counts as `ABORT_FAILED_OUTCOME` (core cannot stop the backend, so it cannot trust the session).
+- **Wiring.** `createA2AServer(..., { runRegistry })` is opt-in: it installs `RunEventBusManager` (takes ownership of the bus
+  in `settleByTaskId` while a live run exists, releases it when the run ends), wraps the task store with
+  `OrphanGuardTaskStore` and runs the sweep. Without the option nothing changes for wrappers on `TaskRunRegistry`.
+- **`RunStore`** (`InMemoryRunStore`) keeps `RunRecord`, `ContextBinding` and `QueuedMessageRecord`, stores the ENCODED form
+  (a non-JSON record fails at write time) and has the atomic `claimQueued`. Persistent stores come with #69.
+- **Known SDK limits.** `cancelTask(taskId, bus)` receives no call context, so the caller recorded for a cancel is `anonymous`
+  until the SDK exposes it. A second `message/stream` on a task whose first stream is still open is served from the same bus
+  and rejected by the SDK ("statusUpdate before initial Task", a2a-js #632); core only guarantees no second provider call.
 
 ## 4. A2A mapping and the run model (core internal)
 

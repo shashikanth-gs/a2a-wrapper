@@ -299,6 +299,20 @@ export type { ExecutionEventBus, RequestContext } from "@a2a-js/sdk/server";
 
 export * from "./model/index.js";
 
+// ─── Run runtime (core-owned cancel entry point, SDK-free) ──────────────────
+//
+// `RunRegistry` is the evolution of `TaskRunRegistry` (which stays, as a shim over
+// the same internal run handle). See docs/design/core-data-model.md sections 3.5, 3.6.
+
+export * from "./runtime/index.js";
+
+// ─── Run runtime, A2A side ──────────────────────────────────────────────────
+
+export { CoreExecutor } from "./a2a/core-executor.js";
+export { RunEventBusManager } from "./a2a/bus-manager.js";
+export { OrphanGuardTaskStore, endTaskInStore } from "./a2a/orphan-task-store.js";
+export { createBusPublisher } from "./a2a/bus-publisher.js";
+
 // ─── A2A v1 adapter (core <-> SDK translation; the only SDK-aware module) ───
 
 export {

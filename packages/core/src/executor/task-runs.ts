@@ -1,7 +1,14 @@
 /**
  * @module executor/task-runs
  *
- * Provider-neutral task cancellation.
+ * Provider-neutral task cancellation for wrappers that run their own executor.
+ *
+ * `TaskRunRegistry` is the legacy surface of the core run runtime
+ * (`runtime/run-registry.ts`): it is a thin shim over the same internal
+ * `RunHandle` (terminal-claim state machine, abort signal, `race`), kept so a
+ * wrapper that has not moved to `RunRegistry` / `CoreExecutor` behaves exactly as
+ * before. New code should use the core-owned entry point `RunRegistry.cancel`,
+ * which also covers cancel at `input-required`, orphans and the lane gate.
  *
  * Every wrapper has to answer the same A2A questions when `tasks/cancel`
  * arrives: which run is it, is it still cancelable, who publishes the terminal
@@ -27,6 +34,8 @@
  *   `working` and `tasks/cancel` failing with `TaskNotCancelable`.
  * - The abort is bounded by a timeout and never throws; on failure or timeout
  *   `onAbortFailed` lets the wrapper discard backend state it can no longer trust.
+ *   (This shim awaits the abort, as it always did. The core-owned entry point does
+ *   not: it runs the abort in the background.)
  *
  * @example
  * ```ts
@@ -51,12 +60,15 @@
  * ```
  */
 
+import { randomUUID } from "node:crypto";
 import type { ExecutionEventBus } from "@a2a-js/sdk/server";
 import { publishStatus } from "../events/event-publisher.js";
 import { CANCELED } from "../model/cancel.js";
+import { ANONYMOUS_CALLER } from "../model/primitives.js";
+import { RunHandle, RunTurn } from "../runtime/run-handle.js";
+import { DEFAULT_ABORT_TIMEOUT_MS } from "../runtime/types.js";
 
-/** Default upper bound on how long `cancel()` waits for the backend abort. */
-export const DEFAULT_ABORT_TIMEOUT_MS = 5_000;
+export { DEFAULT_ABORT_TIMEOUT_MS };
 
 /** Value `run.race()` resolves with when the run was canceled first. Defined in `model/cancel` (SDK-free). */
 export { CANCELED };
@@ -97,32 +109,29 @@ export interface CancelHooks {
   abortTimeoutMs?: number;
 }
 
-interface RunState {
+interface Entry {
   run: TaskRun;
-  canceled: boolean;
-  finalizing: boolean;
-  controller: AbortController;
-  wake: () => void;
+  handle: RunHandle;
+  turn: RunTurn;
 }
 
-/** Tracks in-flight runs for one executor instance. */
+/** Tracks in-flight runs for one executor instance. Legacy shim over {@link RunHandle}. */
 export class TaskRunRegistry {
-  private readonly runs = new Map<string, RunState>();
+  private readonly runs = new Map<string, Entry>();
 
   /** Register a run. Call at the start of `execute`; pair with `run.end()` in `finally`. */
   begin(taskId: string, contextId: string, rawBus: ExecutionEventBus): TaskRun {
-    const controller = new AbortController();
-    let wake!: () => void;
-    const canceledPromise = new Promise<typeof CANCELED>((resolve) => {
-      wake = () => resolve(CANCELED);
-    });
-
-    const state = { canceled: false, finalizing: false } as RunState;
+    const handle = new RunHandle({ runId: randomUUID(), taskId, contextId, owner: { ...ANONYMOUS_CALLER } });
+    const turn = new RunTurn(randomUUID());
+    turn.state = "running";
+    handle.turn = turn;
+    handle.turns.push(turn);
+    handle.started = true;
 
     const bus = new Proxy(rawBus, {
       get(target, prop) {
-        if (prop === "publish") return (event: unknown) => { if (!state.canceled) (target as any).publish(event); };
-        if (prop === "finished") return () => { if (!state.canceled) target.finished(); };
+        if (prop === "publish") return (event: unknown) => { if (!handle.canceled) (target as any).publish(event); };
+        if (prop === "finished") return () => { if (!handle.canceled) target.finished(); };
         const value = Reflect.get(target, prop, target);
         return typeof value === "function" ? value.bind(target) : value;
       },
@@ -133,26 +142,23 @@ export class TaskRunRegistry {
       taskId,
       contextId,
       bus,
-      signal: controller.signal,
-      get canceled() { return state.canceled; },
+      signal: turn.controller.signal,
+      get canceled() { return handle.canceled; },
       race<T>(work: Promise<T>) {
-        work.catch(() => {}); // an aborted backend usually rejects; that's not a failure
-        return Promise.race([work, canceledPromise]);
+        return turn.race(work);
       },
       beginFinalize() {
-        if (state.canceled) return false;
-        state.finalizing = true;
-        return true;
+        if (handle.canceled) return false;
+        if (handle.phase === "finalizing") return true;
+        return handle.claim("finalizing");
       },
       end() {
-        if (registry.runs.get(taskId) === state) registry.runs.delete(taskId);
+        if (handle.phase !== "ended") handle.end(handle.phase === "canceling" ? "canceled" : "completed");
+        if (registry.runs.get(taskId)?.handle === handle) registry.runs.delete(taskId);
       },
     };
 
-    state.run = run;
-    state.controller = controller;
-    state.wake = wake;
-    this.runs.set(taskId, state);
+    this.runs.set(taskId, { run, handle, turn });
     return run;
   }
 
@@ -172,23 +178,23 @@ export class TaskRunRegistry {
    * canceled), in which case nothing is published. Never rejects.
    */
   async cancel(taskId: string, bus: ExecutionEventBus, hooks: CancelHooks = {}): Promise<boolean> {
-    const state = this.runs.get(taskId);
-    if (!state || state.canceled || state.finalizing) return false;
+    const entry = this.runs.get(taskId);
+    if (!entry || !entry.handle.claim("canceling")) return false;
+    const { handle, turn, run } = entry;
 
     // Claim synchronously, publish the terminal event, and only then wake
     // `execute` and abort the backend (see module doc for why the order matters).
-    state.canceled = true;
-    publishStatus(bus, taskId, state.run.contextId, "canceled", undefined, true);
+    handle.settlePending();
+    publishStatus(bus, taskId, run.contextId, "canceled", undefined, true);
     bus.finished();
-    state.controller.abort();
-    state.wake();
+    turn.stop();
 
     if (hooks.abort) {
       const timeoutMs = hooks.abortTimeoutMs ?? DEFAULT_ABORT_TIMEOUT_MS;
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
         await Promise.race([
-          Promise.resolve().then(() => hooks.abort!(state.run)),
+          Promise.resolve().then(() => hooks.abort!(run)),
           new Promise<never>((_, reject) => {
             timer = setTimeout(() => reject(new Error(`abort timed out after ${timeoutMs}ms`)), timeoutMs);
           }),
@@ -196,7 +202,7 @@ export class TaskRunRegistry {
       } catch (e) {
         const error = e instanceof Error ? e : new Error(String(e));
         try {
-          await hooks.onAbortFailed?.(state.run, error);
+          await hooks.onAbortFailed?.(run, error);
         } catch {
           /* best effort */
         }

@@ -54,7 +54,8 @@ import express, { type Express, type RequestHandler } from "express";
 import { AGENT_CARD_PATH, A2A_VERSION_HEADER, AgentCard } from "@a2a-js/sdk";
 import type { AgentCardSignatureGenerator } from "@a2a-js/sdk";
 import { generateAgentCardSignature } from "@a2a-js/sdk";
-import { DefaultRequestHandler, InMemoryTaskStore } from "@a2a-js/sdk/server";
+import { DefaultRequestHandler, InMemoryTaskStore, ServerCallContext } from "@a2a-js/sdk/server";
+import type { TaskStore } from "@a2a-js/sdk/server";
 import {
   jsonRpcHandler,
   restHandler,
@@ -63,6 +64,9 @@ import {
 
 import type { AgentCardConfig } from "../config/types.js";
 import type { EventTransport, EventTransportFn } from "../events/transport.js";
+import { RunEventBusManager } from "../a2a/bus-manager.js";
+import { OrphanGuardTaskStore, endTaskInStore } from "../a2a/orphan-task-store.js";
+import type { RunRegistry } from "../runtime/run-registry.js";
 import { instrumentExecutor } from "../telemetry/instrument.js";
 import { PEER_HEADER } from "../telemetry/propagation.js";
 import type { OtelConfig } from "../telemetry/types.js";
@@ -200,6 +204,23 @@ export interface ServerOptions {
    * Wrapper package version for OTel attributes.
    */
   wrapperVersion?: string;
+
+  /**
+   * Opt in to the core-owned run runtime for this server. When set, the factory
+   * (a) hands the SDK an event bus manager that keeps a task's bus alive while the
+   * registry has a live run for it (`settleByTaskId`), (b) wraps the task store so a
+   * `CANCELED` the SDK writes itself for a task with no bus (SDK 1.3 never calls the
+   * executor then) reaches `abortOrphan`, and (c) runs the startup sweep over
+   * non-terminal run records. The executor returned by `executorFactory` is expected
+   * to be a `CoreExecutor` over this same registry.
+   *
+   * Absent (the default): none of this is wired and the server behaves exactly as
+   * before, so wrappers on `TaskRunRegistry` are unaffected.
+   */
+  runRegistry?: RunRegistry;
+
+  /** With {@link ServerOptions.runRegistry}: run the startup sweep before listening. @default true */
+  sweepOnStart?: boolean;
 }
 
 // ─── ServerHandle ───────────────────────────────────────────────────────────
@@ -338,17 +359,23 @@ export async function createA2AServer<T extends BuildAgentCardInput>(
     : undefined;
 
   // ── 3. A2A SDK request handler ──────────────────────────────────────────
-  const taskStore = new InMemoryTaskStore();
+  const runRegistry = options?.runRegistry;
+  const baseTaskStore = new InMemoryTaskStore();
+  const taskStore: TaskStore = runRegistry ? new OrphanGuardTaskStore(baseTaskStore, runRegistry) : baseTaskStore;
   const requestHandler = new DefaultRequestHandler(
     agentCard,
     taskStore,
     executor as any, // executor satisfies AgentExecutor at runtime; cast avoids coupling core to SDK's full AgentExecutor shape
-    undefined, // eventBusManager (SDK default)
+    runRegistry ? new RunEventBusManager(runRegistry) : undefined, // eventBusManager (SDK default unless the run runtime is opted in)
     undefined, // pushNotificationStore
     undefined, // pushNotificationSender
     undefined, // extendedAgentCardProvider
     agentCardSignatureGenerator,
   );
+
+  if (runRegistry && options?.sweepOnStart !== false) {
+    await runRegistry.sweep({ endTask: endTaskInStore(baseTaskStore, new ServerCallContext()) });
+  }
 
   // ── 4. Express app ──────────────────────────────────────────────────────
   const app = express();
