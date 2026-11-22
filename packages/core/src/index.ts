@@ -290,3 +290,48 @@ export type { TaskStatusUpdateEvent, TaskArtifactUpdateEvent } from "@a2a-js/sdk
 
 /** @see {@link https://github.com/a2a-js/a2a-js | @a2a-js/sdk/server} */
 export type { ExecutionEventBus, RequestContext } from "@a2a-js/sdk/server";
+
+// ─── Core domain model (provider-facing, SDK-free) ──────────────────────────
+//
+// Additive foundation of the core-owned data model. `TaskRun` above is the
+// existing registry run; the provider-facing run is exported as `CoreTaskRun`.
+// See docs/design/core-data-model.md.
+
+export * from "./model/index.js";
+
+// ─── A2A v1 adapter (core <-> SDK translation; the only SDK-aware module) ───
+
+export {
+  INTERACTION_EXTENSION_URI,
+  UNKNOWN_PART_META_KEY,
+  FILE_URI_META_KEY,
+  CORE_STATE_META_KEY,
+  DELIVERY_META_KEY,
+  USAGE_META_KEY,
+  fromA2APart,
+  toA2APart,
+  fromA2ATaskState,
+  toA2ATaskState,
+  isRepresentableState,
+  fromA2AMessage,
+  toA2AMessage,
+  callerFromContext,
+  coreRequestFromContext,
+  toStatusUpdate,
+  fromStatusUpdate,
+  toArtifactUpdate,
+  fromA2AArtifact,
+  usageToMetadata,
+  usageFromMetadata,
+  interactionTaskState,
+  interactionPayload,
+  renderInteractionText,
+  renderInteraction,
+  toInteractionStatusUpdate,
+  parseInteractionReply,
+  type FromMessageOptions,
+  type CoreRequestOptions,
+  type StatusUpdateInput,
+  type CoreStatusUpdate,
+  type RenderedInteraction,
+} from "./a2a/adapter.js";
