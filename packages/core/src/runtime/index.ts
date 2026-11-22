@@ -13,6 +13,11 @@ export {
   type SweepOptions,
   type PublisherFactory,
 } from "./run-registry.js";
+export type {
+  BindingResolution,
+  BindingSweepReport,
+  BindingValidationReport,
+} from "./bindings.js";
 export { InteractionsRuntime, type InteractionsRuntimeOptions } from "./interactions.js";
 export {
   DEFAULT_AUTH_TIMEOUT_MS,

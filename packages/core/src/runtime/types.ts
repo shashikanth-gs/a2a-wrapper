@@ -24,6 +24,7 @@ import type {
   PendingInteraction,
   SessionRef,
 } from "../model/index.js";
+import type { BindingValidationReport } from "./bindings.js";
 import type { RunStore } from "./run-store.js";
 
 /**
@@ -116,6 +117,8 @@ export interface ExecuteInit {
   taskId: string;
   contextId: string;
   caller: CoreCaller;
+  /** The tenant of the call (the SDK call context's), when there is one. A context binding belongs to one caller in one tenant. */
+  tenant?: string;
   /** The event stream of this attachment (one per SDK `execute()` call). */
   publisher: RunPublisher;
   /** Builds the provider request once the ids and the context's session are known. */
@@ -283,4 +286,6 @@ export interface SweepEntry {
 /** Result of {@link RunRegistry.sweep}. */
 export interface SweepReport {
   entries: SweepEntry[];
+  /** What the start-up binding validation did; only when `validateBindingsOnStart` is set. */
+  bindings?: BindingValidationReport;
 }

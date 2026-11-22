@@ -150,13 +150,65 @@ export function runStoreContractTests(name: string, factory: () => RunStore | Pr
         expect((await store.getBinding("c1"))?.session?.ref).toBe("s1");
         await store.putBinding(binding("c1", "s1b"));
         expect((await store.getBinding("c1"))?.session?.ref).toBe("s1b");
-        await store.deleteBinding("c1");
+        expect(await store.deleteBinding("c1")).toBe(true);
         expect(await store.getBinding("c1")).toBeUndefined();
         expect((await store.getBinding("c2"))?.session?.ref).toBe("s2"); // untouched
       });
 
-      it("deleting a binding that is not there is not an error", async () => {
-        await expect(store.deleteBinding("never-stored")).resolves.toBeUndefined();
+      it("deleting a binding that is not there is not an error and reports false", async () => {
+        await expect(store.deleteBinding("never-stored")).resolves.toBe(false);
+      });
+
+      it("deleteBinding with ifRef is a compare-and-delete: only the binding that still names that ref goes", async () => {
+        await store.putBinding(binding("c1", "s1"));
+        expect(await store.deleteBinding("c1", "other")).toBe(false);
+        expect((await store.getBinding("c1"))?.session?.ref).toBe("s1");
+        await store.putBinding(binding("c1", "s2")); // replaced meanwhile
+        expect(await store.deleteBinding("c1", "s1")).toBe(false);
+        expect((await store.getBinding("c1"))?.session?.ref).toBe("s2");
+        expect(await store.deleteBinding("c1", "s2")).toBe(true);
+        expect(await store.getBinding("c1")).toBeUndefined();
+      });
+
+      it("listBindings returns every binding (decoded copies, any order)", async () => {
+        expect(await store.listBindings()).toEqual([]);
+        await store.putBinding(binding("c1", "s1"));
+        await store.putBinding(binding("c2", "s2"));
+        const all = await store.listBindings();
+        expect(all.map((b) => b.contextId).sort()).toEqual(["c1", "c2"]);
+        all[0].contextId = "mutated"; // a copy: the store is unaffected
+        expect((await store.listBindings()).map((b) => b.contextId).sort()).toEqual(["c1", "c2"]);
+        await store.deleteBinding("c1");
+        expect((await store.listBindings()).map((b) => b.contextId)).toEqual(["c2"]);
+      });
+
+      it("touchBinding sets lastUsedAt only, never updatedAt, and never revives or marks the wrong binding", async () => {
+        expect(await store.touchBinding("c1", "2026-02-01T00:00:00.000Z")).toBe(false); // nothing there: nothing created
+        expect(await store.getBinding("c1")).toBeUndefined();
+        await store.putBinding(binding("c1", "s1"));
+        expect(await store.touchBinding("c1", "2026-02-01T00:00:00.000Z", "other")).toBe(false); // another session
+        expect((await store.getBinding("c1"))?.lastUsedAt).toBeUndefined();
+        expect(await store.touchBinding("c1", "2026-02-01T00:00:00.000Z", "s1")).toBe(true);
+        const b = await store.getBinding("c1");
+        expect(b?.lastUsedAt).toBe("2026-02-01T00:00:00.000Z");
+        expect(b?.updatedAt).toBe("2026-01-01T00:00:00.000Z"); // the content did not change
+        expect(b?.session?.ref).toBe("s1");
+        expect(await store.touchBinding("c1", "2026-03-01T00:00:00.000Z")).toBe(true); // no ifRef: any
+        expect((await store.getBinding("c1"))?.lastUsedAt).toBe("2026-03-01T00:00:00.000Z");
+      });
+
+      it("a binding round-trips owner, tenant, meta and lastUsedAt, and a non-JSON meta fails at write time", async () => {
+        const b: ContextBinding = {
+          ...newRecordHeader({ id: "alice", kind: "user" }, "2026-01-01T00:00:00.000Z", "acme"),
+          contextId: "c1",
+          lastUsedAt: "2026-01-02T00:00:00.000Z",
+          session: { ref: "s1", meta: { thread: "t-1", n: [1, 2] }, issuer: "provider@1" },
+        };
+        await store.putBinding(b);
+        expect(await store.getBinding("c1")).toEqual(b);
+        const bad = { ...b, session: { ref: "s", meta: { when: new Date() } as never, issuer: "p@1" } };
+        await expect(store.putBinding(bad)).rejects.toThrow();
+        expect((await store.getBinding("c1"))?.session?.ref).toBe("s1"); // the failed write changed nothing
       });
     });
 

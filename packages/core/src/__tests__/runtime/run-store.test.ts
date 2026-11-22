@@ -82,7 +82,7 @@ describe("InMemoryRunStore", () => {
     const s = new InMemoryRunStore();
     await s.putBinding({ ...newRecordHeader(owner, "t"), contextId: "c", session: { ref: "x", issuer: "p@1" } });
     expect((await s.getBinding("c"))?.session?.ref).toBe("x");
-    await s.deleteBinding("c");
+    expect(await s.deleteBinding("c")).toBe(true);
     expect(await s.getBinding("c")).toBeUndefined();
   });
 });

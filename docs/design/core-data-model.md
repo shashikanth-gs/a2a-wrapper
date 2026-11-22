@@ -5,6 +5,7 @@ the principles. This document is the data model, designed from evidence. Evidenc
 [research/](research/) (one report per area, every claim labelled verified or inferred, with sources).
 
 Steering of in-flight tasks (#109) is implemented and described in section 3.12; 3.4, 3.5, 3.10 and 3.11 carry its choices.
+Context binding persistence and resume after a restart (#110) is implemented and described in section 3.13; 3.2, 3.5, 3.6 and 3.8 carry its choices.
 
 Revised after the review of #106 (types, adapter and this document): turn semantics, unknown states, owned and
 versioned records, interaction shapes, usage deltas and versioned wire keys. Sections 3.1-3.8 and 4 describe the
@@ -213,7 +214,11 @@ interface CoreError { message: string; code?: Open<"timeout"|"backend"|"auth"|"i
 ```
 
 `bind` replaces each wrapper's in-memory `contextId` to session map. On the next request for that context
-(including after a restart) core passes the stored `session` back in `CoreRequest`.
+(including after a restart) core passes the stored `session` back in `CoreRequest`, when it may (the rules are in
+3.13: the binding belongs to the caller, was written by this provider and has not expired). The signature stays
+`bind(session: { ref; meta? })`; a `ref` that is empty or a `meta` that is not JSON-safe makes `bind` throw a `TypeError`
+(a binding that cannot be stored would otherwise be lost silently, and the context would not resume after a restart).
+A provider whose backend cannot resume `request.session` reports `code: "session-not-found"` (3.5).
 
 **Records of runs.** A `RunRecord` is one record per task (`runId`), updated per turn. The startup sweep reads its state
 through `classifyState`: `active` with no live handle is an orphan, `unknown` is handled by policy and never assumed
@@ -446,6 +451,23 @@ away, so it **flushes** it; `shutdown` is treated as `cancel` unless the provide
 call is treated as `{ stopped: "unconfirmed", session: "discard" }`; core then clears the binding and calls
 `release?(session)` so the provider can drop its state. This replaces the earlier `onAbortFailed` hook.
 
+**`session: "discard"` and the issuer rule (#110).** On `discard` (from `abort`, `abortOrphan` or a failed abort) core deletes
+the binding only if it still names the session that turn used (a binding rebound meanwhile survives) and calls `release`
+with the ref, except when the stored binding was written by another provider: that ref is not this provider's and never
+reaches its `release` (the binding is still deleted). `abortOrphan` after a restart goes through the same path, so a
+`discard` clears the binding there too.
+
+**`session-not-found` (#110).** `CoreError.code` gains `"session-not-found"` (exported as `SESSION_NOT_FOUND`, with a
+`SessionNotFoundError` a provider can throw). It means: the session in `request.session` is not known to the backend. A
+provider reports it with `run.fail({code})` (or `reject`) or by throwing, and core then (1) deletes the binding, (2) does
+NOT publish that failure, and (3) runs the SAME turn (same `runId`, same `turnId`, same input) once more with no `session`.
+Rules, all tested: only when the turn started from a stored binding; only once (a second `session-not-found` on the retry is
+an ordinary failure, `failed` with that code, never a loop); only if the turn has published nothing a replay would repeat (no
+`event`, `artifact`, `ask` or `bind`), because after output core cannot replay the turn, so the failure is final and the
+binding is NOT forgotten; the first call's view is dead after the retry (its late events, bind and `complete` are dropped),
+and a cancel while the retry is being set up wins. `release` is not called (the backend says it is gone). A provider that can
+tell cheaply should say `session-not-found` before it emits anything; `probeSession` (3.8) lets core find out at start-up.
+
 `RunRegistry.deliver` with `delivery: "interrupt"` calls `abort(info, "interrupt")` (never `cancel`) only when the provider has the
 handler; the lane waits for it to settle before the interrupting message runs (#107), and a cancel arriving meanwhile sends
 `abort(info, "cancel")` after it so the provider flushes its native queue (3.10).
@@ -485,8 +507,9 @@ interface PendingInteraction extends RecordHeader {
   handle?: string;                                       // opaque provider handle, if re-attachable
 }
 interface ContextBinding extends RecordHeader {
-  contextId: string;
-  session?: { ref: string; meta?: JsonObject; issuer: string };   // issuer: opaque provider id + version
+  contextId: string;                                     // owner/tenant = the caller that owns the CONTEXT (3.13)
+  session?: { ref: string; meta?: JsonObject; issuer: string };   // issuer: `<provider id>@<version>` of ProviderInfo
+  lastUsedAt?: string;                                   // last bind or resume (touch); the TTL and GC measure this
 }
 interface RunRecord extends RecordHeader {              // one per task (runId), updated per turn
   runId: string; taskId: string; contextId: string; turnId: string;
@@ -538,6 +561,7 @@ After a restart, core finds open records (`presented`, `queued`). Those with a `
 `reattach?(records, runs)` so it can resume waiting (Copilot `continuePendingWork`, OpenCode re-list). The rest become
 `expired` and the task is failed with a precise reason ("server restarted") instead of hanging. Implemented in #108:
 the sweep reads `interrupted` run records (`input-required` / `auth-required`), see 3.11.
+Context bindings are not part of that sweep: they are resolved when the next request for their context starts (owner, issuer and TTL rules, then handed to the provider as `request.session`), and optionally validated at start-up with `probeSession` (3.13).
 
 ### 3.7 Static provider info and usage
 
@@ -588,9 +612,14 @@ interface ProviderExecutor {
   abortOrphan?(info: { taskId: string; contextId: string; session?: { ref: string } }): Promise<AbortOutcome>;
   reattach?(pending: readonly PendingInteraction[]): Promise<void>;
   release?(session: { ref: string }): Promise<void>;
+  probeSession?(session: { ref: string; meta?: JsonObject }): Promise<"alive" | "gone" | "unknown">;   // #110, optional
   shutdown(): Promise<void>;
 }
 ```
+
+`probeSession` is additive and optional (no flag): core calls it only when `validateBindingsOnStart` is set (3.13). A provider
+without it, or whose probe rejects or times out (`abortTimeoutMs`), is treated as `"unknown"`: the binding is kept and the first
+resume decides (`session-not-found`). `"gone"` deletes the binding; `"alive"` keeps it. It must not change the session.
 
 Capabilities are the handlers present plus the values returned. Nothing says "this provider supports steering".
 
@@ -679,7 +708,8 @@ Code: `packages/core/src/runtime/` (SDK-free: `RunRegistry`, `RunHandle`, `RunSt
 - **Wiring.** `createA2AServer(..., { runRegistry })` is opt-in: it installs `RunEventBusManager` (takes ownership of the bus
   in `settleByTaskId` while a live run exists, releases it when the run ends), wraps the task store with
   `OrphanGuardTaskStore` and runs the sweep. Without the option nothing changes for wrappers on `TaskRunRegistry`.
-- **`RunStore`** (`InMemoryRunStore`) keeps `RunRecord`, `ContextBinding` and `QueuedMessageRecord`, stores the ENCODED form
+- **`RunStore`** (`InMemoryRunStore`) keeps `RunRecord`, `ContextBinding` (#110 added `listBindings`, `touchBinding` and a
+  compare-and-delete `deleteBinding(contextId, ifRef?)`, 3.13) and `QueuedMessageRecord`, stores the ENCODED form
   (a non-JSON record fails at write time) and has the atomic `claimQueued`. Persistent stores come with #69.
 - **Known SDK limits.** `cancelTask(taskId, bus)` receives no call context, so the caller recorded for a cancel is `anonymous`
   until the SDK exposes it. SDK 1.3 has NO guard against a second `execute()` on a live task (a2a-js #632 is the open
@@ -984,10 +1014,115 @@ Measured with the real `DefaultRequestHandler` and a bare executor (no core runt
    expires.
 4. A non-final turn's result was dropped; it is published as output.
 
-What is left for #110 and #111: the wrappers (providers) implement `steer` (Copilot `mode: immediate` with the `delivery` event,
+What was left for #110 is done (3.13). What is left for #111: the wrappers (providers) implement `steer` (Copilot `mode: immediate` with the `delivery` event,
 Claude streaming input with `priority`, OpenCode v2 `delivery`, Antigravity cancel and re-run) and `abort`, pass `handle`s and call
 `beginHeldTurn` / `dropHeld`; none of that is in core. Wiring `authorize` to a real identity and declaring the delivery extensions
 on the agent card stay open (the card does not declare them yet, so every client gets the Message form).
+
+### 3.13 Context binding runtime (implemented, #110; enables Codex thread resume, #100)
+
+Code: `runtime/bindings.ts` (`ContextBindings`, SDK-free, owned by `RunRegistry`), `RunStore` (`listBindings`, `touchBinding`,
+`deleteBinding(contextId, ifRef?)`), `RunRegistry.runTurn` (resolve and the `session-not-found` retry), `sweepBindings()`,
+`validateBindings()`. SDK only in `a2a/core-executor.ts`, which now passes the call's tenant (`ExecuteInit.tenant`); the
+session reaches the provider through the existing `RequestIds.session` / `coreRequestFromContext`.
+
+**Bind (`run.bind`).** Persists a `ContextBinding` through the `RunStore`: `owner` and `tenant` = the caller (and tenant) of the
+turn that bound, `createdAt`, `updatedAt` and `lastUsedAt` = now, `session = {ref, meta, issuer}` with `issuer =
+"<ProviderInfo.id>@<ProviderInfo.version>"` (or `RunRegistryOptions.issuer`). A rebind replaces the session and keeps the owner
+and `createdAt`. A bind after a cancel (or from a stopped or retried-away turn) is a silent drop (the `live()` gate). A bind
+from a stale turn cannot overwrite a newer one: every turn has a process-wide start order, writes of one context are applied
+through one promise chain in call order (a slow store cannot reorder them), and a bind from a turn older than the last turn
+that bound is dropped (the real case: a provider-held message started a newer turn through `beginHeldTurn` while the older
+turn's view is still live). A bind over a binding another caller owns is dropped with a warning, never applied.
+
+**Resolve at turn start.** In `runTurn`, AFTER the context's lane slot is held, so the previous turn of the context has ended
+and its bind was written (it reads through the same per-context chain): load the binding and, in this order:
+
+1. none (or a header with no session): fresh;
+2. **owner**: `owner.id`, `owner.kind` and `tenant` must equal the turn's caller and tenant. Otherwise the turn is REJECTED
+   (task `rejected`, `CoreError.code: "forbidden"`, `detail.reason: "context-owner-mismatch"`) and the provider is never called.
+   Choice (spec 13.1, "scoped per caller"): reject, never silently give B a fresh session on A's contextId. The binding is left
+   alone (B cannot delete A's session by sending its contextId), and this check comes before issuer and TTL for the same
+   reason. Today every caller is `anonymous` (`UserBuilder.noAuthentication`), so nothing changes until authentication is
+   wired; the tenant comes from the SDK call context;
+3. **issuer**: `binding.session.issuer` must equal the current issuer. A binding written by another provider, another
+   version or another configured issuer is never replayed: it is deleted, `provider.release(ref)` is called ONLY when the
+   issuer names this provider (`<id>@...`, i.e. another version of it; the one place core reads an issuer beyond equality, and
+   only to keep another provider's ref out of this provider's `release`; with an explicit `issuer` override it is never
+   released), and the turn starts fresh;
+4. **TTL** (`RunRegistryOptions.bindingTtlMs`, default none): `now - (lastUsedAt ?? updatedAt) > ttl` deletes and releases it,
+   the turn starts fresh;
+5. `authorize(by, "resume", {taskId, contextId, ownerId})`: false or a throwing authorizer rejects the turn (`forbidden`,
+   `detail.reason: "denied"`). `authorize` stays allow-all by default and stays the single choke point; it can only ADD
+   restrictions: it cannot override the owner check (with the allow-all default an override would make the check vanish). A
+   future "an admin may resume anyone's context" needs its own decision;
+6. touch (`lastUsedAt`, compare-and-set on the ref so a concurrent rebind is not marked) and hand `{ref, meta}` to the provider
+   as `request.session`. A turn that ends touches it again, so a long turn does not look idle to the TTL.
+
+A store failure while reading is logged and the turn starts fresh. Logs never contain a session `ref` or `meta`.
+
+**Restart.** The bindings are in the store, so a new registry over the same store resumes them: request 2 on a context gets
+what request 1 bound, also across a process restart (test: two requests on one contextId through the real
+`DefaultRequestHandler`, with a new registry, bus manager, executor and handler in between). With `validateBindingsOnStart`
+(default `false`) `RunRegistry.sweep()` ends by calling `probeSession` (up to 4 at a time) for each binding this provider wrote
+and deleting the `gone` ones; `SweepReport.bindings` reports `alive`, `gone`, `unknown`, `skipped` (another issuer, or the
+context has a run). The orphan sweep runs first, so the sessions of orphaned runs are handled by `abortOrphan` before.
+
+**Binding GC: `sweepBindings({olderThanMs?})`.** Removes bindings whose `lastUsedAt` is older than `olderThanMs` (default
+`bindingTtlMs`; with neither nothing is removed) and whose context has no non-terminal run: no run in this process (live,
+parked, adopted or waiting in the lane) AND no `active`, `interrupted` (parked) or unknown-state run record in the store (an
+orphan still needs its session for `abortOrphan`). Each removal re-checks inside the context's queue (a resume that touched
+it meanwhile wins) and calls `release` for the sessions this provider wrote. Core never schedules it: call it from the
+operator's own timer (a store with native TTLs would do this itself).
+
+**`RunStore` additions** (all in `runStoreContractTests`, so a future SQLite or Postgres store is verified by the same suite):
+`listBindings()`, `touchBinding(contextId, at, ifRef?)` (sets `lastUsedAt` only, `false` for a missing or other-session
+binding, never creates one) and `deleteBinding(contextId, ifRef?)` now returns `boolean` and is a compare-and-delete with
+`ifRef`. `ContextBinding.lastUsedAt` is optional and additive (`v` stays 1; `updatedAt` stands in for an old record).
+
+**Process-local versus stored state.** Stored: the binding (session, issuer, owner, tenant, `lastUsedAt`). Process-local on
+purpose: the per-context promise chain and the last bind order (`lastBindSeq`, dropped when the context goes idle), the
+`attempt` / `retried` / `observable` flags of a turn (a retry never outlives the turn), and the turn order counter. A store
+shared by several core instances still needs its own compare-and-set for a bind race between instances; the chain only
+orders writes inside one process.
+
+**Spec problems found.**
+
+1. `bind(ref, meta?)` in the task wording versus `bind(session: {ref, meta?})` in 3.2 and the code: kept as is (`SessionRef`).
+2. 3.8 lists `abortOrphan(info)` with a `session?` and `release(session)` but no way to ask "does this session still exist":
+   `probeSession` is added (optional).
+3. `ContextBinding.owner` was ambiguous (the task owner or the context owner?): it is the caller that created the binding, i.e.
+   owns the CONTEXT; every task of a context must come from it. A context id is client-chosen and global, so a stranger who
+   learns it can see that it is taken (the rejection is an oracle for "this contextId exists") and can claim an unused or
+   garbage-collected one. Per-caller namespacing of context ids is the real fix and is left to the authentication work; spec
+   13.1 would have a stranger see "not found", which core cannot do without namespacing.
+4. A binding that is expired but still owned by A keeps refusing B until it is removed (resume by A, or `sweepBindings`):
+   expiry must not turn a context id into a prize for whoever sends it first.
+5. "Issuer equality only" conflicts with "release only if the issuer matches this provider": core compares the full string for
+   equality, and reads only the `<id>@` prefix to decide whether `release` is safe.
+6. The doc said a failed bind write is logged; a non-JSON `meta` therefore lost the binding silently. `bind` now throws.
+7. A late `bind` race between turns was only guarded by `live()`; it was also unsound for provider-held turns (two live views
+   of one run), see the bind order above.
+8. `DeliveryResult`/`abort` docs never said what the lane does with a rejected resolve: a rejected turn ends like any other
+   (`rejected`), releases the lane and lets the queue continue.
+
+**Left for #111 (the wrappers; none of it is in core).** Each wrapper stores its provider reference with
+`run.bind({ref, meta})` as soon as the backend tells it (before the first output, so a restart mid-turn can resume) and
+resumes from `request.session` instead of its own in-memory map:
+
+- Codex: call `resumeThread(request.session.ref)` (the thread id, which lives on disk) instead of always `startThread`, bind
+  the thread id once the thread exists, and map "thread not found" to `session-not-found`. This is the fix for #100 (Codex
+  never resumes threads).
+- Claude: bind the session id (the `session_id` of the init message), resume with `resume: request.session.ref`; an unknown
+  session id is `session-not-found`.
+- Copilot: bind `session.sessionId`, `resumeSession(ref)` on the next turn; unknown session is `session-not-found`.
+- OpenCode: bind the server-side session id; `session.get` failing with not found is `session-not-found`. Optionally
+  `probeSession` through the same call.
+- Antigravity: bind `conversation_id` (the SDK supports it, the wrapper ignores it).
+- Every wrapper: drop its own `contextId -> session` map, implement `release` (drop provider-local state) and, where the backend
+  can tell cheaply, `probeSession`; report `session-not-found` before emitting anything.
+- The `bind` `meta` is the place for what a resume needs besides the id (a working directory, a model); it is persisted
+  with the binding and must be JSON.
 
 ## 4. A2A mapping and the run model (core internal)
 

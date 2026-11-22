@@ -28,6 +28,9 @@ export interface ReattachRuns {
   view(taskId: string): CoreTaskRun | undefined;
 }
 
+/** What {@link ProviderExecutor.probeSession} answers. */
+export type SessionProbe = "alive" | "gone" | "unknown";
+
 export interface ProviderExecutor {
   info(): ProviderInfo;
   initialize(): Promise<void>;
@@ -67,5 +70,13 @@ export interface ProviderExecutor {
   reattach?(pending: readonly PendingInteraction[], runs: ReattachRuns): Promise<void>;
   /** Drop provider state for a discarded session. */
   release?(session: Pick<SessionRef, "ref">): Promise<void>;
+  /**
+   * Optional liveness check of a persisted session, used by core's start-up validation (`validateBindingsOnStart`).
+   * `"gone"`: the backend does not have it any more (core deletes the binding). `"alive"` and `"unknown"` keep it; a
+   * provider without this method, a rejection and a timeout all count as `"unknown"`: the first resume decides, and a
+   * session the backend cannot resume is reported with `SESSION_NOT_FOUND` (core then forgets it and retries once).
+   * Must not change the session.
+   */
+  probeSession?(session: SessionRef): Promise<SessionProbe>;
   shutdown(): Promise<void>;
 }

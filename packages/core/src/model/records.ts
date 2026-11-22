@@ -98,9 +98,20 @@ export function initialInteractionState(existing: readonly PendingInteraction[])
  */
 export type StoredSessionRef = SessionRef & { issuer: string };
 
+/**
+ * contextId to provider session. `owner` (and `tenant`) are the caller that owns the CONTEXT: core resumes the session
+ * only for that caller (spec 13.1). `issuer` is `<provider id>@<provider version>` as `ProviderInfo` reports it when the
+ * session was bound; a binding written by another provider, another version or another configured issuer is never
+ * replayed to this provider.
+ */
 export interface ContextBinding extends RecordHeader {
   contextId: string;
   session?: StoredSessionRef;
+  /**
+   * When the session was last bound or resumed (ISO). `updatedAt` is when the record last CHANGED; this is what the
+   * binding TTL and `sweepBindings` measure. Absent on a record written before it existed: `updatedAt` stands in.
+   */
+  lastUsedAt?: string;
 }
 
 /**
