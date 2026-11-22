@@ -44,10 +44,10 @@ import {
   classifyState,
   isOpenInteractionState,
   newRecordHeader,
+  SESSION_NOT_FOUND,
   type AbortOutcome,
   type AbortReason,
   type AskOptions,
-  type ContextBinding,
   type CoreArtifact,
   type CoreCaller,
   type CoreError,
@@ -67,6 +67,7 @@ import {
   type ProviderExecutor,
   type QueuedMessageRecord,
   type RunRecord,
+  type SessionProbe,
   type SessionRef,
   type SteerOutcome,
   type TaskRunInfo,
@@ -75,6 +76,12 @@ import {
   resolveDelivery,
   type ResolvedDelivery,
 } from "../model/index.js";
+import {
+  assertBindable,
+  ContextBindings,
+  type BindingSweepReport,
+  type BindingValidationReport,
+} from "./bindings.js";
 import { InteractionsRuntime } from "./interactions.js";
 import type { InteractionPolicy } from "./interaction-policy.js";
 import { RunHandle, RunTurn, type QueuedTurn, type TurnOutcome } from "./run-handle.js";
@@ -161,7 +168,7 @@ export interface RunRegistryOptions {
   interactionPolicy?: Partial<InteractionPolicy>;
   /** See {@link DetachedPublisherFactory}; the server factory sets it, or call {@link RunRegistry.setDetachedPublisher}. */
   detached?: DetachedPublisherFactory;
-  /** Upper bound for `abort` / `abortOrphan` / `release`. Default {@link DEFAULT_ABORT_TIMEOUT_MS}. */
+  /** Upper bound for `abort` / `abortOrphan` / `release` / `probeSession`. Default {@link DEFAULT_ABORT_TIMEOUT_MS}. */
   abortTimeoutMs?: number;
   /**
    * How long a reply claim nobody refreshes stays held before it may be taken over (a wedge breaker only: the holder refreshes
@@ -185,8 +192,23 @@ export interface RunRegistryOptions {
   /** Id source. Default `crypto.randomUUID`. */
   newId?: () => string;
   logger?: RuntimeLogger;
-  /** Opaque issuer stored with a bound session. Default `provider.info().id` + version. */
+  /**
+   * Issuer stored with a bound session and compared for equality when it is read back. Default
+   * `<provider id>@<ProviderInfo.sessionFormat ?? "1">`. A binding with another issuer is dropped, never replayed and never released.
+   */
   issuer?: string;
+  /**
+   * How long a context binding may sit unused before it expires (milliseconds, measured from its last bind or resume).
+   * An expired binding is deleted and released when its context next resumes, and removed by {@link RunRegistry.sweepBindings}.
+   * Default: bindings never expire.
+   */
+  bindingTtlMs?: number;
+  /**
+   * At the end of {@link RunRegistry.sweep}, ask the provider (`probeSession`, when it has one) whether each stored
+   * binding still resolves and delete the ones it reports `gone`. Default `false`: the first resume attempt decides
+   * (`SESSION_NOT_FOUND`).
+   */
+  validateBindingsOnStart?: boolean;
 }
 
 /** Options of {@link RunRegistry.sweep}. */
@@ -283,6 +305,8 @@ export class RunRegistry {
   private readonly newId: () => string;
   private readonly log: RuntimeLogger;
   private readonly issuerOverride?: string;
+  private readonly bindings: ContextBindings;
+  private readonly validateBindingsOnStart: boolean;
 
   constructor(options: RunRegistryOptions) {
     this.provider = options.provider;
@@ -298,6 +322,26 @@ export class RunRegistry {
     this.newId = options.newId ?? (() => randomUUID());
     this.log = options.logger ?? NOOP_LOGGER;
     this.issuerOverride = options.issuer;
+    this.validateBindingsOnStart = options.validateBindingsOnStart === true;
+    if (options.bindingTtlMs !== undefined && !(options.bindingTtlMs >= 0)) throw new RangeError("bindingTtlMs must be a number >= 0");
+    this.bindings = new ContextBindings({
+      store: this.store,
+      log: this.log,
+      now: () => this.now(),
+      issuer: () => this.issuerOf(),
+      release: (ref) => this.releaseSession(ref),
+      ...(this.provider.probeSession
+        ? {
+            probe: async (session: SessionRef): Promise<SessionProbe> => {
+              const r = await this.bounded(() => this.provider.probeSession!(session));
+              return r.ok ? r.value : "unknown";
+            },
+          }
+        : {}),
+      authorize: (by, action, target) => this.authorize(by, action, target),
+      busy: (contextId) => this.contextBusy(contextId),
+      ...(options.bindingTtlMs !== undefined ? { ttlMs: options.bindingTtlMs } : {}),
+    });
     this.interactions.bind?.({
       store: this.store,
       log: this.log,
@@ -871,7 +915,10 @@ export class RunRegistry {
     const l = this.lanes.get(handle.contextId);
     if (!l) return;
     l.release(handle);
-    if (l.idle) this.lanes.delete(handle.contextId);
+    if (l.idle) {
+      this.lanes.delete(handle.contextId);
+      this.bindings.contextIdle(handle.contextId);
+    }
   }
 
   private liveTurns(handle: RunHandle): RunTurn[] {
@@ -888,6 +935,8 @@ export class RunRegistry {
 
   private beginTurn(handle: RunHandle, init: ExecuteInit, turnId: string, queued?: QueuedTurn): void {
     const turn = new RunTurn(turnId);
+    turn.caller = init.caller;
+    if (init.tenant !== undefined) turn.tenant = init.tenant;
     if (queued) turn.messageId = queued.messageId;
     handle.turn = turn;
     handle.turns.push(turn);
@@ -915,21 +964,82 @@ export class RunRegistry {
           return;
         }
       }
-      const binding = await this.store.getBinding(handle.contextId).catch(() => undefined);
+      // The binding is resolved HERE, after the context's lane slot is held (the previous turn of this context has ended, and
+      // its `bind` was persisted: writes of one context are serialized), so a turn never reads a stale binding.
+      const resolved = await this.bindings.resolve({
+        contextId: handle.contextId,
+        taskId: handle.taskId,
+        caller: init.caller,
+        ...(init.tenant !== undefined ? { tenant: init.tenant } : {}),
+      });
       if (gone()) return; // canceled, interrupted or expired before the provider was called
-      const session: SessionRef | undefined = binding?.session
-        ? { ref: binding.session.ref, ...(binding.session.meta ? { meta: binding.session.meta } : {}) }
-        : undefined;
-      turn.session = session;
-      const request = init.request({ runId: handle.runId, turnId: turn.turnId, ...(session ? { session } : {}) });
-      turn.request = request;
-      turn.state = "running";
-      this.writeRecord(handle, { state: "working", turnId: turn.turnId });
-      const view = this.makeView(handle, turn);
-      await this.provider.run(request, view);
+      if (resolved.kind === "rejected") {
+        // Not another caller's session, and no fresh session on its context id either: the request is refused.
+        this.turnEnded(handle, turn, { kind: "rejected", error: resolved.error });
+        return;
+      }
+      let session: SessionRef | undefined = resolved.kind === "session" ? resolved.session : undefined;
+      turn.resumed = session !== undefined;
+      for (let first = true; ; first = false) {
+        turn.session = session;
+        const request = init.request({ runId: handle.runId, turnId: turn.turnId, ...(session ? { session } : {}) });
+        turn.request = request;
+        turn.state = "running";
+        if (first) this.writeRecord(handle, { state: "working", turnId: turn.turnId });
+        turn.attempt++;
+        const view = this.makeView(handle, turn);
+        const retry = new Promise<"retry">((resolve) => {
+          turn.retrySignal = () => resolve("retry");
+        });
+        let ran: Promise<void>;
+        try {
+          ran = Promise.resolve(this.provider.run(request, view));
+        } catch (e) {
+          ran = Promise.reject(e);
+        }
+        ran.catch(() => {}); // a call that lost the race to a retry settles on its own; its rejection is not the turn's
+        let verdict: "done" | "retry";
+        try {
+          verdict = await Promise.race([ran.then(() => "done" as const), retry]);
+        } catch (e) {
+          // `provider.run` threw SessionNotFoundError (or any error whose code is `session-not-found`).
+          if (!this.tryRetry(turn, { message: causeMessage(e), code: (e as { code?: string } | undefined)?.code })) throw e;
+          verdict = "retry";
+        }
+        if (verdict === "done") break;
+        // The backend cannot resume the bound session: forget it and run the SAME turn once more with no session.
+        const lost = session!.ref;
+        // The first call must have SETTLED before the second starts: two provider.run calls of one turn would break the lane
+        // invariant (one provider session never sees overlapping prompts). Its view is dead already, so late output is dropped.
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const settled = await Promise.race([
+          ran.then(() => true, () => true),
+          new Promise<false>((r) => {
+            timer = setTimeout(() => r(false), this.abortTimeoutMs);
+          }),
+        ]);
+        clearTimeout(timer);
+        await this.bindings.forget(handle.contextId, lost);
+        if (gone()) return;
+        if (!settled) {
+          this.log.warn(`task ${handle.taskId}: the first provider.run did not settle after session-not-found; not retrying`);
+          // Do not abandon the backend: best-effort stop of the call that never settled (bounded, never throws).
+          if (this.provider.abort) {
+            const info: TaskRunInfo = { runId: handle.runId, turnId: turn.turnId, taskId: handle.taskId, contextId: handle.contextId, session: { ref: lost } };
+            this.track(this.bounded(() => this.provider.abort!(info, "cancel")).then((r) => {
+              if (!r.ok) this.log.warn(`provider.abort failed (cancel): ${r.error.message}`);
+            }));
+          }
+          this.turnEnded(handle, turn, { kind: "failed", error: turn.lostError ?? { message: "the backend does not know this session", code: SESSION_NOT_FOUND } });
+          return;
+        }
+        this.log.warn(`task ${handle.taskId}: the backend could not resume the bound session; retrying the turn with a fresh one`);
+        session = undefined;
+      }
     } catch (e) {
       if (!gone() && turn.live) {
-        this.turnEnded(handle, turn, { kind: "failed", error: { message: causeMessage(e), code: "internal" } });
+        const code = (e as { code?: unknown } | undefined)?.code === SESSION_NOT_FOUND ? SESSION_NOT_FOUND : "internal";
+        this.turnEnded(handle, turn, { kind: "failed", error: { message: causeMessage(e), code } });
       } else {
         this.log.debug?.("provider.run settled after the turn was stopped", causeMessage(e));
       }
@@ -970,6 +1080,8 @@ export class RunRegistry {
       );
     }
     handle.lastOutcome = outcome;
+    // The session was used until now: a long turn must not look idle to the binding TTL.
+    if (turn.session) this.track(this.bindings.touch(handle.contextId, turn.session.ref));
     // More turns follow: what this one produced is output NOW (the terminal status carries only the last turn).
     if (handle.queue.length > 0 || handle.held.size > 0 || handle.steering > 0) this.publishTurnResult(handle, outcome);
     this.advance(handle);
@@ -1100,7 +1212,9 @@ export class RunRegistry {
   // ─── The provider-facing view ─────────────────────────────────────────────
 
   private makeView(handle: RunHandle, turn: RunTurn): CoreTaskRun {
-    const live = () => handle.phase === "active" && turn.live;
+    // A view belongs to one `provider.run` call: after a session-not-found retry the first call's view is dead.
+    const attempt = turn.attempt;
+    const live = () => handle.phase === "active" && turn.live && turn.attempt === attempt;
     const self = this;
     const view: CoreTaskRun = {
       runId: handle.runId,
@@ -1114,35 +1228,45 @@ export class RunRegistry {
       },
       event(e: CoreEvent) {
         if (!live()) return;
+        turn.observable = true;
         if (e.type === "text") turn.text += e.text;
         handle.sink?.event(e);
       },
       artifact(a: CoreArtifact) {
         if (!live()) return;
+        turn.observable = true;
         handle.sink?.artifact(a);
       },
       ask(request: CoreInteractionRequest, options?: AskOptions): Promise<CoreInteractionResult> {
         if (!live()) return Promise.resolve({ outcome: "canceled" });
+        turn.observable = true;
         if (!self.interactions) {
           return Promise.resolve({ outcome: "unavailable", reason: "interactions are not enabled" });
         }
         return self.interactions.ask(handle, request, options).then((r) => (live() ? r : { outcome: "canceled" as const }));
       },
       bind(session: SessionRef) {
-        if (!live()) return; // a late bind from an aborted run must not resurrect a discarded session
+        if (!live()) return; // a late bind from an aborted or stale view is dropped silently (it must not resurrect a discarded session, nor throw into dead code)
+        assertBindable(session);
         turn.session = session;
-        self.bindSession(handle, session);
+        turn.observable = true; // a session was established: a replay would not be of the same turn
+        self.bindSession(handle, turn, session);
       },
       race<T>(work: Promise<T>): Promise<T | typeof CANCELED> {
         return turn.race(work);
       },
       complete(result: CoreResult) {
+        if (turn.attempt !== attempt) return;
         self.turnEnded(handle, turn, { kind: "completed", result });
       },
       fail(error: CoreError) {
+        if (turn.attempt !== attempt) return;
+        if (live() && self.tryRetry(turn, error)) return; // session-not-found: the runner retries the same turn once
         self.turnEnded(handle, turn, { kind: "failed", error });
       },
       reject(reason: CoreError) {
+        if (turn.attempt !== attempt) return;
+        if (live() && self.tryRetry(turn, reason)) return;
         self.turnEnded(handle, turn, { kind: "rejected", error: reason });
       },
       beginHeldTurn(heldHandle: string): CoreTaskRun {
@@ -1154,6 +1278,8 @@ export class RunRegistry {
         heldTurn.state = "running";
         if (entry.messageId) heldTurn.messageId = entry.messageId;
         heldTurn.session = turn.session;
+        if (turn.caller) heldTurn.caller = turn.caller;
+        if (turn.tenant !== undefined) heldTurn.tenant = turn.tenant;
         handle.turn = heldTurn;
         handle.turns.push(heldTurn);
         if (entry.messageId) {
@@ -1196,31 +1322,79 @@ export class RunRegistry {
     this.advance(handle);
   }
 
-  private bindSession(handle: RunHandle, session: SessionRef): void {
-    const at = this.now();
-    const issuer = this.issuerOverride ?? this.issuerOf();
+  /**
+   * The provider reported that the session it was given cannot be resumed (`SESSION_NOT_FOUND`). Retry the SAME turn once
+   * with no session, but only when that is safe and not a loop: the turn started with a stored binding, no retry was
+   * used yet, and the turn has published nothing a replay would repeat. Returns `true` when the retry was taken (the turn
+   * runner wakes and starts the second call); `false` leaves the failure to end the turn as it is.
+   */
+  private tryRetry(turn: RunTurn, error: { code?: string; message?: string }): boolean {
+    if (error.code !== SESSION_NOT_FOUND) return false;
+    if (!turn.resumed || turn.retried || turn.observable || !turn.live || !turn.retrySignal) return false;
+    turn.retried = true;
+    turn.lostError = { message: error.message ?? "the backend does not know this session", code: SESSION_NOT_FOUND };
+    turn.retrySignal();
+    return true;
+  }
+
+  /** Persist `run.bind` for the turn (validated by the caller). */
+  private bindSession(handle: RunHandle, turn: RunTurn, session: SessionRef): void {
     this.track(
-      this.store
-        .getBinding(handle.contextId)
-        .then((prev) => {
-          const binding: ContextBinding = {
-            ...(prev ?? newRecordHeader({ id: handle.owner.id, kind: handle.owner.kind }, at)),
-            updatedAt: at,
-            contextId: handle.contextId,
-            session: { ref: session.ref, ...(session.meta ? { meta: session.meta } : {}), issuer },
-          };
-          return this.store.putBinding(binding);
-        })
-        .catch((e) => this.log.warn("binding write failed", causeMessage(e))),
+      this.bindings.bind({
+        contextId: handle.contextId,
+        caller: turn.caller ?? handle.owner,
+        ...(turn.tenant !== undefined ? { tenant: turn.tenant } : {}),
+        session,
+        seq: turn.seq,
+      }),
     );
   }
 
-  private issuerOf(): string {
+  /** `provider.release`, bounded; never rejects. */
+  private async releaseSession(ref: string): Promise<void> {
+    if (!this.provider.release) return;
+    const r = await this.bounded(() => this.provider.release!({ ref }));
+    if (!r.ok) this.log.warn(`provider.release failed: ${r.error.message}`);
+  }
+
+  /** Does this process have a run for the context (live, parked, adopted or waiting in the lane)? */
+  private contextBusy(contextId: string): boolean {
+    if (this.lanes.has(contextId)) return true;
+    for (const h of this.handles.values()) if (h.contextId === contextId) return true;
+    return false;
+  }
+
+  /**
+   * Remove the bindings that were last used longer ago than `olderThanMs` (default `bindingTtlMs`; with neither nothing is
+   * removed) and whose context has no non-terminal run. A binding of a context with a live, parked or orphaned run is
+   * never removed, whatever its age. Calls `provider.release` for what it removes.
+   */
+  sweepBindings(options: { olderThanMs?: number } = {}): Promise<BindingSweepReport> {
+    return this.track(this.bindings.sweep(options));
+  }
+
+  /**
+   * Ask the provider's `probeSession` about every stored binding and delete the ones it reports `gone`. Runs at the end
+   * of {@link RunRegistry.sweep} when `validateBindingsOnStart` is set.
+   */
+  validateBindings(): Promise<BindingValidationReport> {
+    return this.track(this.bindings.validate());
+  }
+
+  /**
+   * The issuer stamped on bindings: `RunRegistryOptions.issuer` when given, else `<id>@<sessionFormat ?? "1">` with `%` and `@`
+   * escaped in both parts (`%25`, `%40`), so two different (id, format) pairs can never produce the same string. `undefined`
+   * when `info()` throws or the id is empty: it matches nothing (see `ContextBindingsOptions.issuer`).
+   */
+  private issuerOf(): string | undefined {
+    if (this.issuerOverride !== undefined) return this.issuerOverride;
     try {
       const i = this.provider.info();
-      return `${i.id}@${i.version ?? ""}`;
+      if (typeof i.id !== "string" || i.id === "") return undefined;
+      const esc = (s: string) => s.replace(/%/g, "%25").replace(/@/g, "%40");
+      return `${esc(i.id)}@${esc(String(i.sessionFormat ?? "1"))}`;
     } catch {
-      return "unknown";
+      return undefined;
     }
   }
 
@@ -1479,7 +1653,10 @@ export class RunRegistry {
   private stopBackend(handle: RunHandle, running: RunTurn | undefined): void {
     if (!handle.started) {
       this.lane(handle.contextId).remove(handle);
-      if (this.lanes.get(handle.contextId)?.idle) this.lanes.delete(handle.contextId);
+      if (this.lanes.get(handle.contextId)?.idle) {
+        this.lanes.delete(handle.contextId);
+        this.bindings.contextIdle(handle.contextId);
+      }
       return;
     }
     const pending = handle.aborting;
@@ -1572,21 +1749,8 @@ export class RunRegistry {
     if (outcome.session === "discard") await this.discardSession(contextId, session);
   }
 
-  private async discardSession(contextId: string, session: SessionRef | undefined): Promise<void> {
-    let ref = session?.ref;
-    try {
-      const binding = await this.store.getBinding(contextId);
-      if (binding?.session && (!ref || binding.session.ref === ref)) {
-        ref = binding.session.ref;
-        await this.store.deleteBinding(contextId);
-      }
-    } catch (e) {
-      this.log.warn("clearing the context binding failed", causeMessage(e));
-    }
-    if (ref && this.provider.release) {
-      const r = await this.bounded(() => this.provider.release!({ ref: ref! }));
-      if (!r.ok) this.log.warn(`provider.release failed: ${r.error.message}`);
-    }
+  private discardSession(contextId: string, session: SessionRef | undefined): Promise<void> {
+    return this.bindings.discard(contextId, session?.ref);
   }
 
   // ─── orphans ──────────────────────────────────────────────────────────────
@@ -1599,7 +1763,7 @@ export class RunRegistry {
   async abortOrphan(record: RunRecord, reason: AbortReason = "cancel"): Promise<AbortOutcome> {
     let session: { ref: string } | undefined;
     try {
-      const binding = await this.store.getBinding(record.contextId);
+      const binding = await this.bindings.peek(record.contextId);
       if (binding?.session) session = { ref: binding.session.ref };
     } catch {
       /* no session known */
@@ -1767,7 +1931,9 @@ export class RunRegistry {
         this.log.warn("endTask failed", causeMessage(e));
       }
     }
-    return { entries };
+    const report: SweepReport = { entries };
+    if (this.validateBindingsOnStart) report.bindings = await this.bindings.validate();
+    return report;
   }
 
   /**
@@ -1854,7 +2020,9 @@ export class RunRegistry {
     handle.consumerGone = true; // nobody is attached after a restart
     const turn = new RunTurn(rec.turnId);
     turn.state = "running";
-    const binding = await this.store.getBinding(rec.contextId).catch(() => undefined);
+    turn.caller = { id: rec.owner.id, kind: rec.owner.kind };
+    if (rec.tenant) turn.tenant = rec.tenant;
+    const binding = await this.bindings.peek(rec.contextId);
     if (binding?.session) turn.session = { ref: binding.session.ref, ...(binding.session.meta ? { meta: binding.session.meta } : {}) };
     handle.turn = turn;
     handle.turns.push(turn);

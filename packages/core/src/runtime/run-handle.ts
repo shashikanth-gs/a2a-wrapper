@@ -44,8 +44,27 @@ export type StopReason = "cancel" | "interrupt" | "shutdown";
 
 export type TurnState = "starting" | "running" | "ended" | "stopped";
 
+let turnSeq = 0;
+
 /** One turn of a run: its own signal, so an interrupt can stop one turn and the next gets a fresh one. */
 export class RunTurn {
+  /** Start order of this turn, process-wide and increasing: a bind from an older turn never overwrites a newer one's. */
+  readonly seq = ++turnSeq;
+  /** Which `provider.run` call of this turn is current (1, or 2 after a `session-not-found` retry); a view of an older call is dead. */
+  attempt = 0;
+  /** The session this turn started with came from the context's binding (so `session-not-found` may retry it). */
+  resumed = false;
+  /** The one `session-not-found` retry of this turn was used (or is in flight): there is no second one. */
+  retried = false;
+  /** What the provider reported with `session-not-found` (the failure to give when the retry cannot run). */
+  lostError?: CoreError;
+  /** The turn published something a replay would repeat (an event, an artifact, an ask): `session-not-found` can no longer retry it. */
+  observable = false;
+  /** Wakes the turn runner for the `session-not-found` retry. */
+  retrySignal?: () => void;
+  /** Who sent the message this turn runs (the owner of the context it binds), and the tenant. */
+  caller?: CoreCaller;
+  tenant?: string;
   readonly controller = new AbortController();
   state: TurnState = "starting";
   /** Session in use by this turn: the context's binding at start, replaced by `bind`. */

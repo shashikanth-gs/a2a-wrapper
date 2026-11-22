@@ -114,6 +114,7 @@ export class CoreExecutor implements A2AExecutor {
         taskId: ctx.taskId,
         contextId: ctx.contextId,
         caller,
+        ...tenantOf(ctx),
         publisher: createBusPublisher(bus, ids, this.registry.publisherState),
         ...(ctx.userMessage ? { message: fromA2AMessage(ctx.userMessage, { from: caller }) } : {}),
         request: (reqIds) => coreRequestFromContext(ctx, reqIds),
@@ -181,6 +182,7 @@ export class CoreExecutor implements A2AExecutor {
         await this.registry.execute({
           ...ids,
           caller,
+          ...tenantOf(ctx),
           publisher: SILENT_PUBLISHER,
           ...(message ? { message } : {}),
           request: (reqIds) => coreRequestFromContext(ctx, reqIds),
@@ -198,6 +200,12 @@ export class CoreExecutor implements A2AExecutor {
   async cancelTask(taskId: string, bus: ExecutionEventBus): Promise<void> {
     await this.registry.cancel(taskId, { ...ANONYMOUS_CALLER }, (ids) => createBusPublisher(bus, ids, this.registry.publisherState));
   }
+}
+
+/** The tenant of the call, as an `ExecuteInit` fragment (absent when there is none). */
+function tenantOf(ctx: RequestContext): { tenant?: string } {
+  const tenant = ctx.context?.tenant;
+  return tenant ? { tenant } : {};
 }
 
 /** The request now carries the run on: a `working` status whose message tells the caller what was done with its message. */

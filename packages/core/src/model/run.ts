@@ -74,7 +74,13 @@ export interface CoreRequest {
   /** Read-only view of earlier turns. Sender and time are unknown for stored messages. */
   history: readonly HistoryMessage[];
   caller: CoreCaller;
-  /** The persisted provider session for this context, if it has one. */
+  /**
+   * The persisted provider session for this context, if it has one: what the provider stored with `run.bind` on an
+   * earlier turn, handed back (also after a restart) so the provider resumes it. Core only passes a binding that
+   * belongs to this caller and was written by this provider (see `ContextBinding`). If the backend can no longer
+   * resume it, the provider fails the turn with {@link SESSION_NOT_FOUND}: core forgets the binding and runs the same
+   * turn once more with no session.
+   */
   session?: SessionRef;
   correlation: {
     eventId: string;
@@ -193,6 +199,8 @@ export interface CoreError {
     | "context_overflow"
     | "invalid_request"
     | "unavailable"
+    | "session-not-found"
+    | "forbidden"
   >;
   /** The caller may retry the same request later (a rate limit, a transient backend error). */
   retryable?: boolean;
@@ -226,7 +234,12 @@ export interface CoreTaskRun {
    * resolves `{outcome: "expired"}` and the run goes on. Either way nothing approves.
    */
   ask(i: CoreInteractionRequest, opts?: AskOptions): Promise<CoreInteractionResult>;
-  /** Persist contextId to provider session (survives restart). */
+  /**
+   * Persist contextId to provider session (survives restart). A later bind replaces the earlier one; a bind after a
+   * cancel, from an aborted turn or from a turn older than the one that bound last is dropped. Throws a `TypeError` for
+   * an empty `ref` or a `meta` that is not JSON-safe (it could not be stored, and a silently lost binding means no
+   * resume after a restart).
+   */
   bind(session: SessionRef): void;
   race<T>(work: Promise<T>): Promise<T | typeof CANCELED>;
   /** End the turn successfully (`completed`). */
@@ -285,3 +298,21 @@ export const ABORT_FAILED_OUTCOME: Readonly<AbortOutcome> = Object.freeze({
   stopped: "unconfirmed",
   session: "discard",
 });
+
+/**
+ * The `CoreError.code` a provider uses when `CoreRequest.session` names a session its backend cannot resume (deleted,
+ * expired, never existed). Core deletes the binding and runs the SAME turn once more with no session (never a second
+ * retry). Report it with `run.fail({ code: SESSION_NOT_FOUND, ... })` or by throwing a {@link SessionNotFoundError},
+ * BEFORE the turn publishes anything (an event, an artifact or an `ask`); after that core cannot replay the turn, so the
+ * failure is final. See docs/design/core-data-model.md 3.5.
+ */
+export const SESSION_NOT_FOUND = "session-not-found";
+
+/** Throw this from `provider.run` for {@link SESSION_NOT_FOUND}. */
+export class SessionNotFoundError extends Error {
+  readonly code = SESSION_NOT_FOUND;
+  constructor(message = "the backend does not know this session") {
+    super(message);
+    this.name = "SessionNotFoundError";
+  }
+}
