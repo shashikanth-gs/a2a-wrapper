@@ -177,3 +177,24 @@ describe("run.reportUsage: cumulative readings become per-turn deltas", () => {
     expect((await store.getBinding("ctx"))?.usageBaseline).toBeUndefined();
   });
 });
+
+describe("RunObservability.usageNow", () => {
+  it("is what finish reports (x-usage and the core usage with the per-model deltas), without closing the lifecycle", async () => {
+    const reportUsage = async (r: CoreUsage): Promise<CoreUsage> => ({ scope: "delta", tokens: {}, costUsd: (r.costUsd ?? 0) / 2, byModel: { m: { costUsd: (r.costUsd ?? 0) / 2, input: 5 } } });
+    const events: string[] = [];
+    const obs = new RunObservability({
+      agentName: "A",
+      backend: "fake",
+      request: { taskId: "t", contextId: "c", correlation: { eventId: "e", metadata: {} } },
+      run: { artifact: (a) => void events.push(a.name ?? ""), reportUsage },
+    });
+    await obs.recordCumulative(CALL, reading(1));
+    const now = obs.usageNow();
+    expect(now.summary?.cost).toBe(0.5);
+    expect(now.usage?.byModel?.m).toMatchObject({ costUsd: 0.5, input: 5 });
+    expect(events).not.toContain("trace.lifecycle"); // nothing closed
+    const done = await obs.finish();
+    expect(done.summary?.cost).toBe(0.5);
+    expect(done.usage?.byModel?.m).toMatchObject({ costUsd: 0.5, input: 5 });
+  });
+});

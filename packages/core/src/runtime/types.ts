@@ -110,6 +110,8 @@ export interface RequestIds {
   turnId: string;
   /** The ordinal of the turn within its task (1-based), see `CoreRequest.turn`. */
   turn: number;
+  /** The mode of the runtime's interaction policy, when its interaction handler declares one (see `CoreRequest.interactionMode`). */
+  interactionMode?: "auto" | "ask";
   /** The persisted provider session of the context, if it has one. */
   session?: SessionRef;
 }
@@ -163,6 +165,8 @@ export type ExecuteOutcome =
  * `run.ask` itself: it routes `ask` here and tells the runtime when to settle.
  */
 export interface InteractionRuntime {
+  /** The mode of its policy, when it has one: reported to providers as `CoreRequest.interactionMode`. */
+  readonly policy?: { readonly mode: "auto" | "ask" };
   /** Called once by the registry that owns this runtime, before anything else. */
   bind?(host: InteractionHost): void;
   /** Handle `run.ask` of a live turn. The runtime registers its pending asks with the handle. */

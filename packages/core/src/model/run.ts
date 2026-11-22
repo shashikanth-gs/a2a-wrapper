@@ -75,6 +75,14 @@ export interface CoreRequest {
    * must differ per turn from it (see {@link turnArtifactId}) instead of keeping a process-local counter.
    */
   turn: number;
+  /**
+   * The mode of the interaction policy the runtime was configured with: with `auto` nobody is asked (`run.ask` answers
+   * `unavailable` / `policy-auto` unless a rule matches), with `ask` an unmatched interaction goes to the caller. A provider
+   * that must decide up front whether a person can be asked (for example whether to let a pre-tool hook approve a tool call
+   * itself) reads it here instead of from its own configuration, which may not be the runtime's (a programmatic embedder). Absent
+   * when the runtime's interaction handler does not declare one.
+   */
+  interactionMode?: "auto" | "ask";
   taskId: string;
   contextId: string;
   input: readonly CorePart[];

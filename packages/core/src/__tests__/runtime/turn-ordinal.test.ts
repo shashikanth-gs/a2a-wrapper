@@ -140,3 +140,23 @@ describe("CoreRequest.turn", () => {
     expect(turnArtifactId("response", "t1", 2)).not.toBe(turnArtifactId("response", "t1", 1));
   });
 });
+
+describe("CoreRequest.interactionMode", () => {
+  const modeOf = async (opts: Partial<ConstructorParameters<typeof RunRegistry>[0]>) => {
+    const provider = makeProvider();
+    const registry = new RunRegistry({ provider, store: new InMemoryRunStore(), ...opts });
+    void registry.execute(makeInit("t1", "ctx", makePublisher()));
+    await until(() => provider.runs.length === 1);
+    return provider.runs[0]!.req.interactionMode;
+  };
+
+  it("is the mode of the runtime's interaction policy, not the provider's own configuration", async () => {
+    expect(await modeOf({})).toBe("auto");
+    expect(await modeOf({ interactionPolicy: { mode: "ask" } })).toBe("ask");
+  });
+
+  it("is absent when the interaction handler declares no policy", async () => {
+    const runtime = { ask: async () => ({ outcome: "unavailable" as const, reason: "none" }) };
+    expect(await modeOf({ interactions: runtime as never })).toBeUndefined();
+  });
+});

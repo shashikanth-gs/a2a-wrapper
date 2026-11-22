@@ -194,6 +194,18 @@ export class RunObservability {
    * collector hears about the usage before the caller sees the task finish, and a slow collector never stalls tasks.
    */
   async finish(extra: Record<string, unknown> = {}): Promise<RunFinish> {
+    const done = this.usageNow();
+    await this.terminal("agent_finished", { backend: this.backend, usage: done.summary ?? null, ...extra });
+    return done;
+  }
+
+  /**
+   * The usage of the turn so far as {@link finish} reports it (the `x-usage` summary, its metadata and the core usage with
+   * the per-model deltas of {@link recordCumulative}), WITHOUT closing the lifecycle: for a wrapper whose backend emits its
+   * own `agent_finished`, or one that attaches usage to a failed turn. `summary` is absent when no summary could be
+   * computed (never throws); with no call recorded it is the empty summary, as `finish` has always done.
+   */
+  usageNow(): RunFinish {
     let summary: UsageTelemetryData | undefined;
     try {
       summary = this.accumulator.summary();
@@ -203,7 +215,6 @@ export class RunObservability {
       this.warn("accumulator.summary() failed, omitting x-usage from the final event", { error: (e as Error).message });
       summary = undefined;
     }
-    await this.terminal("agent_finished", { backend: this.backend, usage: summary ?? null, ...extra });
     return {
       ...(summary ? { summary } : {}),
       meta: summary ? { [X_USAGE_KEY]: summary } : {},

@@ -1001,7 +1001,7 @@ export class RunRegistry {
       for (let first = true; ; first = false) {
         turn.session = session;
         const ordinal = this.ordinalOf(handle, turn);
-        const request = init.request({ runId: handle.runId, turnId: turn.turnId, turn: ordinal, ...(session ? { session } : {}) });
+        const request = init.request({ runId: handle.runId, turnId: turn.turnId, turn: ordinal, ...(this.interactions?.policy ? { interactionMode: this.interactions.policy.mode } : {}), ...(session ? { session } : {}) });
         turn.request = request;
         turn.state = "running";
         if (first) void this.writeRecord(handle, { state: "working", turnId: turn.turnId, turnCount: ordinal });
