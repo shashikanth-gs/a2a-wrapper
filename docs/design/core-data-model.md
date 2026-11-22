@@ -4,6 +4,8 @@ Status: proposal, for discussion. Companion to [core-owned-a2a-boundary.md](core
 the principles. This document is the data model, designed from evidence. Evidence lives in
 [research/](research/) (one report per area, every claim labelled verified or inferred, with sources).
 
+Steering of in-flight tasks (#109) is implemented and described in section 3.12; 3.4, 3.5, 3.10 and 3.11 carry its choices.
+
 Revised after the review of #106 (types, adapter and this document): turn semantics, unknown states, owned and
 versioned records, interaction shapes, usage deltas and versioned wire keys. Sections 3.1-3.8 and 4 describe the
 revised model; `@a2a-js/sdk` is now 1.3.0 (core's peer dependency).
@@ -169,8 +171,8 @@ provider returned in `SteerOutcome.queued`; it is REQUIRED there (a provider wit
 go terminal. **Liveness backstop:** if `provider.run()` settles while held handles are neither begun nor dropped, core
 treats them as dropped (and reports it), so a provider that forgets cannot keep a task open forever. Without these calls
 `complete()` of the running turn would end the task and the held message's output would arrive after it is terminal and
-be dropped. The cancel/abort side of the runtime is implemented (issue #107, section 3.10) and so is `ask` (issue #108,
-section 3.11); the steering runtime that drives `beginHeldTurn` / `dropHeld` is #109.
+be dropped. The cancel/abort side of the runtime is implemented (issue #107, section 3.10), so is `ask` (issue #108,
+section 3.11) and so is the steering runtime that drives `beginHeldTurn` / `dropHeld` (issue #109, section 3.12).
 
 `signal.reason` is the `AbortReason` core stopped the run for (`cancel`, `interrupt`, `shutdown`), and an interrupt
 aborts the signal too, so a provider reading only the signal can tell a stop-and-continue from a stop-for-good.
@@ -364,7 +366,25 @@ last turn ends AND no core-queued message AND no provider-held handle remains (3
 
 **Not the #2125 `interrupt`.** In the A2A proposal `interrupt` means "stop and wait": the task goes `input-required` with
 `interrupted: true`. Core's `interrupt` aborts the turn and runs the message as the next turn. The inbound alias exists
-for best-effort compatibility only and is never advertised in the agent card.
+for best-effort compatibility only and is never advertised in the agent card. The one place core does what the proposal
+says is an `interrupt` that carries NO content (an empty or control-only message): the turn is aborted and the task parks
+in `input-required` with `interrupted: true` until the next message (decision 2, section 3.12). So the alias differs
+from #2125 exactly when the interrupting message has content.
+
+**Decisions settled for #109 (owner, recorded here; implementation in 3.12).**
+
+1. **A message to a running task carries a caller-chosen `delivery`**: `queue` (default), `steer`, `interrupt`. Core has no
+   provider branching and no flags: capabilities are which `ProviderExecutor` handlers exist and the outcomes they return,
+   and unsupported behaviour gets a core fallback that says so (below).
+2. **While an interaction is presented** (the task is parked), `interrupt` may preempt it (pending interactions settle
+   `canceled`, `abort(info, "interrupt")`, the message becomes the next turn); `steer` and `queue` do not answer or withdraw an
+   interaction, they are queued behind it. `delivery: steer | interrupt` is routed BEFORE `handleReply`; a message with
+   no `delivery` stays a reply attempt first; an explicit `queue` is a reply only when it parses as one, else it waits.
+3. **`interrupt` with no follow-up content** aborts the turn and parks the task as `input-required` with `interrupted: true`
+   (A2A proposal #2125), holding the context lane until the next message continues it.
+4. **How the caller learns the `DeliveryResult`**: a streaming caller gets it as the metadata of the Message that answers its
+   request, on its own stream; a blocking caller gets the same Message at once. The spike changed the blocking half of the
+   original wording (the task with the result in its status message), see 3.12.
 
 ```ts
 interface CoreMessage {
@@ -398,12 +418,17 @@ Provider handler: `steer?(run, message): Promise<SteerOutcome>`. Outcomes map to
 is reported as `rejected` / `unsupported` even though the provider may have accepted the message, so a caller must not
 blindly resend: resend only with the same `idempotencyKey` or `messageId`. A provider
 without `steer` gets the core default: core holds the message in its own per-context lane (`queued`,
-`holder: "core"`) and runs it as the next turn; the response says so, and core never silently changes the caller's
-choice.
+`holder: "core"`) and runs it as the next turn; the response says so (`reason: "steer-unsupported: ..."`), and core never
+silently changes the caller's choice. A `rejected` outcome is reported `rejected` and the message is NOT queued (unless the
+caller asked for `queue`); a handler that throws or times out is `rejected` / `steer-failed` and is remembered by message
+id (the provider may have taken it, so a retry must not deliver twice), while a definitive provider rejection is not (a retry
+tries again).
 
 `interrupt` is composed by core from `abort(run, "interrupt")` plus the message as the next turn of the same task, so it
 works for every provider that implements `abort` (all five) and needs no new handler. Its result is
-`{ state: "interrupted" }`. The stopped turn ends without a terminal task state.
+`{ state: "interrupted" }`. The stopped turn ends without a terminal task state. A provider with no `abort` handler cannot be
+interrupted: the message is queued by core and the result says `queued` with `reason: "interrupt-unsupported: ..."` (the
+running turn is not touched).
 
 ### 3.5 Abort
 
@@ -420,6 +445,10 @@ interface AbortOutcome {
 away, so it **flushes** it; `shutdown` is treated as `cancel` unless the provider can resume. A rejected or timed-out
 call is treated as `{ stopped: "unconfirmed", session: "discard" }`; core then clears the binding and calls
 `release?(session)` so the provider can drop its state. This replaces the earlier `onAbortFailed` hook.
+
+`RunRegistry.deliver` with `delivery: "interrupt"` calls `abort(info, "interrupt")` (never `cancel`) only when the provider has the
+handler; the lane waits for it to settle before the interrupting message runs (#107), and a cancel arriving meanwhile sends
+`abort(info, "cancel")` after it so the provider flushes its native queue (3.10).
 
 `abortOrphan?(info): Promise<AbortOutcome>` (`info` is `{runId, turnId, taskId, contextId, reason, session?}`) covers tasks the store thinks are active but that have no live run. It
 returns an outcome, like `abort`, so core can record what the backend confirmed.
@@ -468,7 +497,7 @@ interface RunRecord extends RecordHeader {              // one per task (runId),
 interface QueuedMessageRecord extends RecordHeader {     // a message held for a task, survives a restart
   taskId: string; contextId: string;
   message: CoreMessage;                                  // live; encodeRecord stores bytes as $bytes:v1
-  holder: "provider" | "core"; position?: number; handle?: string;
+  holder: "provider" | "core"; position?: number; handle?: string;   // position: ordering key, monotonic per run (3.12)
   state: "queued" | "running" | "done" | "dropped" | "unknown";   // unknown: provider-held, fate not confirmed by the sweep
   reason?: string;                                       // why it ended dropped or unknown
 }
@@ -629,9 +658,11 @@ Code: `packages/core/src/runtime/` (SDK-free: `RunRegistry`, `RunHandle`, `RunSt
 - **`interrupt`** (`RunRegistry.interrupt`) aborts the turn's signal with reason `interrupt` and calls
   `abort(info, "interrupt")`; no terminal claim, no `canceled`, the task stays non-terminal and continues with the next
   turn (the interrupting message, or one that arrives later). The lane waits for that abort too.
-- **A second `execute()` on a live task never starts a provider call.** The reply-to-interaction case is routed to the
-  interactions runtime (`InteractionRuntime.handleReply`, #108); otherwise the message is queued as the next turn (default
-  delivery, D4) with a `QueuedMessageRecord`, claimed `queued -> running` by compare-and-set before its turn runs.
+- **A second `execute()` on a live task never starts a provider call.** `delivery: steer | interrupt` goes to the steering
+  runtime (`RunRegistry.deliver`, #109, 3.12); a message with no `delivery` (or an explicit `queue`) that is a reply to the
+  presented interaction goes to the interactions runtime (`InteractionRuntime.handleReply`, #108); otherwise the message is
+  queued as the next turn (default delivery, D4) with a `QueuedMessageRecord`, claimed `queued -> running` by compare-and-set
+  before its turn runs.
 - **Pending interactions** register `PendingHook`s on the handle; cancel (and expiry) settle them `canceled` inside the
   claim. `ask` is the interactions runtime (#108, 3.11); with the default `mode: "auto"` it still answers `unavailable`.
   `RunRegistry.expire` is the third claim.
@@ -652,12 +683,11 @@ Code: `packages/core/src/runtime/` (SDK-free: `RunRegistry`, `RunHandle`, `RunSt
   (a non-JSON record fails at write time) and has the atomic `claimQueued`. Persistent stores come with #69.
 - **Known SDK limits.** `cancelTask(taskId, bus)` receives no call context, so the caller recorded for a cancel is `anonymous`
   until the SDK exposes it. SDK 1.3 has NO guard against a second `execute()` on a live task (a2a-js #632 is the open
-  proposal); `sendMessageStream` just does `createOrGetByTaskId`. What happens to a second message on a live task:
-  `CoreExecutor.execute` deliberately publishes no Task event for it (the bus is shared with the first stream), so the SDK's
-  `_advanceStreamPattern` throws on THAT stream ("Received statusUpdate before initial 'Message'/'Task' event"), while core
-  has queued the message and it WILL run as the next turn; the SDK has also already appended it to `task.history`. The client
-  therefore gets an error for a message that will execute, and a retry duplicates it. Core guarantees only that no second
-  provider call starts. This is an open decision for #109 (see below).
+  proposal); `sendMessageStream` just does `createOrGetByTaskId`. Before #109 this meant: `CoreExecutor.execute` published no
+  Task event for the second request (the bus is shared with the first stream), so the SDK's `_advanceStreamPattern` threw on
+  THAT stream ("Received statusUpdate before initial 'Message'/'Task' event") while core had queued the message, so the client got
+  an error for a message that would execute and a retry duplicated it. **Solved in 3.12**: the second request gets a private
+  bus and one Message carrying the `DeliveryResult`.
 - **Records and terminal state.** The terminal `RunRecord` write is retried; until it succeeds an in-memory tombstone
   (bounded, 1000 entries) is trusted over the store, so a failed write cannot make a finished run look active (a second
   cancel, or the SDK's own save of `CANCELED` being treated as an orphan). A queued message's record moves to `done` when
@@ -675,9 +705,10 @@ Code: `packages/core/src/runtime/` (SDK-free: `RunRegistry`, `RunHandle`, `RunSt
   error). (4) Restart: pending interactions with a provider `handle` go to `provider.reattach` when it exists, else the sweep
   fails the task with reason "server restarted" and marks the pending records `expired`. (5) Secrets are allowed in answers
   for now (a deviation from MCP form-mode elicitation, which forbids requesting them), never logged, and stored redacted.
-- **Open decisions for #109.** A second message on a live streaming task (reject before queueing without throwing, or make
-  the response honest); how a `DeliveryResult` reaches a blocking `sendMessage` caller; `interrupt` with no follow-up
-  message (the task waits for a next turn forever today); where steer dispatch happens in `attach`.
+- **Decisions for #109 (all settled, section 3.12).** A second message on a live streaming task (the response is honest: one
+  Message with the result on a private bus, no error); how a `DeliveryResult` reaches a blocking `sendMessage` caller (the same
+  Message, at once); `interrupt` with no follow-up message (parks in `input-required`, interrupted, instead of waiting for a next
+  turn forever); where steer dispatch happens (`RunRegistry.attach`, before `handleReply` for `steer` and `interrupt`).
 - **Trust.** A store-triggered cancel is recorded as `{id: "store", kind: "service"}` and goes through `authorize`; once
   `authorize` is real, decide whether that identity is trusted (the SDK writes `CANCELED` on behalf of any caller).
 
@@ -692,7 +723,7 @@ upgrade that changes one fails there first. The design in 3.11 follows from them
 | (a) blocking `message/send` that parks at `input-required` | Returns the Task with state `input-required` and the status message. `execute()` returned, and the bus is kept alive (`keepBusAliveStates` defaults to the interrupted states; core also owns it through `settleByTaskId`). |
 | (b) `message/stream` that parks | The stream delivers `task`, `working`, `input-required` and ENDS: `ExecutionEventQueue.events()` stops at a terminal state or `input-required`. |
 | (c) the reply | A new `message/send` or `message/stream` on the same `taskId`. The SDK runs a SECOND `execute()` on the SAME bus. It has already appended the reply to the stored task's `history` and passes the stored task (`ctx.task`, still `input-required`) to that `execute()`. The original stream is long closed: nothing is attached to the bus, so any event published with no new request consuming it is lost to the task store (the SDK updates the store only from consumed events). |
-| the opening event | A STREAMING request throws "Received statusUpdate before initial 'Message'/'Task' event" when its first event is a status update, so the reply's `execute()` must publish the Task snapshot (`ctx.task`) first. A BLOCKING request does not check and works either way. A snapshot published while ANOTHER stream is attached to the shared bus breaks that stream ("Stream ordering violation": a `task` event inside a task-lifecycle stream). This is the #117 finding: the live-task attach path skipped the snapshot and the reply stream failed; for a message to a WORKING task the snapshot would break the running stream, which is why that case is #109. |
+| the opening event | A STREAMING request throws "Received statusUpdate before initial 'Message'/'Task' event" when its first event is a status update, so the reply's `execute()` must publish the Task snapshot (`ctx.task`) first. A BLOCKING request does not check and works either way. A snapshot published while ANOTHER stream is attached to the shared bus breaks that stream ("Stream ordering violation": a `task` event inside a task-lifecycle stream). This is the #117 finding: the live-task attach path skipped the snapshot and the reply stream failed; for a message to a WORKING task the snapshot would break the running stream, which is why that case needed its own answer (spike S2, 3.12). |
 | (d) `auth-required` | Different from `input-required`: the SDK queue does NOT stop there, so a streaming client's stream stays open (it expects the executor to resume on the same bus after out-of-band credential injection) while a blocking caller gets the snapshot at once and the SDK keeps draining in the background. If the original stream is left attached, the reply's Task snapshot breaks it (as above) and the continuation of the run reaches only the reply's stream. The older "a fresh request is expected" assumption is superseded: the reply to an auth challenge is also a new request on the same task. |
 
 Consequences for core (all implemented):
@@ -771,9 +802,9 @@ itself (`interactionPolicy`); the seam for a different one (`InteractionRuntime`
   shared bus; the second landed inside the first reply's lifecycle stream and broke it (the window is the whole `authorize`
   await). The snapshot is now a one-shot synchronous claim per park (`registry.beginReply`, cleared when that attachment
   leaves or the run parks or resumes again). A reply that loses the claim publishes no snapshot, does not call
-  `registry.execute`, is never queued as a turn, and only says on the bus (a plain `working` status, harmless in the winner's
-  stream) that it was not used: its own stream errors at its first event, the same documented limit as a message to a live
-  task (#109); a blocking caller returns with the winner's result.
+  `registry.execute`, is never queued as a turn, and is not used. Since #109 the claim is taken when the shared bus is handed out (`RunEventBusManager.createOrGetByTaskId`),
+  and the loser has a private bus: it is answered with a Message (`rejected` / `reply-conflict`), never an error (3.12). The claim
+  carries a token (only its holder can refresh or release it) and is kept fresh while the holder's request lives (3.12).
 - **Process-local versus stored state.** Everything about an interaction's life is in the store: the record (state, result,
   `seq`, handle) and, for "was this already answered", `getPending` (the in-process `settledIds` set is only a cache in front of
   it, so a duplicate structured reply after a restart is still recognised). Deliberately process-local: the per-run state on a
@@ -791,12 +822,13 @@ itself (`interactionPolicy`); the seam for a different one (`InteractionRuntime`
 
 - **N3.** A late text reply after its interaction resolved ("yes" arriving after a timeout) is not a reply any more: the task is
   `working`, so the message follows the default delivery and becomes the next turn. Structured replies (which name the
-  interaction) are ignored as duplicates; plain text cannot be told apart. #109 decides what a message to a working task means.
+  interaction) are ignored as duplicates; plain text cannot be told apart. #109 decided what a message to a working task means
+  (3.12) and this stays: the sender is told `queued`, so it can see the message did not answer anything.
 - **N6.** Detached store writes (`createStorePublisher`) and the `ResultManager` writes of a consumed stream are each serialized
   but not against each other. The SDK protects terminal states, and the one window left (a late `input-required` landing after a
   `working`) is small and is corrected by the next event.
-- **N7.** #109 must route `delivery` `steer` / `interrupt` BEFORE `handleReply`: today every message to a task with a presented
-  interaction is a reply attempt, so a steer cannot reach the task while it is parked.
+- **N7.** RESOLVED in #109: `delivery` `steer` / `interrupt` is routed BEFORE `handleReply` (3.12); an explicit `queue` is a reply
+  only when it parses as one.
 - **N8.** #111: a provider must pass `{handle}` on every ask it wants re-attachable after a restart; without one the sweep fails
   the task ("server restarted").
 
@@ -810,13 +842,152 @@ itself (`interactionPolicy`); the seam for a different one (`InteractionRuntime`
    closes the attachment at every park.
 4. A reply to an interrupted task needs the Task snapshot, a task with a stream attached must not get one, and nothing consumes
    the bus while parked (3.10.1); none of this was in the original model.
-5. `RunPublisher` gained `interaction()`; a message to a task whose interaction is presented can no longer be queued or steered
-   (it is a reply attempt), so `delivery` on such a message is ignored until the interaction ends (#109 decides whether a
-   steer should be able to answer or withdraw an interaction).
+5. `RunPublisher` gained `interaction()`; a message to a task whose interaction is presented could no longer be queued or steered
+   (it was a reply attempt), so `delivery` on such a message was ignored until the interaction ended. RESOLVED in #109: a steer
+   or a queue never answers or withdraws an interaction, they wait behind it; an interrupt may preempt it (3.12).
 6. The structured payload is always attached next to the text (the agent card does not declare the interaction extension yet,
    so activation cannot be detected); gate `createBusPublisher`'s `interaction()` on activation once the card declares it.
 7. A duplicate structured reply while the task is `working` (not parked) is consumed without a snapshot, so a streaming client
-   gets the "before initial Task" error; same family as the second-message-on-a-live-task problem of #109.
+   gets the "before initial Task" error; same family as the second-message-on-a-live-task problem. RESOLVED in #109: it gets a
+   private bus and an answering Message (`rejected` / `reply-ignored`).
+
+### 3.12 Steering runtime (implemented, #109)
+
+Code: `RunRegistry.deliver` and the `attach` path in `runtime/run-registry.ts` (SDK-free), `a2a/bus-manager.ts`
+(`RunEventBusManager`, which bus a request gets), `a2a/core-executor.ts` (the answer), `a2a/adapter.ts` (the wire form of a
+`DeliveryResult`), `runtime/interactions.ts` (`handleReply` options).
+
+#### Spike S2: what SDK 1.3 does with a second request to a WORKING task
+
+Measured with the real `DefaultRequestHandler` and a bare executor (no core runtime), pinned in
+`__tests__/a2a/s2-message-to-working-task.test.ts`; an SDK upgrade that changes a fact fails there first.
+
+| Question | Finding |
+|---|---|
+| (a) what does the second request get | A second `execute()` on the SAME `ExecutionEventBus`, and its own `ExecutionEventQueue` on it: every event of either `execute()` reaches BOTH streams. The SDK has already appended the message to the stored task's `history` and hands that task to `execute()`. |
+| (b) a streaming second request, first event a status update | The SECOND stream throws "Received statusUpdate before initial 'Message'/'Task' event" (and so does one that publishes nothing, on the first event of the running task). The first stream is unaffected. |
+| (c) first event a Task snapshot, or a Message | Valid for the second stream, but the FIRST (task-lifecycle) stream breaks: "Stream ordering violation: received task / message in task lifecycle stream". Nothing published on the shared bus can open the second stream safely. |
+| (d) a blocking second request | On the shared bus it returns only when the whole task ends (the SDK queue does not stop at `working`). |
+| (e) `execute()` that rejects | The SDK publishes a synthetic Task + FAILED on the shared bus: the running stream breaks for a task that is still running. This is why `CoreExecutor` never rejects for a live task. |
+| (f) the stock bus manager | The second `execute()` returning calls `finished()` and `cleanupByTaskId` on the SHARED bus: the running stream ends early and never sees its terminal event. Core's `settleByTaskId` returns `true` for a live run, which prevents it. |
+| (g) the way out | `ExecutionEventBusManager.createOrGetByTaskId` is the seam. Handing the second request a PRIVATE bus lets its `execute()` answer with ONE `Message` (a valid answer to `message/send` and `message/stream`): the second stream gets exactly that event and ends, a blocking caller gets it at once, the first stream is untouched, and the Message is not written to the task store (only the SDK's own history append of the user message remains). |
+
+#### Design
+
+- **Which bus.** `RunEventBusManager.createOrGetByTaskId`: the first request of a task, and every request while the task is
+  not live, get the shared bus (the SDK's behaviour). For a LIVE task: the one request that may carry the run on gets the shared
+  bus (a reply to a parked task: the winner of the park's reply claim, taken here), every other request gets a private bus
+  (`isPrivateBus`). `settleByTaskId` keeps the shared bus while the run is live and never lets a private bus replace the
+  call context the shared one is cleaned up with.
+- **The answer** (`CoreExecutor.answer`, private bus). The message goes to `RunRegistry.execute` with `carriesStream: false` and
+  an `onDelivery` callback; the `DeliveryResult` is published as ONE agent `Message` (text for humans plus the result under
+  `urn:a2a-wrapper:delivery-result:v1` in its metadata) and the bus is finished. The client never gets an error for a message
+  that will be delivered, and never the reverse (an error for a message that is silently queued). A request that ends with no
+  answer is given `rejected` / `not-delivered`; one for a task that ended in between is `rejected` / `task-ended`; a message with
+  no `delivery` to a parked task on a private bus (it lost the reply claim) is `rejected` / `reply-conflict`, never queued as a
+  turn (a late "yes" would run as one). The task's own stream keeps carrying everything: the queued turn's output reaches the
+  stream that was already open.
+- **Streaming versus blocking caller (decision 4, adjusted by the spike).** Both get the same single Message, on their own
+  request. The original wording had a blocking caller receive the task with the result in its status message; on a private bus
+  that needs a Task snapshot built from the request-time task, which would overwrite the status and history the running stream
+  saved meanwhile (the SDK merges a snapshot into the store), so the Message is the safe form. The limit that matters: a
+  blocking `message/send` to a working task returns at once with a Message, not at the end of the task; only the request that
+  started the task (or the one that resumes a parked or interrupted task) returns at its end or park. A client that needs the task
+  calls `tasks/get` or resubscribes.
+- **A request that carries the run on keeps the shared bus**: a reply (3.11), an `interrupt` that preempts an interaction (it
+  resumes the run on that request: Task snapshot first, a `working` status whose message metadata holds the result, then the next
+  turn's events to its end), and the message that continues an interrupted task. A `steer` or `queue` that reaches a parked task
+  on the shared bus re-asserts the stored status (same state, same message id, so the prompt is not replaced and the history gets
+  no duplicate) with the result added to that message's metadata, and the stream ends: a blocking caller gets the Task in
+  `input-required` with the result in `status.message.metadata`.
+- **`RunRegistry.deliver(taskId, message, by, request)`** is the non-A2A entry point (`execute` routes to the same code for a live
+  task). Order: unknown `delivery` word is `rejected` / `unsupported-delivery` (never guessed); `authorize(by, intent, task)` (a
+  denial or a throwing authorizer is `rejected` / `denied`); de-duplication by message id and `idempotencyKey` (a promise per run,
+  decided synchronously, so concurrent duplicates agree, plus a look at the store for a message id already held, after a restart);
+  then the intent. A rejection that changed nothing (`denied`, `task-ended`, a definitive provider rejection) is not remembered, so
+  a retry tries again; the ambiguous ones (`steer-failed`, `steer-invalid`) are.
+- **Intents.**
+  - `queue`: core's lane. `enqueue` writes a `QueuedMessageRecord` (`holder: "core"`, `state: "queued"`) and the next turn claims it
+    `queued -> running` before `provider.run`. The result's `position` is the live 1-based index; the record's `position` is a
+    monotonic ordering key per run (a message that starts does not renumber the others; a new handle starts above the stored
+    keys), so they differ after the first one starts.
+  - `steer`: `queued` by core when there is no handler (`steer-unsupported`), when an interaction is presented
+    (`interaction-presented`: it does not answer or withdraw it) or when no turn is running (`no-active-turn`); otherwise the
+    handler gets the running turn's view and decides (`inserted`, `queued{handle}` registered through `registerHeld` so the
+    task stays open until `beginHeldTurn` / `dropHeld`, `rejected`). Bounded by `steerTimeoutMs`.
+  - `interrupt`: no `abort` handler is a queue (`interrupt-unsupported`); no live turn is a queue (`no-active-turn`). Otherwise
+    pending interactions settle `canceled`, the turns' signals abort with reason `interrupt`, `abort(info, "interrupt")` runs, and
+    the message (if it has content) is the next turn once the abort settled. Content means a non-blank text part, a file, a data
+    part or an unmodeled part (`messageHasContent`).
+  - Interrupt with NO content: after the abort the task parks as `input-required` with `interrupted: true` on the status
+    (A2A proposal #2125), `RunRecord.state` is `input-required`, the run stays live and HOLDS ITS CONTEXT LANE. The next message,
+    whatever its `delivery`, continues the task (`queued` / `continues-interrupted-task`, a `working` status with
+    `interrupted: false`); that request carries the stream on when it can. Spec problem: nothing bounded the wait, so a task nobody
+    continues now fails with `timeout` after `interruptedTimeoutMs` (default 10 minutes, `0` waits forever) and releases the lane.
+    After a restart such a task has no pending interaction and is failed by the sweep ("server restarted"), like any interrupted run.
+- **The turn sequence.** A turn that ends while more work is pending (core-queued messages or provider-held handles) publishes its
+  result as non-terminal output (its artifacts, parts, text as a `working` status, usage), a failed or rejected one as "The previous
+  turn failed: ...", and marks the outcome published so the terminal status of the LAST turn does not repeat it. Before this, the
+  text and artifacts of every turn but the last were dropped. The task goes terminal only when the last turn ended with nothing
+  queued, held or awaited; the last turn's outcome decides its state.
+- **Cancel** flushes core-queued and provider-held messages (records `dropped`, reason `task canceled`) and sends `abort(info,
+  "cancel")` after an in-flight interrupt abort, as in 3.10; a view obtained from `beginHeldTurn` after the task ended is dead.
+- **Restart** is unchanged (3.6, 3.10) and now exercised through records written by `deliver`: only `queued` core records replay,
+  after the atomic claim; a `running` one never; provider-held ones become `dropped` on a confirmed orphan abort, else `unknown`.
+- **`RunStore` contract.** `__tests__/runtime/run-store-contract.ts` exports `runStoreContractTests(name, factory)`, a suite over
+  every `RunStore` method (runs, bindings, queued messages with the atomic `claimQueued`, pending interactions). `InMemoryRunStore`
+  runs it; a SQLite or Postgres store is verified by the same call with its own factory (the factory must return an empty store).
+
+**Round 2 (review of #119).**
+
+- **A steer that races turn end.** `RunHandle.steering` counts in-flight `steer` handlers; while any is in flight the task cannot
+  go terminal (`advance`), and the turn that ended under it publishes its result as output. When the handler answers `inserted`
+  but the turn it was given is no longer live, the message may never have been seen: core queues it as the next turn and reports
+  `queued` with `reason: "turn-ended-during-steer"` (it errs toward delivering, so the rare duplicate is accepted over a lost
+  message). A `rejected` after the turn ended is reported as is and the task then finishes. A steer answered after the task was
+  canceled is `rejected` / `task-ended`.
+- **Reply claim.** `beginReply` returns a token, `endReply(taskId, token)` releases only that claim, and the holder refreshes it
+  (`touchReply`, every third of `replyClaimTtlMs`, default 15 s) from when its `execute()` is entered for as long as it lives, so a
+  slow `authorize` cannot let a second reply take the claim and break the first reply's stream. The TTL is only a wedge breaker. If
+  the SDK fails between creating the bus and calling `execute()` (the push-notification config save of `message/stream` throws),
+  core cannot see it: the park stays claimed until the TTL passes, then the next reply takes over.
+- **`steerTimeoutMs`** defaults to 30 s. A steer that times out is ambiguous (the provider may have taken the message), is answered
+  `rejected` / `steer-failed` and remembered by message id: to resend deliberately a caller must use a NEW message id.
+- **Telling the ack from an answer.** The Message that answers a message to a working task has role `agent` and carries the task and
+  context ids and readable text, so a client could mistake it for the agent's answer. It is recognisable by its metadata
+  `urn:a2a-wrapper:delivery-result:v1` (a client that knows the key checks it first), it arrives as the ONLY event of the request,
+  and it never appears in the task's own stream, artifacts or history. A client that ignores the key should treat a bare Message
+  answering a message it sent to a running task as an acknowledgement.
+- **A non-final turn's failure** is reported as a `working` status ("The previous turn failed: ..."); if a later turn succeeds the
+  final task state is `completed` and the earlier failure survives only in that status message and the history.
+- **History.** The SDK appends every user message to `task.history` before `execute()`, so a deduplicated or rejected message is
+  still in the history, and a duplicate message id may be appended twice.
+- **Process-local state.** `deliveries` (dedupe) and `queueSeq` live on the run handle: after a restart the handle is new, the
+  ordering key restarts above the stored records (`listQueued`), and a message id already stored is recognised from the store
+  (`reason: "duplicate"`).
+
+**Known limits, documented not coded.**
+
+- The ack Message of a message to a working task is not in the task's history and no task event says "a message was queued":
+  a client that did not send it learns of the queued turn only from its output.
+- `position` is core's queue only; a provider-held message ahead of it (the provider's own queue) is not counted.
+- A stream whose client disconnected stops updating the task store (SDK behaviour: only the consumed events are applied); core's
+  detached publisher covers a parked run, not a run whose stream is merely gone.
+- A message the SDK rejects itself (the task is terminal, the context id does not match) never reaches core.
+
+**Spec problems found.**
+
+1. Decision 4 (a blocking caller gets the Task with the result in its status message) cannot be done safely on a private bus (see
+   above); the Message replaces it for a message to a working task and the Task form is kept where the shared bus is safe.
+2. `QueuedMessageRecord.position` as a 1-based live position cannot be stored (it changes as turns start); it is an ordering key.
+3. The #107 `interrupt` primitive left the task waiting for a next turn forever; it now parks in `input-required` (decision 2) and
+   expires.
+4. A non-final turn's result was dropped; it is published as output.
+
+What is left for #110 and #111: the wrappers (providers) implement `steer` (Copilot `mode: immediate` with the `delivery` event,
+Claude streaming input with `priority`, OpenCode v2 `delivery`, Antigravity cancel and re-run) and `abort`, pass `handle`s and call
+`beginHeldTurn` / `dropHeld`; none of that is in core. Wiring `authorize` to a real identity and declaring the delivery extensions
+on the agent card stay open (the card does not declare them yet, so every client gets the Message form).
 
 ## 4. A2A mapping and the run model (core internal)
 
@@ -831,7 +1002,9 @@ The SDK calls `execute()` per request and tears the bus down when it returns, ex
 - The reply's `execute()` **resolves the pending interaction** (it does not call `provider.run` again), attaches to the
   same `RunHandle`, forwards the remaining events, and returns at the next terminal or interrupted state.
 - A message to a working task is intercepted by core before any provider call: handled per its `delivery` (D4:
-  `queue` by default, `steer`, or `interrupt`). Core never lets the SDK start a second `execute()` for a live run.
+  `queue` by default, `steer`, or `interrupt`), on a private bus, and answered with one Message carrying the `DeliveryResult`
+  (3.12). Core never lets the SDK start a second provider call for a live run, and never lets the second `execute()` publish on
+  the shared bus.
 - **`auth-required` (S1 re-run on SDK 1.3, section 3.10.1).** The SDK keeps the bus alive and the stream OPEN at
   `auth-required` (it expects the executor to resume on the same bus). Core does not rely on that: it closes the attachment
   at the park exactly as at `input-required`, and the reply (the "done" message after the out-of-band sign-in) is a new
@@ -851,7 +1024,8 @@ The SDK calls `execute()` per request and tears the bus down when it returns, ex
 | `CoreCaller` | from the A2A call context; permission replies require the task owner or a configured approver |
 | core state with no v1 equivalent, or `unknown` | task state `working` (never `TASK_STATE_UNSPECIFIED`), the original string in `urn:a2a-wrapper:core-state:v1` status metadata; restored on read when the wire state is `working` (or the old `UNSPECIFIED`) and the carried state is one core does not model |
 | `reject(reason)` | task state `rejected` |
-| `interrupt` delivery | the task stays `working` and the message is the next turn; no `canceled` |
+| `interrupt` delivery | the task stays `working` and the message is the next turn; no `canceled`. With no content: `input-required` with `interrupted: true` until the next message |
+| message to a running task | a private bus and one agent Message with the `DeliveryResult` (`urn:a2a-wrapper:delivery-result:v1`); a parked task re-asserts its status with the result on the status message |
 
 ### 4.1 Wire keys
 
@@ -862,6 +1036,7 @@ it into optional (`required: false`) agent card `extensions` entries (not yet wi
 |---|---|---|
 | `urn:a2a-wrapper:interaction:v1` | extension, status message | structured permission/question/form/auth data parts |
 | `urn:a2a-wrapper:delivery:v1` | message metadata | `queue` / `steer` / `interrupt` |
+| `urn:a2a-wrapper:delivery-result:v1` | message metadata | the `DeliveryResult` core answers with (3.12) |
 | `urn:a2a-wrapper:usage:v1` | event metadata | usage, including `series` and `byModel` |
 | `urn:a2a-wrapper:core-state:v1` | status metadata | original state when it has no v1 equivalent |
 | `urn:a2a-wrapper:file-uri:v1` | part metadata | source uri of a file part that also carries bytes |
@@ -937,6 +1112,8 @@ Spikes before implementation:
 - **S1.** DONE on SDK 1.3 (#108): section 3.10.1 and `__tests__/a2a/s1-interrupted-states.test.ts`. Park at
   `input-required` and `auth-required`, blocking and streaming, the reply as a second `execute()`, the Task snapshot rule.
   `settleByTaskId` and the cancel-with-no-bus path are covered by the #107 end-to-end tests (3.5, 3.10).
+- **S2 (SDK).** DONE on SDK 1.3 (#109): a second request to a working task, section 3.12 and
+  `__tests__/a2a/s2-message-to-working-task.test.ts`. (The provider spikes below keep their numbers.)
 - **S2.** Real Copilot: `onPermissionRequest` left pending, answered later by RPC; measure `immediate` steering and the
   `delivery` event.
 - **S3.** Real Claude: `canUseTool` pending across an A2A round trip; `defer` hook behaviour on resume.

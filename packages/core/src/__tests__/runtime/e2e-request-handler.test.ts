@@ -137,7 +137,7 @@ describe("end to end through DefaultRequestHandler", () => {
     expect(h.provider.abort).toHaveBeenCalledTimes(1);
   });
 
-  it("a second message to a working task never starts a second provider call and the bus stays alive for the cancel", async () => {
+  it("a second message to a working task never starts a second provider call, the client gets a Message (no error), and the bus stays alive for the cancel", async () => {
     const h = build();
     stream(h);
     await vi.waitFor(() => expect(h.provider.runs).toHaveLength(1));
@@ -145,15 +145,13 @@ describe("end to end through DefaultRequestHandler", () => {
     const taskId = call.req.taskId;
 
     // The SDK 1.3 has no guard against a second execute() on a live task (a2a-js #632 is the open
-    // proposal for one). What happens here: CoreExecutor deliberately publishes no Task event for a
-    // live task (the bus is shared with the first stream), so this stream's _advanceStreamPattern
-    // throws "Received statusUpdate before initial 'Message'/'Task' event" and the client sees an
-    // error, while core has queued the message and it WILL run as the next turn (and the SDK already
-    // appended it to task.history). Open decision for #109. Core guarantees no second provider call.
+    // proposal for one). RunEventBusManager gives such a request a PRIVATE bus and CoreExecutor answers
+    // it with one Message carrying the DeliveryResult (design doc 3.12, spike S2): no error for a message
+    // that will be delivered, and core never starts a second provider call.
     const second = stream(h, message(taskId, "ctx-e2e"));
-    second.consumer.catch(() => {});
-    await tick();
-    await tick();
+    await second.consumer;
+    expect(second.events).toHaveLength(1);
+    expect(second.events[0].payload.$case).toBe("message");
     expect(h.provider.runs).toHaveLength(1);
     expect(h.busManager.getByTaskId(taskId, ctx())).toBeDefined(); // execute #2 returned, the run is live, bus kept
 
@@ -161,7 +159,6 @@ describe("end to end through DefaultRequestHandler", () => {
     expect(task.status.state).toBe(TaskState.TASK_STATE_CANCELED);
     await h.registry.drain();
     expect(h.provider.abort).toHaveBeenCalledTimes(1);
-    void second;
   });
 
   it("no-bus cancel: after a restart the SDK writes CANCELED itself (executor never called) and core reaches abortOrphan", async () => {

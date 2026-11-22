@@ -260,7 +260,11 @@ export interface QueuedMessageRecord extends RecordHeader {
   /** Live message; encodeRecord stores its bytes. */
   message: CoreMessage;
   holder: "provider" | "core";
-  /** 1-based position when known. */
+  /**
+   * Ordering key among the task's queued messages: `listQueued` returns records in this order. Core assigns it
+   * monotonically per run (a message that starts does not renumber the ones behind it), so it is NOT the position
+   * a caller is told (`DeliveryResult.position` is the live 1-based index at delivery time).
+   */
   position?: number;
   /** The provider's handle for a provider-held message. */
   handle?: string;

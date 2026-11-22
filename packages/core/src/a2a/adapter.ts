@@ -58,6 +58,7 @@ import type {
   CoreRequest,
   CoreTaskState,
   CoreUsage,
+  DeliveryResult,
   HistoryMessage,
   FlatSchemaProperty,
   JsonObject,
@@ -81,6 +82,12 @@ export const FILE_URI_META_KEY = "urn:a2a-wrapper:file-uri:v1";
 export const CORE_STATE_META_KEY = "urn:a2a-wrapper:core-state:v1";
 /** Message metadata key carrying the caller's `delivery` intent (queue, steer, interrupt). */
 export const DELIVERY_META_KEY = "urn:a2a-wrapper:delivery:v1";
+/**
+ * Message metadata key carrying the {@link DeliveryResult} core answers a message sent to a running task with: on the
+ * Message that answers a `message/send` / `message/stream` posted to a working task, and on the status message of a
+ * request that resumes or re-asserts the task (design doc 3.12).
+ */
+export const DELIVERY_RESULT_META_KEY = "urn:a2a-wrapper:delivery-result:v1";
 /** Metadata key under which usage is rendered. */
 export const USAGE_META_KEY = "urn:a2a-wrapper:usage:v1";
 
@@ -131,6 +138,12 @@ export const WIRE_EXTENSIONS: readonly WireExtension[] = Object.freeze([
     uri: DELIVERY_META_KEY,
     kind: "metadata-key",
     description: "Message metadata: delivery intent for a message to a running task (queue, steer, interrupt).",
+  },
+  {
+    uri: DELIVERY_RESULT_META_KEY,
+    kind: "metadata-key",
+    description:
+      "Message metadata: what core did with a message sent to a running task (inserted, queued, interrupted, rejected).",
   },
   { uri: USAGE_META_KEY, kind: "metadata-key", description: "Event metadata: token and cost usage." },
   {
@@ -486,6 +499,55 @@ export function toA2AMessage(
   };
 }
 
+// ─── Delivery results ───────────────────────────────────────────────────────
+
+/** The metadata entry that carries a {@link DeliveryResult} on the wire. */
+export function deliveryResultToMetadata(result: DeliveryResult): Meta {
+  return { [DELIVERY_RESULT_META_KEY]: { ...result } };
+}
+
+/** Read a {@link DeliveryResult} back from message metadata; `undefined` when absent or not a delivery result. */
+export function deliveryResultFromMetadata(metadata: Record<string, unknown> | undefined | null): DeliveryResult | undefined {
+  const v = metadata?.[DELIVERY_RESULT_META_KEY];
+  if (!isObject(v) || typeof v.state !== "string" || typeof v.taskId !== "string" || typeof v.messageId !== "string") return undefined;
+  return v as unknown as DeliveryResult;
+}
+
+/** A one-line human rendering of a delivery result, for clients that ignore the structured metadata. */
+export function deliveryResultText(result: DeliveryResult): string {
+  switch (result.state) {
+    case "inserted":
+      return "Your message was added to the running turn.";
+    case "queued": {
+      const where = result.holder === "provider" ? "the provider's queue" : result.position ? `position ${result.position} of the queue` : "the queue";
+      return `Your message was queued (${where}) and runs as the next turn of this task.${result.reason ? ` ${result.reason}.` : ""}`;
+    }
+    case "interrupted":
+      return "The running turn was interrupted. Your message continues the task.";
+    case "rejected":
+    default:
+      return `Your message was not delivered: ${result.reason}${result.detail ? ` (${result.detail})` : ""}.`;
+  }
+}
+
+/**
+ * The answer to a message sent to a task that is already working, as an A2A `Message` (agent role) carrying the
+ * {@link DeliveryResult}. A Message is a valid answer to `message/send` and `message/stream`, and publishing it on a
+ * PRIVATE bus touches neither the task's own stream nor the task store (spike S2, design doc 3.12).
+ */
+export function toDeliveryAckMessage(result: DeliveryResult, ids: { taskId: string; contextId: string }): Message {
+  return {
+    messageId: uuidv4(),
+    contextId: ids.contextId,
+    taskId: ids.taskId,
+    role: Role.ROLE_AGENT,
+    parts: [toA2APart({ kind: "text", text: deliveryResultText(result) })],
+    metadata: deliveryResultToMetadata(result),
+    extensions: [],
+    referenceTaskIds: [],
+  };
+}
+
 // ─── Request ────────────────────────────────────────────────────────────────
 
 /** Options for {@link coreRequestFromContext}. */
@@ -589,6 +651,8 @@ export interface StatusUpdateInput {
   parts?: readonly CorePart[];
   /** Extension URIs the status message belongs to. */
   messageExtensions?: readonly string[];
+  /** Metadata of the status MESSAGE (not of the event): for example the {@link DELIVERY_RESULT_META_KEY} of a delivery. */
+  messageMetadata?: Meta;
   /** Event metadata. */
   metadata?: Meta;
   timestamp?: string;
@@ -612,7 +676,7 @@ export function toStatusUpdate(input: StatusUpdateInput): TaskStatusUpdateEvent 
           taskId: input.taskId,
           role: Role.ROLE_AGENT,
           parts: parts.map(toA2APart),
-          metadata: undefined,
+          metadata: input.messageMetadata,
           extensions: [...(input.messageExtensions ?? [])],
           referenceTaskIds: [],
         }

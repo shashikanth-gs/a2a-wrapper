@@ -9,6 +9,7 @@ import { RequestContext, ServerCallContext } from "@a2a-js/sdk/server";
 import {
   CORE_STATE_META_KEY,
   DELIVERY_META_KEY,
+  DELIVERY_RESULT_META_KEY,
   FILE_URI_META_KEY,
   INTERACTION_EXTENSION_URI,
   LEGACY_WIRE_KEYS,
@@ -769,10 +770,11 @@ describe("R6 usageDelta", () => {
 
 describe("R8 versioned wire keys", () => {
   it("every key core writes is versioned and listed once", () => {
-    const keys = [DELIVERY_META_KEY, USAGE_META_KEY, CORE_STATE_META_KEY, FILE_URI_META_KEY, UNKNOWN_PART_META_KEY, INTERACTION_EXTENSION_URI];
+    const keys = [DELIVERY_META_KEY, DELIVERY_RESULT_META_KEY, USAGE_META_KEY, CORE_STATE_META_KEY, FILE_URI_META_KEY, UNKNOWN_PART_META_KEY, INTERACTION_EXTENSION_URI];
     for (const k of keys) expect(k).toMatch(/^urn:a2a-wrapper:[a-z-]+:v1$/);
     expect(WIRE_EXTENSIONS.map((e) => e.uri).sort()).toEqual([...keys].sort());
     expect(DELIVERY_META_KEY).toBe("urn:a2a-wrapper:delivery:v1");
+    expect(DELIVERY_RESULT_META_KEY).toBe("urn:a2a-wrapper:delivery-result:v1");
     expect(USAGE_META_KEY).toBe("urn:a2a-wrapper:usage:v1");
     expect(CORE_STATE_META_KEY).toBe("urn:a2a-wrapper:core-state:v1");
     expect(FILE_URI_META_KEY).toBe("urn:a2a-wrapper:file-uri:v1");

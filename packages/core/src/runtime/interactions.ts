@@ -56,7 +56,7 @@ import {
   timeoutFor,
   type InteractionPolicy,
 } from "./interaction-policy.js";
-import type { ExecuteInit, InteractionHost, InteractionRuntime, RunInteractionHandle } from "./types.js";
+import type { ExecuteInit, HandleReplyOptions, InteractionHost, InteractionRuntime, RunInteractionHandle } from "./types.js";
 
 export interface InteractionsRuntimeOptions {
   policy?: Partial<InteractionPolicy>;
@@ -338,8 +338,9 @@ export class InteractionsRuntime implements InteractionRuntime {
    * A new `execute()` for a task with a live run. When the task has a presented interaction the
    * message is a reply attempt: consumed here, never started as a turn. NEVER throws.
    */
-  async handleReply(handle: RunInteractionHandle, init: ExecuteInit): Promise<boolean> {
+  async handleReply(handle: RunInteractionHandle, init: ExecuteInit, options: HandleReplyOptions = {}): Promise<boolean> {
     const st = this.states.get(handle);
+    const reprompt = options.reprompt !== false;
     try {
       const presented = () => st?.items.find((i) => i.rec.state === "presented");
       const first = presented();
@@ -357,6 +358,8 @@ export class InteractionsRuntime implements InteractionRuntime {
         }
         return false;
       }
+      // A request with a private stream cannot carry the run on, so it cannot be the reply to the presented one.
+      if (options.carriesStream === false) return false;
       const host = this.host!;
       const allowed = await host.authorize(init.caller, "answer", {
         taskId: handle.taskId,
@@ -364,16 +367,20 @@ export class InteractionsRuntime implements InteractionRuntime {
         ownerId: handle.owner.id,
       });
       const item = presented(); // the world may have moved while authorize was pending
-      if (!item) return true;
+      if (!item) return reprompt;
+      let result: CoreInteractionResult | undefined;
+      if (allowed) {
+        try {
+          result = parseInteractionReply(item.interaction, parts, init.caller);
+        } catch {
+          result = undefined; // a reply that crashes the parser is not a reply (D5)
+        }
+      }
+      // An explicit `delivery: "queue"` that is not a usable reply is not consumed (and does not take the run's
+      // stream over): the registry queues it behind the interaction.
+      if (!reprompt && !result) return false;
       handle.setPublisher(init.publisher);
       if (!allowed) return this.reprompt(init, item, HINT_DENIED);
-
-      let result: CoreInteractionResult | undefined;
-      try {
-        result = parseInteractionReply(item.interaction, parts, init.caller);
-      } catch {
-        result = undefined; // a reply that crashes the parser is not a reply (D5)
-      }
       if (!result) return this.reprompt(init, item, HINT_NO_MATCH);
 
       this.settle(st, item, "answered", result);

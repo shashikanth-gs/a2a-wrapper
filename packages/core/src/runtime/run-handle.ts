@@ -27,6 +27,7 @@ import { CANCELED } from "../model/cancel.js";
 import type {
   CoreCaller,
   CoreError,
+  DeliveryResult,
   CoreMessage,
   CoreRequest,
   CoreResult,
@@ -88,10 +89,14 @@ export class RunTurn {
 }
 
 /** How a turn ended, as the provider said it (or as core inferred it). */
-export type TurnOutcome =
+export type TurnOutcome = (
   | { kind: "completed"; result: CoreResult }
   | { kind: "failed"; error: CoreError }
-  | { kind: "rejected"; error: CoreError };
+  | { kind: "rejected"; error: CoreError }
+) & {
+  /** The outcome was already published as non-terminal output because more turns follow, so the final status does not repeat it. */
+  published?: boolean;
+};
 
 /** A message waiting to become the next turn of the task (core-queued). */
 export interface QueuedTurn {
@@ -141,6 +146,26 @@ export class RunHandle {
    * snapshot on the shared bus lands inside the first reply's stream and breaks it (see `RunRegistry.beginReply`).
    */
   replyAttaching = false;
+  /** When the {@link replyAttaching} claim was taken (ms since epoch): a claim whose request never reached `execute()` goes stale. */
+  replyClaimedAt = 0;
+  /** Token of the current reply claim: only its holder may release or refresh it. */
+  replyToken = 0;
+  /** `steer` handlers in flight. While any is, the task cannot go terminal: the message may still need a turn. */
+  steering = 0;
+  /**
+   * An `interrupt` with no follow-up content stopped the turn: the task waits in `input-required` (marked interrupted)
+   * for the next message, holding its context lane. `parked` is set too, so the next message attaches like a reply.
+   */
+  interruptedPark = false;
+  /** Expires an interrupted park nobody continued. */
+  interruptTimer?: ReturnType<typeof setTimeout>;
+  /**
+   * Deliveries already decided for this run, by message id (and idempotency key): a duplicate gets the same answer and
+   * never enqueues, steers or interrupts twice. A promise, so two concurrent duplicates agree.
+   */
+  readonly deliveries = new Map<string, Promise<DeliveryResult>>();
+  /** Ordering key of the next core-queued record: monotonic per run (the live position shrinks as messages start). */
+  queueSeq?: number;
   /** The turn in progress, or the last one. */
   turn?: RunTurn;
   /** Every turn of the run, in order. */

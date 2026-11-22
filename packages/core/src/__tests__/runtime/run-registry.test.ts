@@ -373,7 +373,9 @@ describe("interrupt", () => {
     expect(publisher.terminal()).toEqual([]);
     expect(publisher.calls.some((c) => c.k === "finished")).toBe(false);
     expect(s.registry.isLive("t1")).toBe(true);
-    expect((await s.store.getRun("t1"))?.state).toBe("working");
+    // No follow-up message: the task waits for direction in input-required, marked interrupted (design doc 3.12).
+    expect((await s.store.getRun("t1"))?.state).toBe("input-required");
+    expect(publisher.statuses().at(-1)).toMatchObject({ state: "input-required", metadata: { interrupted: true } });
 
     // the interrupted turn's own late complete is a drop; it cannot end the task
     call.view.complete({ text: "from the stopped turn" });

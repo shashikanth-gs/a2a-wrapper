@@ -59,6 +59,8 @@ import {
   type CoreResult,
   type CoreTaskRun,
   type CoreTaskState,
+  type DeliveryKind,
+  type DeliveryResult,
   type Meta,
   type OrphanInfo,
   type PendingInteraction,
@@ -66,7 +68,12 @@ import {
   type QueuedMessageRecord,
   type RunRecord,
   type SessionRef,
+  type SteerOutcome,
   type TaskRunInfo,
+  deliveryFromSteer,
+  messageHasContent,
+  resolveDelivery,
+  type ResolvedDelivery,
 } from "../model/index.js";
 import { InteractionsRuntime } from "./interactions.js";
 import type { InteractionPolicy } from "./interaction-policy.js";
@@ -93,6 +100,33 @@ const MAX_TOMBSTONES = 1000;
 const TERMINAL_WRITE_ATTEMPTS = 3;
 /** Concurrent `abortOrphan` calls during the startup sweep. */
 const SWEEP_CONCURRENCY = 4;
+/** A reply claim whose request never reached `execute()` (the SDK failed in between) is stale after this long. */
+const REPLY_CLAIM_TTL_MS = 15_000;
+/** Default bound for a provider's `steer` handler. A timeout is ambiguous (the provider may have taken the message). */
+const DEFAULT_STEER_TIMEOUT_MS = 30_000;
+/** How long an interrupted task (an `interrupt` with no follow-up message) waits for the next message. */
+export const DEFAULT_INTERRUPTED_TIMEOUT_MS = 10 * 60_000;
+
+/** A publisher that says nothing: the stream of a request that has no stream of its own to carry the run. */
+const SILENT_PUBLISHER: RunPublisher = {
+  status() {},
+  interaction() {},
+  event() {},
+  artifact() {},
+  finished() {},
+};
+
+/** What one delivery decided. */
+interface DeliveryDecision {
+  result: DeliveryResult;
+  /** This request now carries the run's event stream (it resumed a parked or interrupted run). */
+  resumed: boolean;
+  /**
+   * Remember the answer for duplicates of this message id. A rejection that changed nothing is not remembered (the
+   * caller may retry); an ambiguous one (the provider's `steer` failed or timed out) is, so a retry cannot double-deliver.
+   */
+  cache: boolean;
+}
 
 /** Builds the publisher for a task when the caller (the SDK's `cancelTask`) only has a bus. */
 export type PublisherFactory = (ids: { taskId: string; contextId: string }) => RunPublisher;
@@ -129,6 +163,23 @@ export interface RunRegistryOptions {
   detached?: DetachedPublisherFactory;
   /** Upper bound for `abort` / `abortOrphan` / `release`. Default {@link DEFAULT_ABORT_TIMEOUT_MS}. */
   abortTimeoutMs?: number;
+  /**
+   * How long a reply claim nobody refreshes stays held before it may be taken over (a wedge breaker only: the holder refreshes
+   * it every third of this while its request lives). Default 15 seconds.
+   */
+  replyClaimTtlMs?: number;
+  /**
+   * Upper bound for the provider's `steer` handler. Default 30 seconds. A steer that times out is AMBIGUOUS (the provider
+   * may have taken the message): it is answered `rejected` / `steer-failed` and remembered by message id, so a caller that
+   * wants to resend deliberately must use a NEW message id.
+   */
+  steerTimeoutMs?: number;
+  /**
+   * How long a task that an `interrupt` with no follow-up message left in `input-required` waits for its next message
+   * before it fails with `timeout` (it holds its context lane meanwhile). Default {@link DEFAULT_INTERRUPTED_TIMEOUT_MS};
+   * `0` waits forever.
+   */
+  interruptedTimeoutMs?: number;
   /** Clock, ISO string. */
   now?: () => string;
   /** Id source. Default `crypto.randomUUID`. */
@@ -212,6 +263,7 @@ export class RunRegistry {
   /** Runs of which an orphan abort was already started (runId). */
   private readonly orphanClaims = new Set<string>();
   private readonly chains = new Map<string, Promise<void>>();
+  private replyTokenSeq = 0;
   private readonly background = new Set<Promise<unknown>>();
   /**
    * Per-task bookkeeping the A2A publishers share (which streamed artifacts already have their first chunk, so a reply's new
@@ -224,6 +276,9 @@ export class RunRegistry {
   private readonly interactions: InteractionRuntime;
   private detachedFactory?: DetachedPublisherFactory;
   private readonly abortTimeoutMs: number;
+  private readonly steerTimeoutMs: number;
+  private readonly replyClaimTtlMs: number;
+  private readonly interruptedTimeoutMs: number;
   private readonly now: () => string;
   private readonly newId: () => string;
   private readonly log: RuntimeLogger;
@@ -236,6 +291,9 @@ export class RunRegistry {
     this.interactions = options.interactions ?? new InteractionsRuntime({ policy: options.interactionPolicy });
     this.detachedFactory = options.detached;
     this.abortTimeoutMs = options.abortTimeoutMs ?? DEFAULT_ABORT_TIMEOUT_MS;
+    this.replyClaimTtlMs = options.replyClaimTtlMs ?? REPLY_CLAIM_TTL_MS;
+    this.steerTimeoutMs = options.steerTimeoutMs ?? DEFAULT_STEER_TIMEOUT_MS;
+    this.interruptedTimeoutMs = options.interruptedTimeoutMs ?? DEFAULT_INTERRUPTED_TIMEOUT_MS;
     this.now = options.now ?? (() => new Date().toISOString());
     this.newId = options.newId ?? (() => randomUUID());
     this.log = options.logger ?? NOOP_LOGGER;
@@ -282,7 +340,10 @@ export class RunRegistry {
 
   /** Stop every live run's signal with reason `shutdown` WITHOUT a terminal claim: the records stay active for the next start's sweep. */
   async shutdown(): Promise<void> {
-    for (const h of this.handles.values()) for (const t of h.turns) if (t.live) t.stop("shutdown");
+    for (const h of this.handles.values()) {
+      clearTimeout(h.interruptTimer);
+      for (const t of h.turns) if (t.live) t.stop("shutdown");
+    }
     await this.drain();
     this.publisherState.clear();
   }
@@ -294,7 +355,8 @@ export class RunRegistry {
    * first turn (in the context's lane); it resolves when the run ends or parks on
    * an interaction. A later one for the same task NEVER starts a second provider
    * call: it is a reply to a pending interaction (consumed by the interactions
-   * runtime) or, by the default delivery, a message queued as the next turn.
+   * runtime) or a message delivered by its `delivery` (`queue`, `steer`, `interrupt`;
+   * see {@link RunRegistry.deliver}).
    */
   async execute(init: ExecuteInit): Promise<ExecuteOutcome> {
     const existing = this.handles.get(init.taskId);
@@ -352,17 +414,33 @@ export class RunRegistry {
    * snapshot (it would land inside the winner's lifecycle stream and break it) and must not start anything. Returns
    * `false` when the run is not parked or the claim is taken.
    */
-  beginReply(taskId: string): boolean {
+  beginReply(taskId: string): number | undefined {
     const h = this.handles.get(taskId);
-    if (!h || h.phase !== "active" || !h.parked || h.replyAttaching) return false;
+    if (!h || h.phase !== "active" || !h.parked) return undefined;
+    // The holder keeps its claim fresh ({@link touchReply}) while its request is alive; a claim nobody refreshes for the TTL
+    // (its request never reached `execute()`, the SDK failed in between) is a wedge and may be taken over.
+    if (h.replyAttaching && Date.now() - h.replyClaimedAt < this.replyClaimTtlMs) return undefined;
     h.replyAttaching = true;
-    return true;
+    h.replyClaimedAt = Date.now();
+    h.replyToken = ++this.replyTokenSeq;
+    return h.replyToken;
   }
 
-  /** Release the {@link beginReply} claim (the winner's `execute()` is over). */
-  endReply(taskId: string): void {
+  /** How often a claim holder should call {@link touchReply}. */
+  get replyClaimKeepaliveMs(): number {
+    return Math.max(1, Math.floor(this.replyClaimTtlMs / 3));
+  }
+
+  /** The holder of claim `token` is still working (its `execute()` entered, `authorize` is pending): push the stale deadline out. */
+  touchReply(taskId: string, token: number): void {
     const h = this.handles.get(taskId);
-    if (h) h.replyAttaching = false;
+    if (h && h.replyAttaching && h.replyToken === token) h.replyClaimedAt = Date.now();
+  }
+
+  /** Release claim `token` (the winner's `execute()` is over). A stale holder cannot release a newer claim. */
+  endReply(taskId: string, token: number): void {
+    const h = this.handles.get(taskId);
+    if (h && h.replyToken === token) h.replyAttaching = false;
   }
 
   /**
@@ -380,19 +458,33 @@ export class RunRegistry {
   }
 
   private async attach(handle: RunHandle, init: ExecuteInit): Promise<ExecuteOutcome> {
-    handle.attachments++;
+    const carries = init.carriesStream !== false;
+    const message = this.messageOf(init);
+    const intent = resolveDelivery(message.delivery);
+    if (carries) handle.attachments++;
     let left = false;
     try {
-      if (this.interactions?.handleReply) {
+      if (handle.phase !== "active") {
+        this.announce(init, this.rejected(handle.taskId, message.id, "task-ended", "the task is no longer running"), false);
+        return "ended";
+      }
+      // `steer` and `interrupt` NEVER answer an interaction, so they are routed before the reply path (design doc 3.12).
+      // A message with no `delivery` stays a reply attempt first; an explicit `queue` is one only when it parses as a
+      // reply (otherwise it waits behind the interaction).
+      if (intent.kind === "queue" && this.interactions?.handleReply) {
         let consumed = false;
         try {
-          consumed = await this.interactions.handleReply(handle, init);
+          consumed = await this.interactions.handleReply(handle, init, { reprompt: !intent.explicit, carriesStream: carries });
         } catch (e) {
           // The contract says never throw. If it does, the message must still not run as a turn.
           this.log.warn("handleReply threw", causeMessage(e));
-          consumed = handle.parked;
+          consumed = handle.parked && !handle.interruptedPark;
         }
         if (consumed) {
+          if (!carries) {
+            this.announce(init, this.rejected(handle.taskId, message.id, "reply-ignored", "the interaction is no longer open"), false);
+            return "reply";
+          }
           if (handle.phase === "active") handle.setPublisher(init.publisher);
           const boundary = await handle.waitBoundary();
           handle.attachments--;
@@ -400,26 +492,330 @@ export class RunRegistry {
           return this.leave(handle, boundary);
         }
       }
-      if (handle.phase !== "active") return "ended";
-      // Default delivery: the message becomes the next turn of this task. It never runs now.
-      handle.setPublisher(init.publisher);
-      const message: CoreMessage = init.message ?? {
+      const outcome = await this.deliverTo(handle, message, init, intent, carries);
+      if (outcome.resumed) {
+        // This request carries the run on: like a reply, it returns at the next terminal or interrupted state.
+        const boundary = await handle.waitBoundary();
+        handle.attachments--;
+        left = true;
+        return this.leave(handle, boundary);
+      }
+      return outcome.state === "queued" ? "queued" : "delivered";
+    } finally {
+      if (!left && carries) handle.attachments--;
+    }
+  }
+
+  /**
+   * Deliver a message to a RUNNING task by its `delivery` (`queue`, `steer`, `interrupt`; absent is `queue`) and say what
+   * happened, honestly. For a caller that is not an A2A request (the A2A layer goes through {@link execute}, which
+   * routes here for a live task). `request` builds the provider request if the message has to run as a later turn.
+   *
+   * - `queue`: next turn of the task, after the running turn ends (core's lane, persisted as a `QueuedMessageRecord`).
+   * - `steer`: the provider's `steer` handler decides (`inserted`, `queued{handle}`, `rejected`). No handler: queued by
+   *   core and the result says so (`reason: "steer-unsupported"`). While an interaction is presented a steer waits behind it.
+   * - `interrupt`: abort the running turn (`abort(info, "interrupt")`), then the message is the next turn, the task stays
+   *   non-terminal. No `abort` handler: queued by core (`reason: "interrupt-unsupported"`). An interrupt with no content
+   *   parks the task in `input-required` (marked interrupted) until the next message.
+   *
+   * Idempotent by `message.id` (and `idempotencyKey`): a duplicate gets the first answer and never delivers twice.
+   * Authorized per intent (`authorize(by, "queue" | "steer" | "interrupt", task)`). Never rejects.
+   */
+  async deliver(taskId: string, message: CoreMessage, by: CoreCaller, request: ExecuteInit["request"]): Promise<DeliveryResult> {
+    const handle = this.handles.get(taskId);
+    if (!handle) return this.rejected(taskId, message.id, "unknown-task", "no live run for this task");
+    let result: DeliveryResult | undefined;
+    await this.attach(handle, {
+      taskId,
+      contextId: handle.contextId,
+      caller: by,
+      publisher: SILENT_PUBLISHER,
+      request,
+      message,
+      carriesStream: false,
+      onDelivery: (r) => {
+        result = r;
+      },
+    });
+    return result ?? this.rejected(taskId, message.id, "not-delivered", "the message was not delivered");
+  }
+
+  private messageOf(init: ExecuteInit): CoreMessage {
+    return (
+      init.message ?? {
         id: this.newId(),
         role: "user",
         parts: [],
         from: init.caller,
         at: this.now(),
-      };
-      this.enqueue(handle, message, init);
-      this.kick(handle);
-      return "queued";
+      }
+    );
+  }
+
+  private rejected(taskId: string, messageId: string, reason: string, detail?: string): DeliveryResult {
+    return { state: "rejected", taskId, messageId, reason, ...(detail ? { detail } : {}) };
+  }
+
+  private announce(init: ExecuteInit, result: DeliveryResult, resumed: boolean): void {
+    try {
+      init.onDelivery?.(result, { resumed });
+    } catch (e) {
+      this.log.warn("onDelivery threw", causeMessage(e));
+    }
+  }
+
+  /** Authorize, de-duplicate and dispatch one delivery; the answer goes to `init.onDelivery` exactly once. Never rejects. */
+  private async deliverTo(
+    handle: RunHandle,
+    message: CoreMessage,
+    init: ExecuteInit,
+    intent: ResolvedDelivery,
+    carries: boolean,
+  ): Promise<{ state: DeliveryResult["state"]; resumed: boolean }> {
+    const taskId = handle.taskId;
+    let emitted = false;
+    const emit = (result: DeliveryResult, resumed: boolean): void => {
+      if (emitted) return;
+      emitted = true;
+      this.announce(init, result, resumed);
+    };
+    const finish = (result: DeliveryResult, resumed = false) => {
+      emit(result, resumed);
+      return { state: result.state, resumed };
+    };
+    try {
+      if (intent.kind === "unsupported") {
+        return finish(this.rejected(taskId, message.id, "unsupported-delivery", `unknown delivery "${intent.value}"`));
+      }
+      const target = { taskId, contextId: handle.contextId, ownerId: handle.owner.id };
+      let allowed = false;
+      try {
+        const verdict = this.authorize(init.caller, intent.kind, target);
+        allowed = typeof verdict === "boolean" ? verdict : await verdict;
+      } catch (e) {
+        this.log.warn("authorize threw; denying", causeMessage(e));
+      }
+      if (!allowed) return finish(this.rejected(taskId, message.id, "denied", `not allowed to ${intent.kind} this task`));
+      if (handle.queueSeq === undefined) {
+        const base = await this.maxQueuePosition(taskId);
+        if (handle.queueSeq === undefined) handle.queueSeq = base;
+      }
+      if (handle.phase !== "active" || this.handles.get(taskId) !== handle) {
+        return finish(this.rejected(taskId, message.id, "task-ended", "the task is no longer running"));
+      }
+
+      // Idempotent by message id (and idempotency key), decided synchronously so concurrent duplicates agree.
+      const keys = [message.id, ...(message.idempotencyKey ? [`key:${message.idempotencyKey}`] : [])];
+      for (const k of keys) {
+        const prior = handle.deliveries.get(k);
+        if (prior) return finish(await prior);
+      }
+      const decision = this.dispatch(handle, message, init, intent.kind, carries, emit);
+      const answer = decision.then((d) => d.result);
+      for (const k of keys) handle.deliveries.set(k, answer);
+      const d = await decision;
+      if (!d.cache) for (const k of keys) if (handle.deliveries.get(k) === answer) handle.deliveries.delete(k);
+      return finish(d.result, d.resumed);
+    } catch (e) {
+      this.log.warn("delivery failed", causeMessage(e));
+      return finish(this.rejected(taskId, message.id, "internal", causeMessage(e)));
+    }
+  }
+
+  /** What to do with one authorized message. Never rejects. */
+  private async dispatch(
+    handle: RunHandle,
+    message: CoreMessage,
+    init: ExecuteInit,
+    kind: DeliveryKind,
+    carries: boolean,
+    emit: (r: DeliveryResult, resumed: boolean) => void,
+  ): Promise<DeliveryDecision> {
+    const taskId = handle.taskId;
+    try {
+      // The same message id again (a retry after a restart, a client that re-sent): it is already ours.
+      const prior = (await this.store.listQueued(taskId)).find(
+        (r) => r.message.id === message.id && (r.state === "queued" || r.state === "running" || r.state === "done"),
+      );
+      if (prior) {
+        return {
+          result: { state: "queued", taskId, messageId: message.id, holder: prior.holder, reason: "duplicate" },
+          resumed: false,
+          cache: true,
+        };
+      }
+      if (handle.phase !== "active") {
+        return { result: this.rejected(taskId, message.id, "task-ended", "the task is no longer running"), resumed: false, cache: false };
+      }
+      // An interrupted task waits for its next message: whatever the intent, this one is that message.
+      if (handle.interruptedPark) return this.continueInterrupted(handle, message, init, carries, emit);
+      switch (kind) {
+        case "steer":
+          return await this.steerIt(handle, message, init);
+        case "interrupt":
+          return this.interruptIt(handle, message, init, carries, emit);
+        default:
+          return this.queueIt(handle, message, init);
+      }
+    } catch (e) {
+      this.log.warn("dispatch failed", causeMessage(e));
+      return { result: this.rejected(taskId, message.id, "internal", causeMessage(e)), resumed: false, cache: false };
+    }
+  }
+
+  /** Core's own queue: the message becomes the next turn of the task. `reason` says why when that is not what the caller asked for. */
+  private queueIt(handle: RunHandle, message: CoreMessage, init: ExecuteInit, reason?: string): DeliveryDecision {
+    this.enqueue(handle, message, init);
+    const result: DeliveryResult = {
+      state: "queued",
+      taskId: handle.taskId,
+      messageId: message.id,
+      holder: "core",
+      position: handle.queue.length,
+      ...(reason ? { reason } : {}),
+    };
+    this.kick(handle);
+    return { result, resumed: false, cache: true };
+  }
+
+  private async steerIt(handle: RunHandle, message: CoreMessage, init: ExecuteInit): Promise<DeliveryDecision> {
+    const taskId = handle.taskId;
+    if (handle.parked) {
+      return this.queueIt(handle, message, init, "interaction-presented: a steer does not answer an open request, so it waits behind it");
+    }
+    if (!this.provider.steer) return this.queueIt(handle, message, init, "steer-unsupported: the provider has no steer handler");
+    const running = this.liveTurns(handle).find((t) => t.state === "running");
+    if (!running) return this.queueIt(handle, message, init, "no-active-turn");
+
+    const view = this.makeView(handle, running);
+    // While the handler is in flight the task cannot go terminal: the turn may end under it and the message still needs a turn.
+    handle.steering++;
+    try {
+      return await this.steerSettled(handle, message, init, running, await this.bounded(() => this.provider.steer!(view, message), this.steerTimeoutMs));
     } finally {
-      if (!left) handle.attachments--;
+      handle.steering--;
+      this.advance(handle); // the turn that ended while the steer was in flight can finalize now (or the queued message starts)
+    }
+  }
+
+  private steerSettled(
+    handle: RunHandle,
+    message: CoreMessage,
+    init: ExecuteInit,
+    running: RunTurn,
+    r: { ok: true; value: SteerOutcome | undefined } | { ok: false; error: Error },
+  ): DeliveryDecision {
+    const taskId = handle.taskId;
+    if (!r.ok) {
+      // Ambiguous: the provider may have taken it. Remembered, so a retry of the same message id cannot deliver twice.
+      return { result: this.rejected(taskId, message.id, "steer-failed", r.error.message), resumed: false, cache: true };
+    }
+    const outcome = r.value as SteerOutcome | undefined;
+    if (handle.phase !== "active") {
+      return { result: this.rejected(taskId, message.id, "task-ended", "the task ended while the steer was in flight"), resumed: false, cache: true };
+    }
+    if (outcome && typeof outcome === "object" && outcome.state === "inserted" && !running.live) {
+      // The turn the provider folded the message into had ended by the time it answered: it may never have seen it. Err toward
+      // delivering: run it as the next turn and say so, never report `inserted` for a message that may be lost.
+      return this.queueIt(handle, message, init, "turn-ended-during-steer");
+    }
+    if (outcome && typeof outcome === "object" && outcome.state === "queued") {
+      const held = (outcome as { handle?: unknown }).handle;
+      if (typeof held !== "string" || held === "") {
+        return {
+          result: this.rejected(taskId, message.id, "steer-invalid", "the provider answered queued without a handle"),
+          resumed: false,
+          cache: true,
+        };
+      }
+      if (!this.registerHeld(taskId, held, message)) {
+        return {
+          result: this.rejected(taskId, message.id, "task-ended", "the provider queued the message after the task ended"),
+          resumed: false,
+          cache: true,
+        };
+      }
+      return { result: { state: "queued", taskId, messageId: message.id, holder: "provider" }, resumed: false, cache: true };
+    }
+    const result = deliveryFromSteer(
+      taskId,
+      message.id,
+      outcome && typeof outcome === "object" ? outcome : { state: "rejected", reason: "unsupported", detail: "the provider returned no outcome" },
+    );
+    // A definitive rejection from the provider changed nothing: a retry may try again.
+    return { result, resumed: false, cache: result.state !== "rejected" };
+  }
+
+  private interruptIt(
+    handle: RunHandle,
+    message: CoreMessage,
+    init: ExecuteInit,
+    carries: boolean,
+    emit: (r: DeliveryResult, resumed: boolean) => void,
+  ): DeliveryDecision {
+    if (!this.provider.abort) {
+      return this.queueIt(handle, message, init, "interrupt-unsupported: the provider has no abort handler");
+    }
+    if (this.liveTurns(handle).length === 0) return this.queueIt(handle, message, init, "no-active-turn");
+
+    // An interrupt MAY preempt an interaction: what is pending settles `canceled`, and the run goes on (decision 1).
+    const presented = handle.parked;
+    if (presented) {
+      handle.settlePending();
+      handle.signalResumed();
+    }
+    const resumed = presented && carries;
+    if (resumed) handle.setPublisher(init.publisher);
+    const result: DeliveryResult = { state: "interrupted", taskId: handle.taskId, messageId: message.id };
+    if (resumed) emit(result, true); // before any event of the next turn
+    this.startInterrupt(handle, messageHasContent(message) ? { message, init } : undefined);
+    return { result, resumed, cache: true };
+  }
+
+  /** The message that continues a task an `interrupt` left waiting: it becomes the next turn. */
+  private continueInterrupted(
+    handle: RunHandle,
+    message: CoreMessage,
+    init: ExecuteInit,
+    carries: boolean,
+    emit: (r: DeliveryResult, resumed: boolean) => void,
+  ): DeliveryDecision {
+    handle.interruptedPark = false;
+    clearTimeout(handle.interruptTimer);
+    handle.signalResumed();
+    this.enqueue(handle, message, init);
+    const result: DeliveryResult = {
+      state: "queued",
+      taskId: handle.taskId,
+      messageId: message.id,
+      holder: "core",
+      position: handle.queue.length,
+      reason: "continues-interrupted-task",
+    };
+    const cleared = { state: "working" as const, metadata: { interrupted: false } };
+    if (carries) {
+      handle.setPublisher(init.publisher);
+      emit(result, true);
+      init.publisher.status(cleared);
+    } else {
+      handle.sink?.status(cleared);
+    }
+    this.kick(handle);
+    return { result, resumed: carries, cache: true };
+  }
+
+  /** Ordering key of the next core-queued record of a run that has none yet: above every stored one. */
+  private async maxQueuePosition(taskId: string): Promise<number> {
+    try {
+      return (await this.store.listQueued(taskId)).reduce((m, r) => Math.max(m, r.position ?? 0), 0);
+    } catch {
+      return 0;
     }
   }
 
   /** Queue a message as the next turn of the run and write its record. */
   private enqueue(handle: RunHandle, message: CoreMessage, init: ExecuteInit): void {
+    handle.queueSeq = (handle.queueSeq ?? 0) + 1;
     const written = this.track(
       this.store
         .putQueued({
@@ -428,7 +824,8 @@ export class RunRegistry {
           contextId: handle.contextId,
           message,
           holder: "core",
-          position: handle.queue.length + 1,
+          // An ordering key, monotonic per run: the position a caller is told is its live index, which shrinks as turns start.
+          position: handle.queueSeq,
           state: "queued",
         })
         .catch((e) => this.log.warn("queued record write failed", causeMessage(e))),
@@ -573,7 +970,33 @@ export class RunRegistry {
       );
     }
     handle.lastOutcome = outcome;
+    // More turns follow: what this one produced is output NOW (the terminal status carries only the last turn).
+    if (handle.queue.length > 0 || handle.held.size > 0 || handle.steering > 0) this.publishTurnResult(handle, outcome);
     this.advance(handle);
+  }
+
+  /** A turn that is not the last one ended: publish its result as non-terminal output. */
+  private publishTurnResult(handle: RunHandle, outcome: TurnOutcome): void {
+    const pub = handle.sink;
+    outcome.published = true;
+    if (outcome.kind !== "completed") {
+      pub?.status({
+        state: "working",
+        text: `The previous turn ${outcome.kind === "failed" ? "failed" : "was rejected"}: ${outcome.error.message}`,
+      });
+      return;
+    }
+    const r = outcome.result;
+    for (const a of r.artifacts ?? []) pub?.artifact(a);
+    if (r.parts && r.parts.length > 0) pub?.artifact({ parts: r.parts, lastChunk: true });
+    if (r.text || r.usage || r.meta) {
+      pub?.status({
+        state: "working",
+        ...(r.text && !(r.parts && r.parts.length > 0) ? { text: r.text } : {}),
+        ...(r.meta ? { metadata: r.meta } : {}),
+        ...(r.usage ? { usage: r.usage } : {}),
+      });
+    }
   }
 
   /** After a turn: run the next queued turn, or go terminal when nothing is left. */
@@ -581,16 +1004,10 @@ export class RunRegistry {
     if (handle.phase !== "active") return;
     if (this.liveTurns(handle).length > 0) return;
     if (handle.queue.length > 0) {
-      if (handle.lastOutcome && handle.lastOutcome.kind !== "completed") {
-        handle.sink?.status({
-          state: "working",
-          text: `The previous turn ${handle.lastOutcome.kind === "failed" ? "failed" : "was rejected"}: ${handle.lastOutcome.error.message}`,
-        });
-      }
       this.kick(handle);
       return;
     }
-    if (handle.held.size > 0 || handle.awaitingNextTurn || handle.stopping || !handle.lastOutcome) return;
+    if (handle.held.size > 0 || handle.steering > 0 || handle.awaitingNextTurn || handle.stopping || !handle.lastOutcome) return;
     this.finalize(handle, handle.lastOutcome);
   }
 
@@ -599,9 +1016,11 @@ export class RunRegistry {
     const pub = handle.sink;
     if (outcome.kind === "completed") {
       const r = outcome.result;
-      for (const a of r.artifacts ?? []) pub?.artifact(a);
+      if (!outcome.published) for (const a of r.artifacts ?? []) pub?.artifact(a);
       let text: string | undefined;
-      if (r.parts && r.parts.length > 0) pub?.artifact({ parts: r.parts, lastChunk: true });
+      if (outcome.published) {
+        // Already out as non-terminal output while more turns were pending; the terminal status does not repeat it.
+      } else if (r.parts && r.parts.length > 0) pub?.artifact({ parts: r.parts, lastChunk: true });
       else if (r.text) {
         // Text delivered as the final answer. A provider that already streamed it as deltas is
         // expected to call complete({}), so the text is not published twice.
@@ -610,8 +1029,8 @@ export class RunRegistry {
       pub?.status({
         state: "completed",
         ...(text ? { text } : {}),
-        ...(r.meta ? { metadata: r.meta } : {}),
-        ...(r.usage ? { usage: r.usage } : {}),
+        ...(r.meta && !outcome.published ? { metadata: r.meta } : {}),
+        ...(r.usage && !outcome.published ? { usage: r.usage } : {}),
       });
     } else {
       pub?.status({
@@ -632,6 +1051,7 @@ export class RunRegistry {
 
   /** The terminal event is out: end the handle and remove it. */
   private closeRun(handle: RunHandle, state: string): void {
+    clearTimeout(handle.interruptTimer);
     handle.end(state);
     if (this.handles.get(handle.taskId) === handle) this.handles.delete(handle.taskId);
     this.publisherState.delete(handle.taskId);
@@ -916,9 +1336,11 @@ export class RunRegistry {
   /**
    * Stop the running turn WITHOUT ending the task: the signal aborts with reason
    * `interrupt`, no terminal claim, no `canceled`, the provider's own queue is
-   * kept. The task continues with the next turn: `next` (the interrupting message)
-   * or a message that arrives later. Composition of `interrupt` with a message is
-   * the steering runtime's (#109); this is its primitive.
+   * kept. The task continues with the next turn: `next` (the interrupting message,
+   * whose publisher takes over the run's stream) or a message that arrives later. With
+   * no `next` the task waits in `input-required`, marked interrupted, until the next
+   * message (design doc 3.12). Delivering a message with `delivery: "interrupt"` is
+   * {@link RunRegistry.deliver}; this is its primitive.
    */
   async interrupt(taskId: string, by: CoreCaller, next?: ExecuteInit): Promise<InterruptOutcome> {
     const handle = this.handles.get(taskId);
@@ -928,21 +1350,43 @@ export class RunRegistry {
     if (handle.phase !== "active") return { interrupted: false, reason: "terminal" };
     const running = this.liveTurns(handle);
     if (running.length === 0 && !handle.awaitingNextTurn && !next) return { interrupted: false, reason: "not-running" };
+    if (handle.parked) {
+      handle.settlePending();
+      handle.signalResumed();
+    }
+    if (handle.interruptedPark) {
+      handle.interruptedPark = false;
+      clearTimeout(handle.interruptTimer);
+    }
+    this.startInterrupt(
+      handle,
+      next
+        ? {
+            message: next.message ?? {
+              id: this.newId(),
+              role: "user",
+              parts: [],
+              from: next.caller,
+              delivery: "interrupt",
+              at: this.now(),
+            },
+            init: next,
+            takeStream: true,
+          }
+        : undefined,
+    );
+    return { interrupted: true };
+  }
 
+  /** Stop the live turns (reason `interrupt`), queue `next` if there is one, and continue (or park) when the provider's abort has settled. */
+  private startInterrupt(handle: RunHandle, next?: { message: CoreMessage; init: ExecuteInit; takeStream?: boolean }): void {
+    const running = this.liveTurns(handle);
     handle.awaitingNextTurn = true;
     const target = running.find((t) => t.state === "running");
     for (const t of running) t.stop("interrupt");
     if (next) {
-      const message: CoreMessage = next.message ?? {
-        id: this.newId(),
-        role: "user",
-        parts: [],
-        from: next.caller,
-        delivery: "interrupt",
-        at: this.now(),
-      };
-      handle.setPublisher(next.publisher);
-      this.enqueue(handle, message, next);
+      if (next.takeStream) handle.setPublisher(next.init.publisher);
+      this.enqueue(handle, next.message, next.init);
     }
     if (target) {
       handle.stopping = true;
@@ -950,14 +1394,54 @@ export class RunRegistry {
       const aborting = this.runAbort(handle, target, "interrupt").finally(() => {
         handle.stopping = false;
         if (handle.aborting === aborting) handle.aborting = undefined;
-        this.kick(handle);
+        this.afterInterrupt(handle);
       });
       handle.aborting = aborting;
       this.track(aborting);
     } else {
-      this.kick(handle);
+      this.afterInterrupt(handle);
     }
-    return { interrupted: true };
+  }
+
+  /** The interrupted turn is stopped: run the next one, or, with nothing to run, park the task until a message arrives. */
+  private afterInterrupt(handle: RunHandle): void {
+    this.kick(handle);
+    if (
+      handle.phase === "active" &&
+      handle.awaitingNextTurn &&
+      !handle.stopping &&
+      !handle.interruptedPark &&
+      handle.queue.length === 0 &&
+      handle.held.size === 0 &&
+      this.liveTurns(handle).length === 0
+    ) {
+      this.enterInterruptedPark(handle);
+    }
+  }
+
+  /**
+   * An `interrupt` with no follow-up content: the turn is stopped and the task waits for direction in `input-required`,
+   * marked `interrupted: true` (A2A proposal #2125). It holds its context lane; the next message continues it, and one
+   * that never comes fails the task after `interruptedTimeoutMs`.
+   */
+  private enterInterruptedPark(handle: RunHandle): void {
+    handle.interruptedPark = true;
+    this.setRunState(handle.taskId, "input-required");
+    handle.sink?.status({
+      state: "input-required",
+      text: "The running turn was interrupted. Send a message to continue the task.",
+      metadata: { interrupted: true },
+    });
+    handle.signalParked();
+    if (this.interruptedTimeoutMs > 0) {
+      clearTimeout(handle.interruptTimer);
+      const timer = setTimeout(() => {
+        if (!handle.interruptedPark) return;
+        void this.expire(handle.taskId, { message: "The task was interrupted and no message arrived to continue it.", code: "timeout" });
+      }, this.interruptedTimeoutMs);
+      timer.unref?.();
+      handle.interruptTimer = timer;
+    }
   }
 
   // ─── expiry (hook for the interactions runtime, #108) ─────────────────────
@@ -1015,13 +1499,16 @@ export class RunRegistry {
   // ─── abort ────────────────────────────────────────────────────────────────
 
   /** Run a bounded provider call. Never rejects: `undefined` on failure or timeout. */
-  private async bounded<T>(fn: () => Promise<T> | T): Promise<{ ok: true; value: T } | { ok: false; error: Error }> {
+  private async bounded<T>(
+    fn: () => Promise<T> | T,
+    timeoutMs: number = this.abortTimeoutMs,
+  ): Promise<{ ok: true; value: T } | { ok: false; error: Error }> {
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const value = await Promise.race([
         Promise.resolve().then(fn),
         new Promise<never>((_, reject) => {
-          timer = setTimeout(() => reject(new Error(`timed out after ${this.abortTimeoutMs}ms`)), this.abortTimeoutMs);
+          timer = setTimeout(() => reject(new Error(`timed out after ${timeoutMs}ms`)), timeoutMs);
         }),
       ]);
       return { ok: true, value };
