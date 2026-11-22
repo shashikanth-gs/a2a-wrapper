@@ -1,12 +1,14 @@
 /**
  * Copilot Module — Public API barrel
  *
- * Re-exports core Copilot integration classes and event-publisher helpers
- * for programmatic use without importing subdirectory modules directly.
+ * Re-exports the Copilot provider and event-publisher helpers for programmatic
+ * use without importing subdirectory modules directly.
  */
 
-export { CopilotExecutor } from "./executor.js";
-export { SessionManager } from "./session-manager.js";
+export { CopilotProvider, SESSION_FORMAT, isSessionNotFound } from "./provider.js";
+export type { CopilotProviderOptions } from "./provider.js";
+export { CopilotTurn } from "./turn.js";
+export type { CopilotClientLike, CopilotSession } from "./types.js";
 export {
   publishStatus,
   publishFinalArtifact,

@@ -4,16 +4,15 @@
  * Validates the contract between {@link bootstrapSubAgents} and the
  * Copilot wrapper's MCP map: given a minimal `AgentConfig` with one
  * sub-agent, running the bootstrap and translating its descriptor
- * through the same adapter shape used by `CopilotExecutor.toCopilotMcpEntry`
+ * through the same adapter shape used by `CopilotProvider.toCopilotMcpEntry`
  * SHALL produce a `type: "stdio"` entry under the reserved
  * `a2a-subagents` key, wired to `npx a2a-mcp-skillmap@<pinned>` and the
  * generated bridge config path.
  *
- * The adapter on `CopilotExecutor` is private. Rather than fully boot
- * the executor (which would start the Copilot CLI), this test exercises
- * the same translation locally — a one-liner — and asserts the merged
- * map matches what the executor would produce. This keeps the test
- * dependency-free while still validating Requirement 5.3.
+ * The adapter on `CopilotProvider` is private. The first two tests exercise
+ * the same translation locally — a one-liner — and assert the merged map; the
+ * last boots the provider against a faked Copilot client (no CLI is started)
+ * and checks the entry reaches the session options. Validates Requirement 5.3.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
@@ -34,10 +33,13 @@ import type {
   McpServerConfig,
   McpStdioServerConfig,
 } from "../config/types.js";
+import { CopilotProvider } from "../copilot/provider.js";
+import { makeConfig } from "./helpers/config.js";
+import { ManualClient, ManualSession } from "./helpers/manual-session.js";
 
-// ─── Local copy of the executor's private adapter ───────────────────────────
+// ─── Local copy of the provider's private adapter ───────────────────────────
 //
-// Mirrors `CopilotExecutor.toCopilotMcpEntry`. Kept in sync with that
+// Mirrors `CopilotProvider.toCopilotMcpEntry`. Kept in sync with that
 // implementation by visual inspection — the body is a trivial object
 // literal so drift is unlikely. Validating this shape end-to-end is the
 // point of this test.
@@ -192,5 +194,26 @@ describe("sub-agents wrapper integration", () => {
     );
     expect(mergedMcp["existing"].type).toBe("http");
     expect(mergedMcp[SUBAGENTS_MCP_KEY].type).toBe("stdio");
+  });
+
+  it("the provider merges the synthesized entry into the MCP servers its sessions are created with", async () => {
+    const config = makeConfig({
+      mcp: { existing: { type: "http", url: "http://example.com/mcp" } },
+      copilot: { workspaceDirectory: workspaceDir },
+    });
+    config.subAgents = { agents: [{ name: "fake", agentCardUrl: probe.url }] };
+    const client = new ManualClient([new ManualSession()]);
+    const provider = new CopilotProvider(config, { clientFactory: () => client as never });
+
+    await provider.initialize();
+    // a turn creates the session with the resolved MCP map
+    const run = { progress() {}, event() {}, artifact() {}, bind() {}, complete() {}, fail() {}, ask: async () => ({ outcome: "unavailable" }), signal: { aborted: true, addEventListener() {} } } as never;
+    await provider.run({ taskId: "t", contextId: "c", turnId: "u", runId: "r", input: [], history: [], caller: { id: "a", kind: "anonymous" }, correlation: { eventId: "e", metadata: {} }, extensions: new Map() } as never, run);
+
+    const servers = client.createOptions[0].mcpServers as Record<string, any>;
+    expect(Object.keys(servers).sort()).toEqual([SUBAGENTS_MCP_KEY, "existing"].sort());
+    expect(servers[SUBAGENTS_MCP_KEY]).toMatchObject({ type: "stdio", command: "npx", tools: ["*"] });
+    expect(servers["existing"]).toMatchObject({ type: "http", url: "http://example.com/mcp" });
+    await provider.shutdown();
   });
 });

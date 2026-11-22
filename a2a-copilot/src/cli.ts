@@ -50,6 +50,8 @@ Options:
   --agent-description <desc>  Agent description
   --stream-artifacts          Stream artifact chunks (spec-correct, streaming clients)
   --no-stream-artifacts       Buffer artifacts — Inspector-compatible (default)
+  --interactions <mode>       auto | ask  (default: auto = approve every permission, ask nobody;
+                              ask = permission requests and questions go to the A2A client)
   --log-level <level>         Log level: debug | info | warn | error  (default: info)
   --help                      Show this help message
   --version                   Show version
@@ -78,6 +80,7 @@ function parseCliArgs(): { configPath?: string; overrides: Partial<AgentConfig> 
       "stream-artifacts":    { type: "boolean" },
       "no-stream-artifacts": { type: "boolean" },
       "log-level":           { type: "string" },
+      interactions:          { type: "string" },
       help:                  { type: "boolean", short: "h" },
       version:               { type: "boolean", short: "v" },
     },
@@ -129,6 +132,14 @@ function parseCliArgs(): { configPath?: string; overrides: Partial<AgentConfig> 
 
   if (Object.keys(featureOverrides).length > 0) {
     overrides.features = featureOverrides as AgentConfig["features"];
+  }
+
+  // Interactions
+  if (values.interactions === "auto" || values.interactions === "ask") {
+    overrides.interactions = { mode: values.interactions };
+  } else if (values.interactions !== undefined) {
+    console.error(`--interactions must be "auto" or "ask", got "${String(values.interactions)}"`);
+    process.exit(1);
   }
 
   // Logging

@@ -1,24 +1,22 @@
 /**
  * Tests — usage and lifecycle events reach the configured event transport (#56)
  *
- * Before the fix, CopilotExecutor published per-call `trace.usage` and the usage
+ * Before the fix, the executor published per-call `trace.usage` and the usage
  * summary straight onto the A2A event bus and emitted no lifecycle events, so an
  * HTTP event collector saw `tool_call_*` events but no `agent_started`,
  * `agent_finished` or usage.
  *
- * These tests run the executor against a mocked Copilot SDK session and a real
- * local HTTP collector, mirroring the reproduction in the issue
+ * These tests run the provider (through the real request handler) against a faked Copilot
+ * session and a real local HTTP collector, mirroring the reproduction in the issue
  * (`events: { enabled: true, transport: "http", httpUrl, httpHeaders }`).
  */
 
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import type { RequestContext, ExecutionEventBus } from "@a2a-js/sdk/server";
-import type { Message as A2AMessage } from "@a2a-js/sdk";
+import { runTask, usagePayload as basePayload } from "./helpers/run-task.js";
 
-import { CopilotExecutor } from "../copilot/executor.js";
-import type { CopilotSession } from "../copilot/session-manager.js";
+const usagePayload = (o: Record<string, unknown> = {}) => basePayload({ model: "gpt-4.1", ...o });
 
 // ─── Collector ───────────────────────────────────────────────────────────────
 
@@ -62,111 +60,23 @@ afterEach(async () => {
   }
 });
 
-// ─── Harness (same approach as usage-telemetry.test.ts) ──────────────────────
+// ─── Harness ─────────────────────────────────────────────────────────────────
 
-function makeConfig(opts: { streaming: boolean; events: Record<string, unknown> }): any {
-  return {
-    agentCard: { name: "Test Agent", description: "test" },
-    server: { port: 3000, hostname: "0.0.0.0", advertiseHost: "localhost", advertiseProtocol: "http" },
-    copilot: {
-      cliUrl: "", model: "gpt-4.1", streaming: opts.streaming, systemPrompt: "", systemPromptMode: "append",
-      contextFile: "context.md", contextPrompt: "", workspaceDirectory: "",
-    },
-    session: { reuseByContext: true, ttl: 3_600_000, cleanupInterval: 300_000, titlePrefix: "A2A" },
-    features: { streamArtifactChunks: false, trackUsage: false },
-    timeouts: { prompt: 600_000 },
-    logging: { level: "error" },
-    mcp: {}, customAgents: [],
-    events: opts.events,
-    memory: undefined, configDir: undefined, subAgents: undefined,
-  };
-}
-
-function makeUserMessage(text: string): A2AMessage {
-  return {
-    messageId: "msg-1", contextId: "ctx-test", taskId: "", role: 1,
-    parts: [{ content: { $case: "text", value: text }, metadata: undefined }],
-    metadata: undefined, extensions: [], referenceTaskIds: [],
-  } as unknown as A2AMessage;
-}
-
-function makeContext(): RequestContext {
-  return { taskId: "task-1", contextId: "ctx-1", userMessage: makeUserMessage("hello"), task: null } as RequestContext;
-}
-
-function makeMockBus() {
-  const events: any[] = [];
-  const bus = { publish: vi.fn((e: any) => { events.push(e); }), finished: vi.fn(), events };
-  return bus as typeof bus & ExecutionEventBus;
-}
-
-function makeMockSession() {
-  const handlers = new Map<string, Array<(e: unknown) => void>>();
-  const session: CopilotSession & { emit: (event: string, data?: unknown) => void } = {
-    sessionId: "sess-1",
-    on: vi.fn((event: string, handler: (e: unknown) => void) => {
-      if (!handlers.has(event)) handlers.set(event, []);
-      handlers.get(event)!.push(handler);
-      return () => {
-        const arr = handlers.get(event) ?? [];
-        const i = arr.indexOf(handler);
-        if (i !== -1) arr.splice(i, 1);
-      };
-    }),
-    send: vi.fn(async () => {}),
-    sendAndWait: vi.fn(async () => ({ data: { content: "assistant response" } })),
-    disconnect: vi.fn(async () => {}),
-    destroy: vi.fn(async () => {}),
-    emit(event: string, data?: unknown) {
-      for (const h of handlers.get(event) ?? []) h({ data });
-    },
-  } as any;
-  return session;
-}
-
-function usagePayload(overrides: Record<string, unknown> = {}) {
-  return {
-    model: "gpt-4.1", inputTokens: 100, outputTokens: 50, cacheReadTokens: 0, cacheWriteTokens: 0,
-    reasoningTokens: 0, duration: 200, timeToFirstTokenMs: 80, cost: 1, apiEndpoint: null, initiator: null,
-    ...overrides,
-  };
-}
-
-/**
- * Run one task. `fail` makes the run throw after the usage events have fired
- * (non-streaming path), so the executor takes its error branch.
- */
+/** One task through the provider; `fail` makes the non-streaming run throw after the usage events have fired. */
 async function run(opts: {
   streaming: boolean;
   events: Record<string, unknown>;
   usage?: Record<string, unknown>[];
   fail?: Error;
 }) {
-  const executor = new CopilotExecutor(makeConfig(opts));
-  const session = makeMockSession();
-  const bus = makeMockBus();
-  vi.spyOn(executor as any, "initialize").mockResolvedValue(undefined);
-  (executor as any).sessionManager = {
-    getOrCreate: vi.fn(async () => ({ sessionId: session.sessionId, session, isNew: true })),
-    trackTask: vi.fn(), untrackTask: vi.fn(), getSessionForTask: vi.fn(),
-    getContextForTask: vi.fn(() => "ctx-1"), startCleanup: vi.fn(), shutdown: vi.fn(async () => {}),
-  };
-  (executor as any).mcpHooks = { setEmitter: vi.fn(), clearEmitter: vi.fn() };
-
-  const fire = () => { for (const u of opts.usage ?? []) session.emit("assistant.usage", u); };
-  if (opts.streaming) {
-    session.send = vi.fn(async () => { fire(); session.emit("session.idle"); });
-  } else {
-    session.sendAndWait = vi.fn(async () => {
-      fire();
-      if (opts.fail) throw opts.fail;
-      return { data: { content: "assistant response" } };
-    });
-  }
-
-  const started = Date.now();
-  await executor.execute(makeContext(), bus as any);
-  return { bus, elapsedMs: Date.now() - started };
+  const r = await runTask({
+    streaming: opts.streaming,
+    events: opts.events,
+    usage: opts.usage ?? [],
+    ...(opts.fail ? { fail: opts.fail } : {}),
+    copilot: { model: "gpt-4.1" },
+  });
+  return { summary: r.summary, elapsedMs: r.elapsedMs };
 }
 
 const types = (r: Collected[]) => r.map((e) => e.eventType);
@@ -271,30 +181,35 @@ describe("HTTP event transport carries lifecycle and usage (#56)", () => {
 
   it("does not let an unresponsive collector stall task completion", async () => {
     const { url } = await startCollector({ hang: true });
-    const { bus, elapsedMs } = await run({
+    const { summary, elapsedMs } = await run({
       streaming: true,
       events: { enabled: true, transport: "http", httpUrl: url, httpTimeout: 10_000 },
       usage: [usagePayload()],
     });
     // The terminal emit is capped at 2s; the default HTTP timeout alone would be 10s.
     expect(elapsedMs).toBeLessThan(5_000);
-    expect(bus.finished).toHaveBeenCalled();
+    expect(summary.at(-1)).toMatchObject({ k: "status", state: "completed" });
   }, 15_000);
 });
 
 describe("A2A transport (default) and the existing x-usage path", () => {
   it("publishes trace.lifecycle artifacts and keeps x-usage on the completed status", async () => {
-    const { bus } = await run({ streaming: true, events: { enabled: true, transport: "a2a" }, usage: [usagePayload()] });
+    const { summary } = await run({ streaming: true, events: { enabled: true, transport: "a2a" }, usage: [usagePayload()] });
 
-    const lifecycle = bus.events
-      .filter((e: any) => e?.kind === "artifactUpdate" && e.data?.artifact?.name === "trace.lifecycle")
-      .map((e: any) => e.data.artifact.parts[0].content.value);
+    const lifecycle = summary
+      .filter((e: any) => e.k === "artifact" && e.name === "trace.lifecycle")
+      .map((e: any) => e.parts[0].data);
     expect(lifecycle.map((d: any) => d.state)).toEqual(["started", "finished"]);
     expect(lifecycle[1].usage.llmCalls).toBe(1);
 
-    const completed = bus.events.find(
-      (e: any) => e?.kind === "statusUpdate" && e.data?.metadata?.["x-usage"],
-    );
-    expect(completed?.data.metadata["x-usage"].llmCalls).toBe(1);
+    const completed = summary.find((e: any) => e.k === "status" && e.usage) as any;
+    expect(completed?.usage.llmCalls).toBe(1);
+  });
+
+  it("on failure publishes started then error on the A2A transport, and a failed status", async () => {
+    const { summary } = await run({ streaming: false, events: { enabled: true, transport: "a2a" }, usage: [], fail: new Error("boom") });
+    const lifecycle = summary.filter((e: any) => e.k === "artifact" && e.name === "trace.lifecycle").map((e: any) => e.parts[0].data.state);
+    expect(lifecycle).toEqual(["started", "error"]);
+    expect(summary.at(-1)).toMatchObject({ k: "status", state: "failed", text: "Error: boom" });
   });
 });

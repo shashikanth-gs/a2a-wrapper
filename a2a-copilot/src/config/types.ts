@@ -8,6 +8,7 @@
 import type {
   AgentCardConfig,
   EventsConfig,
+  InteractionsConfig,
   MemoryConfig,
   OtelCopilotConfig,
   SubAgentsConfig,
@@ -15,7 +16,7 @@ import type {
 
 // ─── Agent Card Config ──────────────────────────────────────────────────────
 
-export type { AgentCardConfig, SkillConfig } from "@a2a-wrapper/core";
+export type { AgentCardConfig, SkillConfig, InteractionsConfig } from "@a2a-wrapper/core";
 
 // ─── Server Config ──────────────────────────────────────────────────────────
 
@@ -227,6 +228,12 @@ export interface FeatureFlags {
 export interface TimeoutConfig {
   /** Timeout for a single prompt in ms (default: 600_000 = 10 min) */
   prompt?: number;
+  /**
+   * How long a `steer` waits for Copilot to report how it delivered the message, in ms (default: 5_000). The report
+   * comes when Copilot consumes the message, which can be long after the send; without it the message is answered as
+   * queued by Copilot and joins the task when it starts.
+   */
+  steerAck?: number;
 }
 
 // ─── Logging Config ─────────────────────────────────────────────────────────
@@ -338,6 +345,13 @@ export interface AgentConfig {
   customAgents?: CustomAgentConfig[];
   /** Event transport configuration for sideband observability events. */
   events?: EventsConfig;
+  /**
+   * Whether a person is asked when Copilot wants to run a command, write a file or call a tool (permission requests) or asks
+   * a question (`ask_user`), and for how long. The default (`mode: "auto"`, no rules) is the headless behaviour this wrapper
+   * has always had: nobody is asked and every permission is approved. With `mode: "ask"`, what no `autoAnswer` rule answers
+   * reaches the A2A client as `input-required` and the task resumes on the reply.
+   */
+  interactions?: InteractionsConfig;
   /**
    * Optional memory configuration for persisting instructions and skills.
    * When present, the materializer writes these to backend-specific paths

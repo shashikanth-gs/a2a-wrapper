@@ -9,11 +9,11 @@
 
 import { createRequire } from "node:module";
 import express from "express";
-import { createA2AServer as coreCreateA2AServer, buildAgentCard } from "@a2a-wrapper/core";
-import type { ServerHandle as CoreServerHandle } from "@a2a-wrapper/core";
+import { createProviderServer, buildAgentCard } from "@a2a-wrapper/core";
+import type { ProviderServerHandle, RunStore, EventTransport, EventTransportFn, InteractionPolicy } from "@a2a-wrapper/core";
 
 import type { AgentConfig } from "../config/types.js";
-import { CopilotExecutor } from "../copilot/executor.js";
+import { CopilotProvider } from "../copilot/provider.js";
 import { logger } from "../utils/logger.js";
 
 const log = logger.child("server");
@@ -21,21 +21,54 @@ const { name: WRAPPER_SDK, version: WRAPPER_SDK_VERSION } = createRequire(import
   "../../package.json",
 ) as { name: string; version: string };
 
-export interface ServerHandle extends Omit<CoreServerHandle, "executor"> {
-  executor: CopilotExecutor;
+export interface ServerHandle extends ProviderServerHandle {
+  provider: CopilotProvider;
+}
+
+/** Programmatic options (not configuration): things a file cannot express. */
+export interface CopilotServerOptions {
+  /**
+   * Where context bindings (contextId to Copilot session) and run records live. The default is in memory: a restart then
+   * forgets which Copilot session belongs to a context. Pass a persistent `RunStore` to resume conversations across restarts.
+   */
+  runStore?: RunStore;
+  /** Custom sideband event transport (Kafka, Redis, ...). */
+  eventTransport?: EventTransport | EventTransportFn;
+}
+
+/** The interaction policy of a config: only what the operator set; core fills the defaults. */
+export function interactionPolicyOf(config: Required<AgentConfig>): Partial<InteractionPolicy> {
+  const i = config.interactions;
+  if (!i) return {};
+  return {
+    ...(i.mode !== undefined ? { mode: i.mode } : {}),
+    ...(i.timeoutMs !== undefined ? { timeoutMs: i.timeoutMs } : {}),
+    ...(i.authTimeoutMs !== undefined ? { authTimeoutMs: i.authTimeoutMs } : {}),
+    ...(i.onTimeout !== undefined ? { onTimeout: i.onTimeout } : {}),
+    ...(i.autoAnswer !== undefined ? { autoAnswer: i.autoAnswer as InteractionPolicy["autoAnswer"] } : {}),
+  };
 }
 
 /**
  * Create, wire, and start the A2A server.
  * Returns a handle that can be used to shut down.
  */
-export async function createA2AServer(config: Required<AgentConfig>): Promise<ServerHandle> {
-  const handle = await coreCreateA2AServer<Required<AgentConfig>>(config, (cfg) => new CopilotExecutor(cfg), {
+export async function createA2AServer(config: Required<AgentConfig>, options: CopilotServerOptions = {}): Promise<ServerHandle> {
+  const provider = new CopilotProvider(config, { ...(options.eventTransport ? { eventTransport: options.eventTransport } : {}) });
+  const ttl = config.session.ttl ?? 3_600_000;
+  const handle = await createProviderServer<Required<AgentConfig>>(config, provider, {
     protocolVersion: "1.0",
     wrapperName: WRAPPER_SDK,
     wrapperVersion: WRAPPER_SDK_VERSION,
-    registerRoutes: (app, executor) => {
-      const copilotExecutor = executor as CopilotExecutor;
+    ...(options.eventTransport ? { eventTransport: options.eventTransport } : {}),
+    registry: {
+      interactionPolicy: interactionPolicyOf(config),
+      // A context binding unused for `session.ttl` is forgotten, as a session older than the TTL always was.
+      ...(config.session.reuseByContext !== false && ttl > 0 ? { bindingTtlMs: ttl } : {}),
+      ...(options.runStore ? { store: options.runStore } : {}),
+    },
+    registerRoutes: (app) => {
+      const copilotExecutor = provider;
 
       // GET /context — return the context.md file as markdown
       app.get("/context", async (_req, res) => {
@@ -95,7 +128,7 @@ export async function createA2AServer(config: Required<AgentConfig>): Promise<Se
 
   return {
     ...handle,
-    executor: handle.executor as CopilotExecutor,
+    provider,
     async shutdown() {
       await handle.shutdown();
       log.info("Server shut down");
