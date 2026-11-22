@@ -479,7 +479,7 @@ export class OpenCodeProvider implements ProviderExecutor {
         throw e;
       }
       await client.sessionAbort(ref, this.directory);
-      if (info.reason !== "interrupt") await this.flushInbox(ref);
+      if (info.reason !== "interrupt") await this.cancelHeld(ref, info.heldHandles ?? []);
       const idle = await this.waitIdle(ref, ABORT_IDLE_WAIT_MS);
       log.info("Aborted an orphaned session", { sessionId: ref, taskId: info.taskId, confirmed: idle });
       return { stopped: idle ? "confirmed" : "unconfirmed", session: "reusable" };
@@ -489,16 +489,15 @@ export class OpenCodeProvider implements ProviderExecutor {
     }
   }
 
-  /** Cancel everything parked in a session's inbox (2.x). */
-  private async flushInbox(sessionId: string): Promise<void> {
+  /**
+   * Cancel exactly the inbox items core says this run held (2.x): the session may be shared with a person, so the rest of its
+   * inbox is not ours to flush.
+   */
+  private async cancelHeld(sessionId: string, handles: readonly string[]): Promise<void> {
     const client = this.client;
-    if (!client?.inboxList || !client.inboxCancel) return;
-    try {
-      for (const item of await client.inboxList(sessionId, this.directory)) {
-        await client.inboxCancel(sessionId, item.id, this.directory).catch((e: Error) => log.debug("Cancelling an inbox item failed", { error: e.message }));
-      }
-    } catch (e) {
-      log.debug("Listing the inbox failed", { error: (e as Error).message });
+    if (!client?.inboxCancel) return;
+    for (const handle of handles) {
+      await client.inboxCancel(sessionId, handle, this.directory).catch((e: Error) => log.debug("Cancelling an inbox item failed", { handle, error: e.message }));
     }
   }
 

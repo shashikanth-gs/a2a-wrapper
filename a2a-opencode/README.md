@@ -381,7 +381,7 @@ on a fresh session.
 With a durable store a restart is also handled on the server side: **a task that was running when the wrapper died is still being
 worked on by the OpenCode server**, so at start-up core calls the provider's `abortOrphan` for it, which stops the session by id
 (`POST /session/:id/abort`, 2.x `interrupt`) and reports the abort confirmed only when the server says the session is idle (a
-cancel also empties the session's inbox on 2.x). A binding whose session the server no longer has is dropped when its context is
+cancel also cancels the inbox items core says that run held, and only those, on 2.x). A binding whose session the server no longer has is dropped when its context is
 next used (or at start-up with core's `validateBindingsOnStart`, which asks the server with `GET` on the session).
 
 The system prompt (`opencode.systemPrompt`) goes into the first message of a session; the binding remembers that it was sent, so a
@@ -466,9 +466,13 @@ OpenCode's `question` tool through the A2A client instead:
 - `timeoutMs` (default 10 minutes) and `onTimeout`: `fail` (default) ends the task, `deny` lets the run go on with the request
   rejected. The prompt timeout (`timeouts.prompt`) does not run while a person decides, and starts again afterwards.
 - Also `--interactions ask` and `INTERACTIONS_MODE=ask`.
-- Limitations: permissions raised by sub-sessions OpenCode creates itself (its built-in `task` tool) are not routed (they are not
-  events of the task's session). After a wrapper restart a task waiting for an answer fails with "server restarted" and its
-  session is stopped by `abortOrphan`.
+- **Sub-agents are covered.** OpenCode's built-in `task` tool creates a sub-session whose permission requests and questions carry
+  the CHILD session id. The turn follows the session's `parentID` chain (at most 5 lookups, cached per turn, a cycle ends the walk)
+  and, when it leads to the task's session, routes the request exactly like the task's own: through `interactions`, tagged
+  ("Allow bash? (sub-agent: Explore ...)", `subject.detail.subSession`), and answered on the child's request id. A chain that cannot be
+  resolved (the lookup fails, or it is deeper than 5) is **denied** in `ask` mode and gets the wrapper's own answer in `auto` mode
+  (as before); requests of unrelated sessions are ignored. Usage of sub-sessions is not counted (see Usage and cost).
+- After a wrapper restart a task waiting for an answer fails with "server restarted" and its session is stopped by `abortOrphan`.
 
 ## Usage and cost
 
@@ -504,8 +508,10 @@ in the task's own session; calls made by sub-sessions OpenCode spawns itself are
   status also carries `x-usage` and `urn:a2a-wrapper:usage:v1` (it carried no usage metadata before); a failed status carries `code`
   (`backend`, `unavailable`, `auth`); the `agent_started` lifecycle event follows the opening of the session (it used to precede
   it); a canceled or interrupted task closes its lifecycle with one `agent_error` ("Task canceled" / "Turn interrupted"); the context now survives a wrapper restart when a durable store is supplied; and a pending permission request or
-  question of another session is no longer answered by this task (the old start-up poll answered every pending request of the
+  question of an UNRELATED session is no longer answered by this task (the old start-up poll answered every pending request of the
   server).
+- A canceled or interrupted task now closes its lifecycle with one `agent_error` (`"Task canceled"` / `"Turn interrupted"`), and the
+  `agent_started` lifecycle event now follows the opening of the session (it used to precede it).
 
 ## Bundled Agent Examples
 

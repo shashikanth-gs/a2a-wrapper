@@ -280,6 +280,7 @@ describe("Test 2d — a2a-opencode Runtime Preservation", () => {
       "__tests__/provider-interactions.test.ts",
       "__tests__/provider-sessions.test.ts",
       "__tests__/provider-steering.test.ts",
+      "__tests__/provider-subsessions.test.ts",
       "__tests__/schema-up-to-date.test.ts",
       "__tests__/smoke.test.ts",
       "__tests__/sub-agents.test.ts",
@@ -326,6 +327,6 @@ describe("Test 2d — a2a-opencode Runtime Preservation", () => {
     }
 
     // Verify the number of files matches our expected count
-    expect(Object.keys(hashMap)).toHaveLength(48);
+    expect(Object.keys(hashMap)).toHaveLength(49);
   });
 });

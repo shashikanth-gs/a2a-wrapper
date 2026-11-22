@@ -53,6 +53,10 @@ export interface FakeReply {
 export class FakeBackend {
   readonly kind: "v1" | "v2";
   readonly sessions = new Map<string, { id: string; title?: string; opts?: Json }>();
+  /** Child session id to its parent (what `sessionGet` reports as `parentID`). */
+  readonly parents = new Map<string, string>();
+  /** Session ids whose lookup fails. */
+  readonly failLookup = new Set<string>();
   /** Every call, in order, as `name:arg`. */
   readonly calls: string[] = [];
   readonly prompts: Array<{ sessionId: string; body: Json; inboxId?: string; delivery?: string }> = [];
@@ -122,8 +126,10 @@ export class FakeBackend {
 
   async sessionGet(sessionID: string) {
     this.calls.push(`sessionGet:${sessionID}`);
+    if (this.failLookup.has(sessionID)) throw new Error("fetch failed");
     if (!this.sessions.has(sessionID)) throw notFound(sessionID);
-    return { id: sessionID } as never;
+    const parentID = this.parents.get(sessionID);
+    return { id: sessionID, title: this.sessions.get(sessionID)?.title, ...(parentID ? { parentID } : {}) } as never;
   }
 
   async sessionAbort(sessionID: string) {

@@ -296,7 +296,7 @@ export class OpenCodeClientV2 implements OpenCodeBackend {
 
   async sessionGet(sessionID: string, _directory?: string): Promise<Session> {
     const s = (await this.call("session.get", () => this.sdk.session.get({ sessionID }))) as Json;
-    return { id: s.id, title: s.title } as unknown as Session;
+    return { id: s.id, title: s.title, ...(s.parentID ? { parentID: s.parentID } : {}) } as unknown as Session;
   }
 
   /** `interrupt` with `resume: false`: the running work stops and nothing parked in the inbox starts. */

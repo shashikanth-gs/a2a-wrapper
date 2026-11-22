@@ -230,3 +230,22 @@ describe("the end of an execution that is not ours", () => {
     expect(JSON.stringify(events.map(summarizeEvent))).toContain("the real answer");
   });
 });
+
+describe("a delivery announced before the prompt call returns", () => {
+  it("is `inserted` at once (the event beat the response), not queued after the window", async () => {
+    const h = boot({ steerAck: 30 });
+    const { live, taskId } = await startRunning(h);
+    const orig = h.backend.sessionPromptAsync.bind(h.backend);
+    h.backend.sessionPromptAsync = async (...a: Parameters<typeof orig>) => {
+      const r = (await orig(...a)) as { inboxId?: string };
+      if (a[1].delivery === "steer") {
+        h.backend.emit({ type: "session.inbox.delivered", properties: { sessionID: "ses_1", inboxID: r.inboxId } });
+        await sleep(25); // the stream handles the event before the call returns
+      }
+      return r as never;
+    };
+    expect(await steerWith(h, taskId, "steer", "early")).toMatchObject({ state: "inserted" });
+    finish(h.backend, "ok");
+    await live.done;
+  });
+});

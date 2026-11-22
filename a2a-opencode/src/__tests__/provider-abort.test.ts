@@ -132,13 +132,17 @@ describe("abortOrphan: the SERVER session outlives the wrapper", () => {
     expect(h.backend.calls).toContain("sessionAbort:ses_9");
   });
 
-  it("a cancel also empties the session inbox (steered messages that never ran); an interrupt leaves it", async () => {
+  it("a cancel cancels exactly the held handles core names (the rest of the inbox is not ours); an interrupt cancels none", async () => {
     const h = serve(ctx.config, { kind: "v2", existingSessions: ["ses_9"] });
-    h.backend.inbox.set("m1", { id: "m1", sessionId: "ses_9", text: "parked", delivery: "steer" });
-    await h.provider.abortOrphan(orphan("ses_9", "interrupt"));
+    h.backend.inbox.set("m1", { id: "m1", sessionId: "ses_9", text: "ours", delivery: "steer" });
+    h.backend.inbox.set("m2", { id: "m2", sessionId: "ses_9", text: "a person typed this", delivery: "queue" });
+    await h.provider.abortOrphan({ ...orphan("ses_9", "interrupt"), heldHandles: ["m1"] });
     expect(h.backend.calls).not.toContain("inboxCancel:m1");
-    await h.provider.abortOrphan(orphan("ses_9", "cancel"));
-    expect(h.backend.calls).toContain("inboxCancel:m1");
+    await h.provider.abortOrphan(orphan("ses_9", "cancel")); // no handles known: nothing to cancel
+    expect(h.backend.calls.filter((c) => c.startsWith("inboxCancel"))).toEqual([]);
+    await h.provider.abortOrphan({ ...orphan("ses_9", "cancel"), heldHandles: ["m1"] });
+    expect(h.backend.calls.filter((c) => c.startsWith("inboxCancel"))).toEqual(["inboxCancel:m1"]);
+    expect(h.backend.inbox.has("m2")).toBe(true);
   });
 
   it("unconfirmed when the server does not go idle", async () => {

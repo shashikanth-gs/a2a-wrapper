@@ -1437,8 +1437,8 @@ failed status). What a real 2.3.2 server does (measured, not read from the types
 - **Abort and orphans.** `abort` stops the session's work (1.x `POST /session/:id/abort`, 2.x `POST /api/session/:id/interrupt?resume=false`: a
   parked inbox item must not start by itself) and is `confirmed` only when the server says the session is idle (the stream's idle event, else the
   server's own status, within 3 s), always `reusable`; a rejected abort makes core discard the binding. `abortOrphan` is real here, unlike
-  Copilot and Claude: the session outlives the wrapper process and keeps working, so it is `GET`, abort, empty the inbox on a cancel (all
-  pending items of the session: after a restart no handles are known), poll idle: `confirmed`, or `confirmed` / `discard` for a session the server
+  Copilot and Claude: the session outlives the wrapper process and keeps working, so it is `GET`, abort, cancel exactly the inbox items core
+  names in `OrphanInfo.heldHandles` on a cancel (3.18; the session may be shared with a person, so the rest of its inbox is not ours), poll idle: `confirmed`, or `confirmed` / `discard` for a session the server
   does not have, or `unconfirmed` (no reference, or the server never went idle), or the failed outcome when the server refuses. Measured
   with a wrapper killed mid-run: the server session kept running until the restarted wrapper's start-up sweep stopped it.
 - **Steering exists only where the server has it.** A 2.x server admits every prompt to a durable per-session inbox and delivers an item at a step
@@ -1452,6 +1452,14 @@ failed status). What a real 2.3.2 server does (measured, not read from the types
   attributed; measured), on a `cancel` they are cancelled and dropped. OpenCode `queue` delivery is not used: a core `queue` message is core's
   (the next `run`); on a 1.x server `provider.steer` is absent (a getter that answers `undefined` once the backend is known to be 1.x, which core
   reads at call time) and core's fallback says so.
+- **Sub-sessions are routed.** OpenCode's `task` tool creates a sub-session whose permission requests and questions carry the CHILD
+  session id. The turn's event stream delivers those event types whatever session they carry, and the turn resolves each session by its
+  `parentID` chain (`sessionGet`, at most 5 lookups, cached per turn, a cycle ends the walk, a 404 means unrelated). A chain that leads to
+  the task's session is routed through `run.ask` like the task's own request (tagged: title and `subject.detail.subSession`) and answered on
+  the child's request id; a chain that cannot be resolved (the lookup fails, or it is deeper than the bound) is DENIED under `ask` and gets the
+  wrapper's own answer under `auto`; an unrelated session is ignored. The start-up poll applies the same rule. Sub-session usage is NOT
+  counted (its `message.updated` events are not delivered cross-session; counting needs an async parent lookup per event that could land after
+  the turn's `finish`): documented, not fixed.
 - **Interactions.** `permission.asked` and `question.asked` (2.x `form.created`) become `permission` and `question` interactions through `run.ask`,
   decided by the runtime's mode (`CoreRequest.interactionMode`), not by the wrapper's own config. Under `auto` an `unavailable` with code
   `policy-auto` / `interactions-disabled` is answered as the wrapper always did (`always`, first option of every question; the two feature flags

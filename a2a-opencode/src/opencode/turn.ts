@@ -45,7 +45,8 @@ import { v4 as uuidv4 } from "uuid";
 import type { AgentConfig } from "../config/types.js";
 import { createDeferred, sleep } from "../utils/deferred.js";
 import { logger } from "../utils/logger.js";
-import { OpenCodeAuthError, type OpenCodeBackend, type PromptBody } from "./backend.js";
+import type { SubSessionOrigin } from "./interactions.js";
+import { OpenCodeAuthError, isSessionNotFound, type OpenCodeBackend, type PromptBody } from "./backend.js";
 import { EventStreamManager, type ReconnectConfig } from "./event-stream.js";
 import {
   legacyPermissionReply,
@@ -91,6 +92,14 @@ export function extractResponseText(msgs: ReadonlyArray<{ info: unknown; parts: 
   }
   return "";
 }
+
+/** How deep a chain of sub-sessions is followed to the task's session. Deeper than this cannot be confirmed. */
+export const MAX_SESSION_DEPTH = 5;
+
+/** What the model is told when a request could not be placed in the task. */
+const UNROUTED_MESSAGE = "The request came from a session that could not be matched to the task, so it was denied.";
+
+type Relation = { kind: "own" } | { kind: "child"; title?: string } | { kind: "unrelated" } | { kind: "unknown" };
 
 /** What a turn needs from the provider. */
 export interface TurnOptions {
@@ -159,6 +168,8 @@ export class OpenCodeTurn {
   private readonly handledAsks = new Set<string>();
   private readonly pendingAsks = new Map<string, AbortController>();
   private pausedAsks = 0;
+  /** Session id to its relation to the task's session (only settled answers are kept). */
+  private readonly relations = new Map<string, Relation>();
 
   constructor(private readonly opts: TurnOptions) {
     this.cfg = opts.config;
@@ -237,6 +248,9 @@ export class OpenCodeTurn {
       sessionFilter: this.sessionId,
       directory: dir,
       reconnect: this.opts.reconnect ?? { maxRetries: 5, initialDelay: 1_000 },
+      // Requests of the sub-sessions OpenCode creates for this task (its `task` tool) belong to the task: they are delivered
+      // whatever session they carry, and the turn decides by the session's parent chain whether it is its own.
+      crossSessionTypes: ["permission.asked", "question.asked", "permission.replied", "question.replied", "question.rejected"],
     });
     this.stream = stream;
     this.attachHandlers(stream);
@@ -370,11 +384,11 @@ export class OpenCodeTurn {
 
     stream.on("permission.asked", (event) => {
       const req = props(event) as unknown as PermissionRequest;
-      if (req?.id) void this.handlePermission(req);
+      if (req?.id) void this.handlePermission(req).catch((e) => log.warn("Permission handling failed", { error: (e as Error).message }));
     });
     stream.on("question.asked", (event) => {
       const req = props(event) as unknown as QuestionRequest;
-      if (req?.id) void this.handleQuestion(req);
+      if (req?.id) void this.handleQuestion(req).catch((e) => log.warn("Question handling failed", { error: (e as Error).message }));
     });
     // Answered elsewhere (a reject cancels every pending request of the session; a person may answer in the TUI): withdraw the ask.
     const withdraw = (event: OpenCodeEvent): void => {
@@ -606,12 +620,25 @@ export class OpenCodeTurn {
   /** A permission request: ask through core, or (nobody is asked) answer as the wrapper always did. */
   private async handlePermission(req: PermissionRequest): Promise<void> {
     if (this.handledAsks.has(req.id)) return;
+    const rel = await this.relationOf(req.sessionID);
+    if (rel.kind === "unrelated") return; // another task's or a person's session: not ours to answer
+    if (this.handledAsks.has(req.id)) return;
     this.handledAsks.add(req.id);
+    if (rel.kind === "unknown") {
+      // Cannot tell whose session it is. Never approve in ask mode; keep the wrapper's own answer otherwise.
+      const reply = this.opts.interactions === "ask" ? "reject" : legacyPermissionReply(this.autoApprove);
+      log.warn("Permission request of a session that could not be placed", { id: req.id, session: req.sessionID, reply });
+      await this.backend
+        .permissionReply(req.id, reply, this.directory, reply === "reject" ? UNROUTED_MESSAGE : undefined)
+        .catch(() => this.handledAsks.delete(req.id));
+      return;
+    }
+    const origin: SubSessionOrigin | undefined = rel.kind === "child" ? { sessionId: req.sessionID, ...(rel.title ? { title: rel.title } : {}) } : undefined;
     const ac = new AbortController();
     this.pendingAsks.set(req.id, ac);
     let reply: { reply: ReturnType<typeof legacyPermissionReply>; message?: string };
     try {
-      const result = await this.ask(permissionInteraction(req), { signal: ac.signal });
+      const result = await this.ask(permissionInteraction(req, origin), { signal: ac.signal });
       if (this.opts.interactions !== "ask" && nobodyWasAsked(result)) reply = { reply: legacyPermissionReply(this.autoApprove) };
       else reply = permissionReply(result);
     } catch (e) {
@@ -634,12 +661,24 @@ export class OpenCodeTurn {
   /** A question (the question tool, or a 2.x form): ask through core, or (nobody is asked) answer as the wrapper always did. */
   private async handleQuestion(req: QuestionRequest): Promise<void> {
     if (this.handledAsks.has(req.id)) return;
+    const rel = await this.relationOf(req.sessionID);
+    if (rel.kind === "unrelated") return;
+    if (this.handledAsks.has(req.id)) return;
     this.handledAsks.add(req.id);
+    if (rel.kind === "unknown") {
+      log.warn("Question of a session that could not be placed", { id: req.id, session: req.sessionID });
+      const legacy = this.opts.interactions !== "ask" && this.autoAnswer;
+      await (legacy ? this.backend.questionReply(req.id, legacyQuestionAnswers(req), this.directory) : this.backend.questionReject(req.id, this.directory)).catch(() =>
+        this.handledAsks.delete(req.id),
+      );
+      return;
+    }
+    const origin: SubSessionOrigin | undefined = rel.kind === "child" ? { sessionId: req.sessionID, ...(rel.title ? { title: rel.title } : {}) } : undefined;
     const ac = new AbortController();
     this.pendingAsks.set(req.id, ac);
     let answers: string[][] | undefined;
     try {
-      const result = await this.ask(questionInteraction(req), { signal: ac.signal });
+      const result = await this.ask(questionInteraction(req, origin), { signal: ac.signal });
       if (this.opts.interactions !== "ask" && nobodyWasAsked(result)) answers = this.autoAnswer ? legacyQuestionAnswers(req) : undefined;
       else answers = questionAnswers(result, req);
     } catch (e) {
@@ -659,6 +698,42 @@ export class OpenCodeTurn {
     }
   }
 
+  /**
+   * Does this session belong to the task? Its own, or a sub-session whose `parentID` chain leads to it (cached per turn, at most
+   * {@link MAX_SESSION_DEPTH} lookups, a cycle ends the walk). A lookup that fails, or a chain too deep to confirm, is `unknown`.
+   */
+  private async relationOf(sessionId: string | undefined): Promise<Relation> {
+    if (!sessionId || sessionId === this.sessionId) return { kind: "own" };
+    const cached = this.relations.get(sessionId);
+    if (cached) return cached;
+    const seen = new Set<string>();
+    let cur = sessionId;
+    let title: string | undefined;
+    for (let depth = 0; depth < MAX_SESSION_DEPTH; depth++) {
+      if (seen.has(cur)) return this.settle(sessionId, { kind: "unrelated" });
+      seen.add(cur);
+      let info: { title?: string; parentID?: string };
+      try {
+        info = (await this.backend.sessionGet(cur, this.directory)) as unknown as { title?: string; parentID?: string };
+      } catch (e) {
+        // A session the server does not have cannot be a child of ours.
+        if (isSessionNotFound(e)) return this.settle(sessionId, { kind: "unrelated" });
+        log.warn("Could not look up a session", { session: cur, error: (e as Error).message });
+        return { kind: "unknown" };
+      }
+      if (depth === 0) title = typeof info.title === "string" ? info.title : undefined;
+      if (!info.parentID) return this.settle(sessionId, { kind: "unrelated" });
+      if (info.parentID === this.sessionId) return this.settle(sessionId, { kind: "child", ...(title ? { title } : {}) });
+      cur = info.parentID;
+    }
+    return { kind: "unknown" };
+  }
+
+  private settle(sessionId: string, r: Relation): Relation {
+    this.relations.set(sessionId, r);
+    return r;
+  }
+
   /** Safety net: requests the stream missed (it was reconnecting) are still pending on the server. Only this session's. */
   private async handlePending(): Promise<void> {
     try {
@@ -666,8 +741,10 @@ export class OpenCodeTurn {
         this.backend.permissionList(this.directory),
         this.backend.questionList(this.directory),
       ]);
-      for (const p of perms) if (p.sessionID === this.sessionId) void this.handlePermission(p);
-      for (const q of qs) if (q.sessionID === this.sessionId) void this.handleQuestion(q);
+      await Promise.all([
+        ...perms.map((p) => this.handlePermission(p).catch(() => undefined)),
+        ...qs.map((q) => this.handleQuestion(q).catch(() => undefined)),
+      ]);
     } catch (e) {
       log.warn("Pending poll failed", { error: (e as Error).message });
     }

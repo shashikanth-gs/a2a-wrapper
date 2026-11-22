@@ -63,7 +63,16 @@ function subjectOf(req: PermissionRequest): InteractionSubject {
 }
 
 /** A permission request as a core `permission` interaction. */
-export function permissionInteraction(req: PermissionRequest): CoreInteractionRequest {
+/** A request that comes from a sub-session OpenCode created for the task (its `task` tool): who is asking. */
+export interface SubSessionOrigin {
+  sessionId: string;
+  /** The sub-session's title, which names the sub-agent ("... (@explore subagent)"). */
+  title?: string;
+}
+
+const originMeta = (o: SubSessionOrigin): JsonObject => json({ subSession: { id: o.sessionId, title: o.title } });
+
+export function permissionInteraction(req: PermissionRequest, origin?: SubSessionOrigin): CoreInteractionRequest {
   const name = String(req.permission ?? "a tool");
   const always = (Array.isArray(req.always) ? req.always : []).filter((p): p is string => typeof p === "string");
   const message = str((req as unknown as { message?: unknown }).message);
@@ -74,9 +83,9 @@ export function permissionInteraction(req: PermissionRequest): CoreInteractionRe
   ];
   return {
     kind: "permission",
-    title: `Allow ${name}?`,
+    title: origin ? `Allow ${name}? (sub-agent${origin.title ? `: ${origin.title}` : ""})` : `Allow ${name}?`,
     description: lines.join("\n").slice(0, 4000),
-    subject: subjectOf(req),
+    subject: origin ? { ...subjectOf(req), detail: { ...(subjectOf(req).detail ?? {}), ...originMeta(origin) } } : subjectOf(req),
     options: [ONCE, ALWAYS, REJECT],
   } as CoreInteractionRequest;
 }
@@ -115,7 +124,7 @@ export function legacyPermissionReply(autoApprove: boolean): PermissionReplyValu
 // ─── Questions ──────────────────────────────────────────────────────────────
 
 /** A question request as a core `question` interaction (one core question per OpenCode question). */
-export function questionInteraction(req: QuestionRequest): CoreInteractionRequest {
+export function questionInteraction(req: QuestionRequest, origin?: SubSessionOrigin): CoreInteractionRequest {
   const items = req.questions ?? [];
   const questions: Question[] = items.map((item, i) => ({
     id: `q${i}`,
@@ -135,7 +144,8 @@ export function questionInteraction(req: QuestionRequest): CoreInteractionReques
   }));
   return {
     kind: "question",
-    title: items.length === 1 ? String(items[0]!.question ?? "OpenCode has a question") : "OpenCode has some questions",
+    title: (items.length === 1 ? String(items[0]!.question ?? "OpenCode has a question") : "OpenCode has some questions") + (origin ? " (sub-agent)" : ""),
+    ...(origin ? { meta: originMeta(origin) } : {}),
     questions: questions as unknown as readonly [Question, ...Question[]],
   } as CoreInteractionRequest;
 }
