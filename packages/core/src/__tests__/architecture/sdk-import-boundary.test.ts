@@ -26,15 +26,11 @@ import {
 /** Repo-relative source files (src, tests included) allowed to import the SDK. */
 const ALLOWED_SOURCE_FILES: readonly string[] = [
   "a2a-antigravity/src/antigravity/executor.ts",
-
-  "a2a-codex/src/codex/executor.ts",
-  "a2a-codex/src/__tests__/cancel-task.test.ts",
 ];
 
 /** Repo-relative package.json files allowed to declare the SDK as a dependency. */
 const ALLOWED_PACKAGE_JSON: readonly string[] = [
   "a2a-antigravity/package.json",
-  "a2a-codex/package.json",
 ];
 
 const SDK = "@a2a-js/sdk";

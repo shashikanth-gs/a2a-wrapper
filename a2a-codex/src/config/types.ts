@@ -125,11 +125,25 @@ export interface CodexConfig {
 
 export interface SessionConfig {
   titlePrefix?: string;
-  /** Reuse sessions by A2A contextId (default: true) */
+  /** Resume the Codex thread of a context on its next message (default: true). With false every task starts a new thread. */
   reuseByContext?: boolean;
-  /** Session TTL in ms (default: 3_600_000 = 1 hour) */
+  /**
+   * Maximum age of a context's Codex thread in ms, measured from when the thread was created, not from last use. A
+   * context resumes its thread only while the thread is younger than this; after that its next message starts a new thread.
+   * 0 or less means a context never reuses a thread.
+   * @default 3600000
+   */
   ttl?: number;
-  /** Session cleanup interval in ms (default: 300_000 = 5 min) */
+  /**
+   * Optional idle expiry in ms, measured from the last use of a context (unset by default: a context that keeps being used
+   * is only limited by `ttl`). A context unused for this long starts a new thread on its next message.
+   */
+  idleTtl?: number;
+  /**
+   * How often the background sweep forgets the bindings of contexts unused for longer than `ttl`, in ms (the threads
+   * stay on disk). 0 or less disables it, leaving expiry to the check made when the context is next used.
+   * @default 300000
+   */
   cleanupInterval?: number;
 }
 

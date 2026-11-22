@@ -1,0 +1,2368 @@
+{
+  "plain-answer": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "test-agent",
+              "agent_name": "Test Agent",
+              "trace_id": "ctx-g",
+              "event_id": "d9bd4f3c-ed7d-456e-970c-b65806c0e23d",
+              "state": "started",
+              "backend": "codex"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "test-agent",
+              "agent_name": "Test Agent",
+              "trace_id": "ctx-g",
+              "event_id": "a54f510f-3468-4142-a706-8920a05c301d",
+              "state": "finished",
+              "backend": "codex",
+              "usage": {
+                "input_tokens": 100,
+                "cached_input_tokens": 40,
+                "output_tokens": 20,
+                "reasoning_output_tokens": 5
+              }
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "text": "Hello there"
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "completed",
+        "metaKeys": [
+          "x-usage"
+        ],
+        "usage": {
+          "inputTokens": 100,
+          "outputTokens": 20,
+          "cacheReadTokens": 40,
+          "cacheWriteTokens": 0,
+          "reasoningTokens": 5,
+          "durationMs": 0,
+          "llmCalls": 1,
+          "model": "m",
+          "cost": null,
+          "calls": [
+            {
+              "model": "m",
+              "inputTokens": 100,
+              "outputTokens": 20,
+              "cacheReadTokens": 40,
+              "cacheWriteTokens": 0,
+              "reasoningTokens": 5,
+              "durationMs": 0,
+              "timeToFirstTokenMs": null,
+              "cost": null,
+              "apiEndpoint": null,
+              "initiator": "codex"
+            }
+          ]
+        }
+      }
+    ],
+    "blocking": {
+      "state": "completed",
+      "artifacts": [
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "response",
+          "text": "Hello there",
+          "parts": 1
+        }
+      ],
+      "metaKeys": [
+        "x-usage"
+      ]
+    }
+  },
+  "streamed-chunks": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "test-agent",
+              "agent_name": "Test Agent",
+              "trace_id": "ctx-g",
+              "event_id": "e3042c89-3ea1-4583-88c4-820de27a1244",
+              "state": "started",
+              "backend": "codex"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": true,
+        "lastChunk": false,
+        "parts": [
+          {
+            "text": "Hel"
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": true,
+        "lastChunk": false,
+        "parts": [
+          {
+            "text": "lo wor"
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": true,
+        "lastChunk": false,
+        "parts": [
+          {
+            "text": "ld"
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "test-agent",
+              "agent_name": "Test Agent",
+              "trace_id": "ctx-g",
+              "event_id": "cebe4512-f837-42a8-b1d1-a1c901f54c57",
+              "state": "finished",
+              "backend": "codex",
+              "usage": {
+                "input_tokens": 100,
+                "cached_input_tokens": 40,
+                "output_tokens": 20,
+                "reasoning_output_tokens": 5
+              }
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": true,
+        "lastChunk": true,
+        "parts": [
+          {
+            "text": "Hello world"
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "completed",
+        "metaKeys": [
+          "x-usage"
+        ],
+        "usage": {
+          "inputTokens": 100,
+          "outputTokens": 20,
+          "cacheReadTokens": 40,
+          "cacheWriteTokens": 0,
+          "reasoningTokens": 5,
+          "durationMs": 0,
+          "llmCalls": 1,
+          "model": "m",
+          "cost": null,
+          "calls": [
+            {
+              "model": "m",
+              "inputTokens": 100,
+              "outputTokens": 20,
+              "cacheReadTokens": 40,
+              "cacheWriteTokens": 0,
+              "reasoningTokens": 5,
+              "durationMs": 0,
+              "timeToFirstTokenMs": null,
+              "cost": null,
+              "apiEndpoint": null,
+              "initiator": "codex"
+            }
+          ]
+        }
+      }
+    ],
+    "blocking": {
+      "state": "completed",
+      "artifacts": [
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "response",
+          "text": "Hello worldHello world",
+          "parts": 4
+        },
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        }
+      ],
+      "metaKeys": [
+        "x-usage"
+      ]
+    }
+  },
+  "chunks-on-but-no-message": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "test-agent",
+              "agent_name": "Test Agent",
+              "trace_id": "ctx-g",
+              "event_id": "b972f473-4304-47f8-a1a2-b991a4488e95",
+              "state": "started",
+              "backend": "codex"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "test-agent",
+              "agent_name": "Test Agent",
+              "trace_id": "ctx-g",
+              "event_id": "ed4054a7-129b-4903-b8fe-abb52daf496c",
+              "state": "finished",
+              "backend": "codex",
+              "usage": {
+                "input_tokens": 100,
+                "cached_input_tokens": 40,
+                "output_tokens": 20,
+                "reasoning_output_tokens": 5
+              }
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "text": ""
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "completed",
+        "metaKeys": [
+          "x-usage"
+        ],
+        "usage": {
+          "inputTokens": 100,
+          "outputTokens": 20,
+          "cacheReadTokens": 40,
+          "cacheWriteTokens": 0,
+          "reasoningTokens": 5,
+          "durationMs": 0,
+          "llmCalls": 1,
+          "model": "m",
+          "cost": null,
+          "calls": [
+            {
+              "model": "m",
+              "inputTokens": 100,
+              "outputTokens": 20,
+              "cacheReadTokens": 40,
+              "cacheWriteTokens": 0,
+              "reasoningTokens": 5,
+              "durationMs": 0,
+              "timeToFirstTokenMs": null,
+              "cost": null,
+              "apiEndpoint": null,
+              "initiator": "codex"
+            }
+          ]
+        }
+      }
+    ],
+    "blocking": {
+      "state": "completed",
+      "artifacts": [
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "response",
+          "text": "",
+          "parts": 1
+        }
+      ],
+      "metaKeys": [
+        "x-usage"
+      ]
+    }
+  },
+  "two-messages-last-wins": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "test-agent",
+              "agent_name": "Test Agent",
+              "trace_id": "ctx-g",
+              "event_id": "ae3baf06-e17f-4019-a72e-735087d1652a",
+              "state": "started",
+              "backend": "codex"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "test-agent",
+              "agent_name": "Test Agent",
+              "trace_id": "ctx-g",
+              "event_id": "b6ffb31f-6dae-4814-b810-eed711456b4e",
+              "state": "finished",
+              "backend": "codex",
+              "usage": {
+                "input_tokens": 100,
+                "cached_input_tokens": 40,
+                "output_tokens": 20,
+                "reasoning_output_tokens": 5
+              }
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "text": "second"
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "completed",
+        "metaKeys": [
+          "x-usage"
+        ],
+        "usage": {
+          "inputTokens": 100,
+          "outputTokens": 20,
+          "cacheReadTokens": 40,
+          "cacheWriteTokens": 0,
+          "reasoningTokens": 5,
+          "durationMs": 0,
+          "llmCalls": 1,
+          "model": "m",
+          "cost": null,
+          "calls": [
+            {
+              "model": "m",
+              "inputTokens": 100,
+              "outputTokens": 20,
+              "cacheReadTokens": 40,
+              "cacheWriteTokens": 0,
+              "reasoningTokens": 5,
+              "durationMs": 0,
+              "timeToFirstTokenMs": null,
+              "cost": null,
+              "apiEndpoint": null,
+              "initiator": "codex"
+            }
+          ]
+        }
+      }
+    ],
+    "blocking": {
+      "state": "completed",
+      "artifacts": [
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "response",
+          "text": "second",
+          "parts": 1
+        }
+      ],
+      "metaKeys": [
+        "x-usage"
+      ]
+    }
+  },
+  "trace-events": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "test-agent",
+              "agent_name": "Test Agent",
+              "trace_id": "ctx-g",
+              "event_id": "518ffbf8-79f0-4d9c-b450-71182a3ea999",
+              "state": "started",
+              "backend": "codex"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.thinking",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "test-agent",
+              "agent_name": "Test Agent",
+              "trace_id": "ctx-g",
+              "event_id": "c7654f71-73b3-44be-98d1-bc38d22b6fc2",
+              "content": "thinking about it"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.thinking"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.mcp.start",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "test-agent",
+              "agent_name": "Test Agent",
+              "trace_id": "ctx-g",
+              "event_id": "ac21e0a2-1660-4e93-a1ff-7b2fad064c14",
+              "backend": "codex",
+              "toolKind": "shell",
+              "command": "ls -la xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "itemId": "c1"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.mcp.start"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.mcp",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "test-agent",
+              "agent_name": "Test Agent",
+              "trace_id": "ctx-g",
+              "event_id": "38171766-4304-459d-b48b-476f9b21d2ac",
+              "backend": "codex",
+              "toolKind": "shell",
+              "itemId": "c1",
+              "exitCode": 0,
+              "output": "a\nb\nyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\n... [truncated, 10504 total chars]",
+              "status": "completed"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.mcp"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.mcp",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "test-agent",
+              "agent_name": "Test Agent",
+              "trace_id": "ctx-g",
+              "event_id": "33d5ad8f-67c2-4b19-8750-fdfd56d50dec",
+              "backend": "codex",
+              "toolKind": "shell",
+              "itemId": "c2",
+              "exitCode": 1,
+              "output": "token=abc123 secret: s3",
+              "status": "failed"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.mcp"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.decision",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "test-agent",
+              "agent_name": "Test Agent",
+              "trace_id": "ctx-g",
+              "event_id": "72f07964-d05d-4e13-b353-dbf2006edc91",
+              "backend": "codex",
+              "kind": "file_change",
+              "changes": [
+                {
+                  "path": "a.txt",
+                  "kind": "add"
+                },
+                {
+                  "path": "b.txt",
+                  "kind": "update"
+                }
+              ]
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.decision"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.decision",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "test-agent",
+              "agent_name": "Test Agent",
+              "trace_id": "ctx-g",
+              "event_id": "b1a94805-cd02-4098-830a-2e4bd0fe1a60",
+              "backend": "codex",
+              "kind": "todo_list",
+              "items": [
+                {
+                  "text": "one",
+                  "completed": true
+                },
+                {
+                  "text": "two",
+                  "completed": false
+                }
+              ]
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.decision"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.decision",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "test-agent",
+              "agent_name": "Test Agent",
+              "trace_id": "ctx-g",
+              "event_id": "0a5d23ee-1f4e-4067-aff9-a447e89fc68e",
+              "backend": "codex",
+              "kind": "todo_list",
+              "items": [
+                {
+                  "text": "one",
+                  "completed": true
+                },
+                {
+                  "text": "two",
+                  "completed": true
+                }
+              ]
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.decision"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.mcp.start",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "test-agent",
+              "agent_name": "Test Agent",
+              "trace_id": "ctx-g",
+              "event_id": "10e31a7d-b09f-403b-9080-64ef29833011",
+              "backend": "codex",
+              "toolKind": "mcp",
+              "server": "docs",
+              "tool": "search",
+              "itemId": "p1"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.mcp.start"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.mcp",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "test-agent",
+              "agent_name": "Test Agent",
+              "trace_id": "ctx-g",
+              "event_id": "38572c00-11db-423c-83de-374a86413028",
+              "backend": "codex",
+              "toolKind": "mcp",
+              "server": "docs",
+              "tool": "search",
+              "itemId": "p1",
+              "status": "failed",
+              "error": "boom api_key=xyz"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.mcp"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.mcp.start",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "test-agent",
+              "agent_name": "Test Agent",
+              "trace_id": "ctx-g",
+              "event_id": "15bc1d2a-011b-44e5-ba9a-e72487691c2c",
+              "backend": "codex",
+              "toolKind": "a2a_subagent",
+              "server": "a2a-subagents",
+              "tool": "delegate",
+              "itemId": "p2",
+              "delegation": true
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.mcp.start"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.mcp",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "test-agent",
+              "agent_name": "Test Agent",
+              "trace_id": "ctx-g",
+              "event_id": "f5d1610b-7421-423e-84fa-743e23e6ac1f",
+              "backend": "codex",
+              "toolKind": "a2a_subagent",
+              "server": "a2a-subagents",
+              "tool": "delegate",
+              "itemId": "p2",
+              "status": "completed",
+              "delegation": true
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.mcp"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.mcp.start",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "test-agent",
+              "agent_name": "Test Agent",
+              "trace_id": "ctx-g",
+              "event_id": "bf4d9c24-6405-4015-9da5-c3f3e1942e2c",
+              "backend": "codex",
+              "toolKind": "web_search",
+              "query": "weather",
+              "itemId": "w1"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.mcp.start"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "test-agent",
+              "agent_name": "Test Agent",
+              "trace_id": "ctx-g",
+              "event_id": "ce3c8174-69e2-4575-950b-efefc6c90970",
+              "state": "error",
+              "backend": "codex",
+              "message": "non-fatal warning",
+              "itemId": "e1"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "test-agent",
+              "agent_name": "Test Agent",
+              "trace_id": "ctx-g",
+              "event_id": "29d79498-0df2-439b-b5a4-cd1a4988ad80",
+              "state": "finished",
+              "backend": "codex",
+              "usage": {
+                "input_tokens": 100,
+                "cached_input_tokens": 40,
+                "output_tokens": 20,
+                "reasoning_output_tokens": 5
+              }
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "text": "done with tools"
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "completed",
+        "metaKeys": [
+          "x-usage"
+        ],
+        "usage": {
+          "inputTokens": 100,
+          "outputTokens": 20,
+          "cacheReadTokens": 40,
+          "cacheWriteTokens": 0,
+          "reasoningTokens": 5,
+          "durationMs": 0,
+          "llmCalls": 1,
+          "model": "m",
+          "cost": null,
+          "calls": [
+            {
+              "model": "m",
+              "inputTokens": 100,
+              "outputTokens": 20,
+              "cacheReadTokens": 40,
+              "cacheWriteTokens": 0,
+              "reasoningTokens": 5,
+              "durationMs": 0,
+              "timeToFirstTokenMs": null,
+              "cost": null,
+              "apiEndpoint": null,
+              "initiator": "codex"
+            }
+          ]
+        }
+      }
+    ],
+    "blocking": {
+      "state": "completed",
+      "artifacts": [
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.thinking",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.mcp.start",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.mcp",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.mcp",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.decision",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.decision",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.decision",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.mcp.start",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.mcp",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.mcp.start",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.mcp",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.mcp.start",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "response",
+          "text": "done with tools",
+          "parts": 1
+        }
+      ],
+      "metaKeys": [
+        "x-usage"
+      ]
+    }
+  },
+  "trace-features-off": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "test-agent",
+              "agent_name": "Test Agent",
+              "trace_id": "ctx-g",
+              "event_id": "c4211516-3942-4732-8151-b0693eb8ddfd",
+              "state": "started",
+              "backend": "codex"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "test-agent",
+              "agent_name": "Test Agent",
+              "trace_id": "ctx-g",
+              "event_id": "021521ab-69b6-4fbf-b72b-e1196af261c7",
+              "state": "finished",
+              "backend": "codex",
+              "usage": {
+                "input_tokens": 100,
+                "cached_input_tokens": 40,
+                "output_tokens": 20,
+                "reasoning_output_tokens": 5
+              }
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "text": "quiet"
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "completed",
+        "metaKeys": [
+          "x-usage"
+        ],
+        "usage": {
+          "inputTokens": 100,
+          "outputTokens": 20,
+          "cacheReadTokens": 40,
+          "cacheWriteTokens": 0,
+          "reasoningTokens": 5,
+          "durationMs": 0,
+          "llmCalls": 1,
+          "model": "m",
+          "cost": null,
+          "calls": [
+            {
+              "model": "m",
+              "inputTokens": 100,
+              "outputTokens": 20,
+              "cacheReadTokens": 40,
+              "cacheWriteTokens": 0,
+              "reasoningTokens": 5,
+              "durationMs": 0,
+              "timeToFirstTokenMs": null,
+              "cost": null,
+              "apiEndpoint": null,
+              "initiator": "codex"
+            }
+          ]
+        }
+      }
+    ],
+    "blocking": {
+      "state": "completed",
+      "artifacts": [
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "response",
+          "text": "quiet",
+          "parts": 1
+        }
+      ],
+      "metaKeys": [
+        "x-usage"
+      ]
+    }
+  },
+  "no-usage": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "test-agent",
+              "agent_name": "Test Agent",
+              "trace_id": "ctx-g",
+              "event_id": "91965f7d-1d4b-4d3f-b394-8ef01bc1d4f6",
+              "state": "started",
+              "backend": "codex"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "text": "no usage reported"
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "completed",
+        "metaKeys": [
+          "x-usage"
+        ],
+        "usage": {
+          "inputTokens": 0,
+          "outputTokens": 0,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "reasoningTokens": 0,
+          "durationMs": 0,
+          "llmCalls": 0,
+          "model": null,
+          "cost": null,
+          "calls": []
+        }
+      }
+    ],
+    "blocking": {
+      "state": "completed",
+      "artifacts": [
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "response",
+          "text": "no usage reported",
+          "parts": 1
+        }
+      ],
+      "metaKeys": [
+        "x-usage"
+      ]
+    }
+  },
+  "two-turn-usages": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "test-agent",
+              "agent_name": "Test Agent",
+              "trace_id": "ctx-g",
+              "event_id": "80ece42d-8b58-46b6-a41b-ecc583497b8f",
+              "state": "started",
+              "backend": "codex"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "test-agent",
+              "agent_name": "Test Agent",
+              "trace_id": "ctx-g",
+              "event_id": "87d8f9d4-2550-410f-9ea8-2e59f3152e69",
+              "state": "finished",
+              "backend": "codex",
+              "usage": {
+                "input_tokens": 100,
+                "cached_input_tokens": 40,
+                "output_tokens": 20,
+                "reasoning_output_tokens": 5
+              }
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "test-agent",
+              "agent_name": "Test Agent",
+              "trace_id": "ctx-g",
+              "event_id": "de2b641e-0357-48cd-8004-4d5873042cf2",
+              "state": "finished",
+              "backend": "codex",
+              "usage": {
+                "input_tokens": 7,
+                "cached_input_tokens": 40,
+                "output_tokens": 20,
+                "reasoning_output_tokens": 5
+              }
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "text": "twice"
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "completed",
+        "metaKeys": [
+          "x-usage"
+        ],
+        "usage": {
+          "inputTokens": 107,
+          "outputTokens": 40,
+          "cacheReadTokens": 80,
+          "cacheWriteTokens": 0,
+          "reasoningTokens": 10,
+          "durationMs": 0,
+          "llmCalls": 2,
+          "model": "m",
+          "cost": null,
+          "calls": [
+            {
+              "model": "m",
+              "inputTokens": 100,
+              "outputTokens": 20,
+              "cacheReadTokens": 40,
+              "cacheWriteTokens": 0,
+              "reasoningTokens": 5,
+              "durationMs": 0,
+              "timeToFirstTokenMs": null,
+              "cost": null,
+              "apiEndpoint": null,
+              "initiator": "codex"
+            },
+            {
+              "model": "m",
+              "inputTokens": 7,
+              "outputTokens": 20,
+              "cacheReadTokens": 40,
+              "cacheWriteTokens": 0,
+              "reasoningTokens": 5,
+              "durationMs": 0,
+              "timeToFirstTokenMs": null,
+              "cost": null,
+              "apiEndpoint": null,
+              "initiator": "codex"
+            }
+          ]
+        }
+      }
+    ],
+    "blocking": {
+      "state": "completed",
+      "artifacts": [
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "response",
+          "text": "twice",
+          "parts": 1
+        }
+      ],
+      "metaKeys": [
+        "x-usage"
+      ]
+    }
+  },
+  "stream-error-event-then-answer": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "test-agent",
+              "agent_name": "Test Agent",
+              "trace_id": "ctx-g",
+              "event_id": "2ba7f43e-3aa7-4b74-9769-c26c53ea7f44",
+              "state": "started",
+              "backend": "codex"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "test-agent",
+              "agent_name": "Test Agent",
+              "trace_id": "ctx-g",
+              "event_id": "afb46121-e6bc-487a-9021-9e7e2e696725",
+              "state": "error",
+              "backend": "codex",
+              "message": "Reconnecting... 1/5 token=<redacted>"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "test-agent",
+              "agent_name": "Test Agent",
+              "trace_id": "ctx-g",
+              "event_id": "4c2445bd-d677-4cf7-ba56-3977b89fedc5",
+              "state": "finished",
+              "backend": "codex",
+              "usage": {
+                "input_tokens": 100,
+                "cached_input_tokens": 40,
+                "output_tokens": 20,
+                "reasoning_output_tokens": 5
+              }
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "text": "recovered"
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "completed",
+        "metaKeys": [
+          "x-usage"
+        ],
+        "usage": {
+          "inputTokens": 100,
+          "outputTokens": 20,
+          "cacheReadTokens": 40,
+          "cacheWriteTokens": 0,
+          "reasoningTokens": 5,
+          "durationMs": 0,
+          "llmCalls": 1,
+          "model": "m",
+          "cost": null,
+          "calls": [
+            {
+              "model": "m",
+              "inputTokens": 100,
+              "outputTokens": 20,
+              "cacheReadTokens": 40,
+              "cacheWriteTokens": 0,
+              "reasoningTokens": 5,
+              "durationMs": 0,
+              "timeToFirstTokenMs": null,
+              "cost": null,
+              "apiEndpoint": null,
+              "initiator": "codex"
+            }
+          ]
+        }
+      }
+    ],
+    "blocking": {
+      "state": "completed",
+      "artifacts": [
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "response",
+          "text": "recovered",
+          "parts": 1
+        }
+      ],
+      "metaKeys": [
+        "x-usage"
+      ]
+    }
+  },
+  "turn-failed-event": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "test-agent",
+              "agent_name": "Test Agent",
+              "trace_id": "ctx-g",
+              "event_id": "7d08aa27-d5f0-4b76-9af2-f83d2a886cbe",
+              "state": "started",
+              "backend": "codex"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "test-agent",
+              "agent_name": "Test Agent",
+              "trace_id": "ctx-g",
+              "event_id": "8f06f4fa-54f3-46df-8d7e-cc3fbd384dcb",
+              "state": "error",
+              "backend": "codex",
+              "message": "model overloaded"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "text": ""
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "completed",
+        "metaKeys": [
+          "x-usage"
+        ],
+        "usage": {
+          "inputTokens": 0,
+          "outputTokens": 0,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "reasoningTokens": 0,
+          "durationMs": 0,
+          "llmCalls": 0,
+          "model": null,
+          "cost": null,
+          "calls": []
+        }
+      }
+    ],
+    "blocking": {
+      "state": "completed",
+      "artifacts": [
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "response",
+          "text": "",
+          "parts": 1
+        }
+      ],
+      "metaKeys": [
+        "x-usage"
+      ]
+    }
+  },
+  "cli-exits-nonzero": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "test-agent",
+              "agent_name": "Test Agent",
+              "trace_id": "ctx-g",
+              "event_id": "0a2321cd-15c4-434b-a0e4-f042106e3fe1",
+              "state": "started",
+              "backend": "codex"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "status",
+        "state": "failed",
+        "text": "Codex Exec exited with code 1: unauthorized password=<redacted>",
+        "metaKeys": []
+      }
+    ],
+    "blocking": {
+      "state": "failed",
+      "text": "Codex Exec exited with code 1: unauthorized password=<redacted>",
+      "artifacts": [
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        }
+      ],
+      "metaKeys": []
+    }
+  },
+  "cli-cannot-spawn": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "failed",
+        "text": "spawn codex ENOENT",
+        "metaKeys": []
+      }
+    ],
+    "blocking": {
+      "state": "failed",
+      "text": "spawn codex ENOENT",
+      "artifacts": [],
+      "metaKeys": []
+    }
+  },
+  "events-disabled": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "text": "silent"
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "completed",
+        "metaKeys": [
+          "x-usage"
+        ],
+        "usage": {
+          "inputTokens": 100,
+          "outputTokens": 20,
+          "cacheReadTokens": 40,
+          "cacheWriteTokens": 0,
+          "reasoningTokens": 5,
+          "durationMs": 0,
+          "llmCalls": 1,
+          "model": "m",
+          "cost": null,
+          "calls": [
+            {
+              "model": "m",
+              "inputTokens": 100,
+              "outputTokens": 20,
+              "cacheReadTokens": 40,
+              "cacheWriteTokens": 0,
+              "reasoningTokens": 5,
+              "durationMs": 0,
+              "timeToFirstTokenMs": null,
+              "cost": null,
+              "apiEndpoint": null,
+              "initiator": "codex"
+            }
+          ]
+        }
+      }
+    ],
+    "blocking": {
+      "state": "completed",
+      "artifacts": [
+        {
+          "name": "response",
+          "text": "silent",
+          "parts": 1
+        }
+      ],
+      "metaKeys": [
+        "x-usage"
+      ]
+    }
+  },
+  "empty-answer": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "test-agent",
+              "agent_name": "Test Agent",
+              "trace_id": "ctx-g",
+              "event_id": "1ec8a66e-c6a4-496e-9726-4bd84cd030f6",
+              "state": "started",
+              "backend": "codex"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "test-agent",
+              "agent_name": "Test Agent",
+              "trace_id": "ctx-g",
+              "event_id": "fd54bad2-8d9a-4f33-b9eb-f693e71d5c42",
+              "state": "finished",
+              "backend": "codex",
+              "usage": {
+                "input_tokens": 100,
+                "cached_input_tokens": 40,
+                "output_tokens": 20,
+                "reasoning_output_tokens": 5
+              }
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "text": ""
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "completed",
+        "metaKeys": [
+          "x-usage"
+        ],
+        "usage": {
+          "inputTokens": 100,
+          "outputTokens": 20,
+          "cacheReadTokens": 40,
+          "cacheWriteTokens": 0,
+          "reasoningTokens": 5,
+          "durationMs": 0,
+          "llmCalls": 1,
+          "model": "m",
+          "cost": null,
+          "calls": [
+            {
+              "model": "m",
+              "inputTokens": 100,
+              "outputTokens": 20,
+              "cacheReadTokens": 40,
+              "cacheWriteTokens": 0,
+              "reasoningTokens": 5,
+              "durationMs": 0,
+              "timeToFirstTokenMs": null,
+              "cost": null,
+              "apiEndpoint": null,
+              "initiator": "codex"
+            }
+          ]
+        }
+      }
+    ],
+    "blocking": {
+      "state": "completed",
+      "artifacts": [
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "response",
+          "text": "",
+          "parts": 1
+        }
+      ],
+      "metaKeys": [
+        "x-usage"
+      ]
+    }
+  }
+}
