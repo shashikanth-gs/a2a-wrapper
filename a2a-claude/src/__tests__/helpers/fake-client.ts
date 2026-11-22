@@ -8,7 +8,7 @@ import type {
   QueryOptionsLike,
   SDKMessageLike,
   SDKUserMessageLike,
-} from "../client-factory.js";
+} from "../../claude/client-factory.js";
 
 export interface FakeCall {
   prompt: string | AsyncIterable<SDKUserMessageLike>;
@@ -69,6 +69,8 @@ export interface FakeTurnScript {
    * block on the input pump. Existing scripts keep the non-blocking default.
    */
   returnAwaitsInputClosed?: boolean;
+  /** After the scripted messages, make the iterator throw this error (a CLI that dies, a transport failure). */
+  throwAfter?: string;
 }
 
 function abortError(): Error {
@@ -145,6 +147,7 @@ class FakeQuery implements QueryLike {
       if (this.abortedNow()) return;
       yield msg;
     }
+    if (this.script.throwAfter) throw new Error(this.script.throwAfter);
     if (this.script.hangUntilInputClosed) {
       // A real CLI exits when its stdin closes, not when it runs out of things
       // to say. Aborting still tears it down mid-wait.

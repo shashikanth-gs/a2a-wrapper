@@ -2,8 +2,8 @@
  * a2a-claude — Public API
  */
 
-export { ClaudeExecutor } from "./claude/executor.js";
-export { SessionManager } from "./claude/session-manager.js";
+export { ClaudeProvider } from "./claude/provider.js";
+export type { ClaudeProviderOptions } from "./claude/provider.js";
 export { EventMapper, sanitizeMessage } from "./claude/event-mapper.js";
 export { CLAUDE_BACKEND_PATHS } from "./claude/backend-paths.js";
 export { CLAUDE_CAPABILITIES } from "./claude/capabilities.js";
@@ -19,11 +19,12 @@ export type {
   ClaudeConfig,
   ClaudePermissionMode,
   FeatureFlags,
+  InteractionsConfig,
   McpStdioServerConfig,
   McpHttpServerConfig,
   McpServerConfig,
 } from "./config/types.js";
 export { DEFAULTS } from "./config/defaults.js";
 export { resolveConfig, loadConfigFile, loadEnvOverrides } from "./config/loader.js";
-export { createA2AServer } from "./server/index.js";
-export type { ServerHandle } from "./server/index.js";
+export { createA2AServer, interactionPolicyOf, registryOptionsOf, buildAgentCard } from "./server/index.js";
+export type { ServerHandle, ClaudeServerOptions } from "./server/index.js";

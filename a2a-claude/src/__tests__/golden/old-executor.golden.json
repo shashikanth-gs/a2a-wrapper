@@ -1,0 +1,4386 @@
+{
+  "buffered-rich": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "da4d07f0-c590-4041-aa9e-e195ce15c833",
+              "state": "started",
+              "backend": "claude",
+              "model": "claude-test"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.thinking",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "7d93f6e5-d31f-4984-874f-98c4f9b90aea",
+              "content": "let me think, password=<redacted>"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.thinking"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.mcp.start",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "05e18555-6154-416d-8259-423525ce9222",
+              "backend": "claude",
+              "toolKind": "shell",
+              "command": "echo token=<redacted> && ls",
+              "itemId": "tu1"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.mcp.start"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.mcp",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "52a4182c-374c-4f5e-973b-d6eb686d52f9",
+              "backend": "claude",
+              "itemId": "tu1",
+              "output": "file-a\nfile-b",
+              "status": "completed"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.mcp"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.mcp.start",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "dba320c0-c50a-4639-a317-1d83c2a7c35b",
+              "backend": "claude",
+              "toolKind": "mcp",
+              "server": "probe",
+              "tool": "secret_word",
+              "itemId": "tu2"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.mcp.start"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.mcp",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "f523826e-479f-4192-822d-ba2c4566604e",
+              "backend": "claude",
+              "itemId": "tu2",
+              "output": "[{\"type\":\"text\",\"text\":\"PINEAPPLE\"}]",
+              "status": "completed"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.mcp"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.mcp.start",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "e27c1b69-e95e-451d-ba8f-7218adf2af08",
+              "backend": "claude",
+              "toolKind": "a2a_subagent",
+              "server": "a2a-subagents",
+              "tool": "helper",
+              "itemId": "tu3",
+              "delegation": true
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.mcp.start"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.mcp",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "0aa24192-5e6d-47b9-bbb8-dd2344437d05",
+              "backend": "claude",
+              "itemId": "tu3",
+              "output": "delegated answer",
+              "status": "completed"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.mcp"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.decision",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "e6543127-7f28-4e34-b871-8e5657148bc4",
+              "backend": "claude",
+              "kind": "file_change",
+              "changes": [
+                {
+                  "path": "/w/a.ts",
+                  "kind": "edit"
+                }
+              ]
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.decision"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.decision",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "30481abb-135d-43d6-896d-3cfaa2ef2e4d",
+              "backend": "claude",
+              "kind": "file_change",
+              "changes": [
+                {
+                  "path": "/w/b.ts",
+                  "kind": "write"
+                }
+              ]
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.decision"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.decision",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "f9d717e9-b93b-43fb-a589-02cdff11fb79",
+              "backend": "claude",
+              "kind": "todo_list",
+              "items": [
+                {
+                  "text": "step one",
+                  "completed": true
+                },
+                {
+                  "text": "step two",
+                  "completed": false
+                }
+              ]
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.decision"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.mcp.start",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "99c7c627-7ef4-43fe-b4e4-f4e16cb347df",
+              "backend": "claude",
+              "toolKind": "builtin",
+              "tool": "Read",
+              "itemId": "tu7"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.mcp.start"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.mcp",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "e2bf1b72-9b84-45e3-be11-ca5c04861e4c",
+              "backend": "claude",
+              "itemId": "tu7",
+              "output": "boom",
+              "status": "error"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.mcp"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.decision",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "0b32e75c-4539-4ad5-8e79-7f911cbc1531",
+              "backend": "claude",
+              "kind": "permission_denied",
+              "tool": "Bash",
+              "message": "Permission to use Bash was denied"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.decision"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "a06c1afa-e711-49d1-ba9a-747785494dc6",
+              "state": "finished",
+              "backend": "claude",
+              "usage": {
+                "input_tokens": 100,
+                "output_tokens": 40,
+                "cache_read_input_tokens": 10,
+                "cache_creation_input_tokens": 5
+              },
+              "totalCostUsd": 0.0123,
+              "numTurns": 3
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "text": "Hello world"
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "completed",
+        "metaKeys": [
+          "x-usage"
+        ],
+        "usage": {
+          "inputTokens": 100,
+          "outputTokens": 40,
+          "cacheReadTokens": 10,
+          "cacheWriteTokens": 5,
+          "reasoningTokens": 0,
+          "durationMs": 0,
+          "llmCalls": 1,
+          "model": "claude-test-model",
+          "cost": 0.0123,
+          "calls": [
+            {
+              "model": "claude-test-model",
+              "inputTokens": 100,
+              "outputTokens": 40,
+              "cacheReadTokens": 10,
+              "cacheWriteTokens": 5,
+              "reasoningTokens": 0,
+              "durationMs": 0,
+              "timeToFirstTokenMs": null,
+              "cost": 0.0123,
+              "apiEndpoint": null,
+              "initiator": "claude"
+            }
+          ]
+        }
+      }
+    ],
+    "blocking": {
+      "state": "completed",
+      "artifacts": [
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.thinking",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.mcp.start",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.mcp",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.mcp.start",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.mcp",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.mcp.start",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.mcp",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.decision",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.decision",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.decision",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.mcp.start",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.mcp",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.decision",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "response",
+          "text": "Hello world",
+          "parts": 1
+        }
+      ],
+      "metaKeys": [
+        "x-usage"
+      ]
+    }
+  },
+  "chunks-rich": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "94354c1d-247e-447e-abc6-e4c62bf40b85",
+              "state": "started",
+              "backend": "claude",
+              "model": "claude-test"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.thinking",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "12caac92-918e-4363-868c-750540b7a77f",
+              "content": "let me think, password=<redacted>"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.thinking"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.mcp.start",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "f08e707c-f6a6-4a77-8bbc-c69ab5402f37",
+              "backend": "claude",
+              "toolKind": "shell",
+              "command": "echo token=<redacted> && ls",
+              "itemId": "tu1"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.mcp.start"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.mcp",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "0adc8ac8-57da-4a6c-a0b4-e84307481fc6",
+              "backend": "claude",
+              "itemId": "tu1",
+              "output": "file-a\nfile-b",
+              "status": "completed"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.mcp"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.mcp.start",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "e8f84d12-62a1-4727-bd22-dae1f0e08f38",
+              "backend": "claude",
+              "toolKind": "mcp",
+              "server": "probe",
+              "tool": "secret_word",
+              "itemId": "tu2"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.mcp.start"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.mcp",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "622bb822-9d54-4e95-ad4f-0694f4a1ac80",
+              "backend": "claude",
+              "itemId": "tu2",
+              "output": "[{\"type\":\"text\",\"text\":\"PINEAPPLE\"}]",
+              "status": "completed"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.mcp"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.mcp.start",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "1440839c-d8d6-4e2e-babb-d271f8cbd306",
+              "backend": "claude",
+              "toolKind": "a2a_subagent",
+              "server": "a2a-subagents",
+              "tool": "helper",
+              "itemId": "tu3",
+              "delegation": true
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.mcp.start"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.mcp",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "a0fcec7d-059e-4b04-8caf-079d1011b1b9",
+              "backend": "claude",
+              "itemId": "tu3",
+              "output": "delegated answer",
+              "status": "completed"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.mcp"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.decision",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "5623dc85-8d45-444a-b86c-a5ddfdd4d4eb",
+              "backend": "claude",
+              "kind": "file_change",
+              "changes": [
+                {
+                  "path": "/w/a.ts",
+                  "kind": "edit"
+                }
+              ]
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.decision"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.decision",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "bfcbe2d2-8712-4169-9f16-63a198c0576f",
+              "backend": "claude",
+              "kind": "file_change",
+              "changes": [
+                {
+                  "path": "/w/b.ts",
+                  "kind": "write"
+                }
+              ]
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.decision"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.decision",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "ca5643ff-c68e-4a8b-8b62-a7f593df83ca",
+              "backend": "claude",
+              "kind": "todo_list",
+              "items": [
+                {
+                  "text": "step one",
+                  "completed": true
+                },
+                {
+                  "text": "step two",
+                  "completed": false
+                }
+              ]
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.decision"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.mcp.start",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "71169b4a-b883-4fce-ae22-642f93a9359e",
+              "backend": "claude",
+              "toolKind": "builtin",
+              "tool": "Read",
+              "itemId": "tu7"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.mcp.start"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.mcp",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "9bc0e895-380e-4ca8-a9cb-89d9f4acc1c2",
+              "backend": "claude",
+              "itemId": "tu7",
+              "output": "boom",
+              "status": "error"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.mcp"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.decision",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "9b338996-d026-41fb-8adf-c9bcb7322fb4",
+              "backend": "claude",
+              "kind": "permission_denied",
+              "tool": "Bash",
+              "message": "Permission to use Bash was denied"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.decision"
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": true,
+        "lastChunk": false,
+        "parts": [
+          {
+            "text": "Hello "
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": true,
+        "lastChunk": false,
+        "parts": [
+          {
+            "text": "world"
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "b57caf01-da59-4199-ab8a-b9bfbb3712e3",
+              "state": "finished",
+              "backend": "claude",
+              "usage": {
+                "input_tokens": 100,
+                "output_tokens": 40,
+                "cache_read_input_tokens": 10,
+                "cache_creation_input_tokens": 5
+              },
+              "totalCostUsd": 0.0123,
+              "numTurns": 3
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": true,
+        "lastChunk": true,
+        "parts": [
+          {
+            "text": "Hello world"
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "completed",
+        "metaKeys": [
+          "x-usage"
+        ],
+        "usage": {
+          "inputTokens": 100,
+          "outputTokens": 40,
+          "cacheReadTokens": 10,
+          "cacheWriteTokens": 5,
+          "reasoningTokens": 0,
+          "durationMs": 0,
+          "llmCalls": 1,
+          "model": "claude-test-model",
+          "cost": 0.0123,
+          "calls": [
+            {
+              "model": "claude-test-model",
+              "inputTokens": 100,
+              "outputTokens": 40,
+              "cacheReadTokens": 10,
+              "cacheWriteTokens": 5,
+              "reasoningTokens": 0,
+              "durationMs": 0,
+              "timeToFirstTokenMs": null,
+              "cost": 0.0123,
+              "apiEndpoint": null,
+              "initiator": "claude"
+            }
+          ]
+        }
+      }
+    ],
+    "blocking": {
+      "state": "completed",
+      "artifacts": [
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.thinking",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.mcp.start",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.mcp",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.mcp.start",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.mcp",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.mcp.start",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.mcp",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.decision",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.decision",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.decision",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.mcp.start",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.mcp",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.decision",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "response",
+          "text": "Hello worldHello world",
+          "parts": 3
+        },
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        }
+      ],
+      "metaKeys": [
+        "x-usage"
+      ]
+    }
+  },
+  "events-off": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "text": "Hello world"
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "completed",
+        "metaKeys": [
+          "x-usage"
+        ],
+        "usage": {
+          "inputTokens": 100,
+          "outputTokens": 40,
+          "cacheReadTokens": 10,
+          "cacheWriteTokens": 5,
+          "reasoningTokens": 0,
+          "durationMs": 0,
+          "llmCalls": 1,
+          "model": "claude-test-model",
+          "cost": 0.0123,
+          "calls": [
+            {
+              "model": "claude-test-model",
+              "inputTokens": 100,
+              "outputTokens": 40,
+              "cacheReadTokens": 10,
+              "cacheWriteTokens": 5,
+              "reasoningTokens": 0,
+              "durationMs": 0,
+              "timeToFirstTokenMs": null,
+              "cost": 0.0123,
+              "apiEndpoint": null,
+              "initiator": "claude"
+            }
+          ]
+        }
+      }
+    ],
+    "blocking": {
+      "state": "completed",
+      "artifacts": [
+        {
+          "name": "response",
+          "text": "Hello world",
+          "parts": 1
+        }
+      ],
+      "metaKeys": [
+        "x-usage"
+      ]
+    }
+  },
+  "structured-output": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "aa4ea704-aec2-4466-9556-ca4043eecce7",
+              "state": "started",
+              "backend": "claude",
+              "model": "claude-test"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "fca5ceaf-9ab6-4e80-9412-1ccafe15be93",
+              "state": "finished",
+              "backend": "claude",
+              "usage": {
+                "input_tokens": 100,
+                "output_tokens": 40,
+                "cache_read_input_tokens": 10,
+                "cache_creation_input_tokens": 5
+              },
+              "totalCostUsd": 0.0123,
+              "numTurns": 3
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "text": "{\"answer\":\"42\"}"
+          },
+          {
+            "data": {
+              "answer": "42"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "completed",
+        "metaKeys": [
+          "x-usage"
+        ],
+        "usage": {
+          "inputTokens": 100,
+          "outputTokens": 40,
+          "cacheReadTokens": 10,
+          "cacheWriteTokens": 5,
+          "reasoningTokens": 0,
+          "durationMs": 0,
+          "llmCalls": 1,
+          "model": "claude-test-model",
+          "cost": 0.0123,
+          "calls": [
+            {
+              "model": "claude-test-model",
+              "inputTokens": 100,
+              "outputTokens": 40,
+              "cacheReadTokens": 10,
+              "cacheWriteTokens": 5,
+              "reasoningTokens": 0,
+              "durationMs": 0,
+              "timeToFirstTokenMs": null,
+              "cost": 0.0123,
+              "apiEndpoint": null,
+              "initiator": "claude"
+            }
+          ]
+        }
+      }
+    ],
+    "blocking": {
+      "state": "completed",
+      "artifacts": [
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "response",
+          "text": "{\"answer\":\"42\"}",
+          "parts": 2
+        }
+      ],
+      "metaKeys": [
+        "x-usage"
+      ]
+    }
+  },
+  "error-max-turns": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "6d993227-fcf8-42d9-bbce-088a5f44977b",
+              "state": "started",
+              "backend": "claude",
+              "model": "claude-test"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "bc103b91-1129-44a8-8b0c-c9fa42c8cd55",
+              "state": "error",
+              "backend": "claude",
+              "message": "Turn limit reached (max_turns).",
+              "errors": [
+                "api_key=<redacted> reached"
+              ]
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "status",
+        "state": "failed",
+        "text": "Turn limit reached (max_turns).",
+        "metaKeys": []
+      }
+    ],
+    "blocking": {
+      "state": "failed",
+      "text": "Turn limit reached (max_turns).",
+      "artifacts": [
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        }
+      ],
+      "metaKeys": []
+    }
+  },
+  "error-during-execution": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "bad07672-0de4-4b26-82d5-1a3d6ee801ef",
+              "state": "started",
+              "backend": "claude",
+              "model": "claude-test"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "5c99b585-40df-4497-96b7-0be2c63a82de",
+              "state": "error",
+              "backend": "claude",
+              "message": "Error during execution."
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "status",
+        "state": "failed",
+        "text": "Error during execution.",
+        "metaKeys": []
+      }
+    ],
+    "blocking": {
+      "state": "failed",
+      "text": "Error during execution.",
+      "artifacts": [
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        }
+      ],
+      "metaKeys": []
+    }
+  },
+  "model-refusal-no-fallback": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "86c51d55-6988-43f7-bade-4a4c3896e486",
+              "state": "started",
+              "backend": "claude",
+              "model": "claude-test"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "973d5550-0b5e-4107-b509-ea6a26e5e5cf",
+              "state": "finished",
+              "backend": "claude",
+              "usage": {
+                "input_tokens": 100,
+                "output_tokens": 40,
+                "cache_read_input_tokens": 10,
+                "cache_creation_input_tokens": 5
+              },
+              "totalCostUsd": 0.0123,
+              "numTurns": 3
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "status",
+        "state": "failed",
+        "text": "Request declined by model safety system.",
+        "metaKeys": []
+      }
+    ],
+    "blocking": {
+      "state": "failed",
+      "text": "Request declined by model safety system.",
+      "artifacts": [
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        }
+      ],
+      "metaKeys": []
+    }
+  },
+  "empty-result-text": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "8069df70-e0bd-42cf-be15-33e4c56e34da",
+              "state": "started",
+              "backend": "claude",
+              "model": "claude-test"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "a99a72b2-266e-4cdd-8b03-ca359f0c101a",
+              "state": "finished",
+              "backend": "claude",
+              "usage": {
+                "input_tokens": 100,
+                "output_tokens": 40,
+                "cache_read_input_tokens": 10,
+                "cache_creation_input_tokens": 5
+              },
+              "totalCostUsd": 0.0123,
+              "numTurns": 3
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "status",
+        "state": "completed",
+        "metaKeys": [
+          "x-usage"
+        ],
+        "usage": {
+          "inputTokens": 100,
+          "outputTokens": 40,
+          "cacheReadTokens": 10,
+          "cacheWriteTokens": 5,
+          "reasoningTokens": 0,
+          "durationMs": 0,
+          "llmCalls": 1,
+          "model": "claude-test-model",
+          "cost": 0.0123,
+          "calls": [
+            {
+              "model": "claude-test-model",
+              "inputTokens": 100,
+              "outputTokens": 40,
+              "cacheReadTokens": 10,
+              "cacheWriteTokens": 5,
+              "reasoningTokens": 0,
+              "durationMs": 0,
+              "timeToFirstTokenMs": null,
+              "cost": 0.0123,
+              "apiEndpoint": null,
+              "initiator": "claude"
+            }
+          ]
+        }
+      }
+    ],
+    "blocking": {
+      "state": "completed",
+      "artifacts": [
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        }
+      ],
+      "metaKeys": [
+        "x-usage"
+      ]
+    }
+  },
+  "no-usage-in-result": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "e7af9f24-816b-4411-abc1-5d6bef27d1b7",
+              "state": "started",
+              "backend": "claude",
+              "model": "claude-test"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "74749d35-1ce7-4a07-9628-23a585db9bed",
+              "state": "finished",
+              "backend": "claude",
+              "usage": null,
+              "totalCostUsd": null,
+              "numTurns": null
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "text": "ok"
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "completed",
+        "metaKeys": [
+          "x-usage"
+        ],
+        "usage": {
+          "inputTokens": 0,
+          "outputTokens": 0,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "reasoningTokens": 0,
+          "durationMs": 0,
+          "llmCalls": 1,
+          "model": "claude-test-model",
+          "cost": null,
+          "calls": [
+            {
+              "model": "claude-test-model",
+              "inputTokens": 0,
+              "outputTokens": 0,
+              "cacheReadTokens": 0,
+              "cacheWriteTokens": 0,
+              "reasoningTokens": 0,
+              "durationMs": 0,
+              "timeToFirstTokenMs": null,
+              "cost": null,
+              "apiEndpoint": null,
+              "initiator": "claude"
+            }
+          ]
+        }
+      }
+    ],
+    "blocking": {
+      "state": "completed",
+      "artifacts": [
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "response",
+          "text": "ok",
+          "parts": 1
+        }
+      ],
+      "metaKeys": [
+        "x-usage"
+      ]
+    }
+  },
+  "held-two-rounds": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "3a8a23d4-f7ef-4c7f-85eb-6e02a0810f63",
+              "state": "started",
+              "backend": "claude",
+              "model": "claude-test"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.background_tasks",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "652894f9-2837-4678-a8c3-1936913568c1",
+              "backend": "claude",
+              "count": 1,
+              "tasks": [
+                {
+                  "taskId": "bg1",
+                  "type": "shell",
+                  "description": "task bg1"
+                }
+              ]
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.background_tasks"
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "text": "build started"
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "build started",
+        "metaKeys": [
+          "backgroundTasks"
+        ]
+      },
+      {
+        "k": "artifact",
+        "name": "trace.background_tasks",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "4d0586c3-c265-41fd-8455-ff36bb508e3f",
+              "backend": "claude",
+              "count": 0,
+              "tasks": []
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.background_tasks"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "82b6d635-a041-4c2d-8577-82e23b476e0b",
+              "state": "finished",
+              "backend": "claude",
+              "usage": {
+                "input_tokens": 100,
+                "output_tokens": 40,
+                "cache_read_input_tokens": 10,
+                "cache_creation_input_tokens": 5
+              },
+              "totalCostUsd": 0.0123,
+              "numTurns": 3
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "text": "build passed"
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "completed",
+        "metaKeys": [
+          "x-usage"
+        ],
+        "usage": {
+          "inputTokens": 200,
+          "outputTokens": 80,
+          "cacheReadTokens": 20,
+          "cacheWriteTokens": 10,
+          "reasoningTokens": 0,
+          "durationMs": 0,
+          "llmCalls": 2,
+          "model": "claude-test-model",
+          "cost": 0.0246,
+          "calls": [
+            {
+              "model": "claude-test-model",
+              "inputTokens": 100,
+              "outputTokens": 40,
+              "cacheReadTokens": 10,
+              "cacheWriteTokens": 5,
+              "reasoningTokens": 0,
+              "durationMs": 0,
+              "timeToFirstTokenMs": null,
+              "cost": 0.0123,
+              "apiEndpoint": null,
+              "initiator": "claude"
+            },
+            {
+              "model": "claude-test-model",
+              "inputTokens": 100,
+              "outputTokens": 40,
+              "cacheReadTokens": 10,
+              "cacheWriteTokens": 5,
+              "reasoningTokens": 0,
+              "durationMs": 0,
+              "timeToFirstTokenMs": null,
+              "cost": 0.0123,
+              "apiEndpoint": null,
+              "initiator": "claude"
+            }
+          ]
+        }
+      }
+    ],
+    "blocking": {
+      "state": "completed",
+      "artifacts": [
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.background_tasks",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "response",
+          "text": "build started",
+          "parts": 1
+        },
+        {
+          "name": "trace.background_tasks",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "response",
+          "text": "build passed",
+          "parts": 1
+        }
+      ],
+      "metaKeys": [
+        "backgroundTasks",
+        "x-usage"
+      ]
+    }
+  },
+  "held-two-rounds-chunks": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "d874d193-1681-4c02-a464-efbf455cfc4b",
+              "state": "started",
+              "backend": "claude",
+              "model": "claude-test"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.background_tasks",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "98a55420-5ebd-4bfd-9146-b955d5c854a3",
+              "backend": "claude",
+              "count": 1,
+              "tasks": [
+                {
+                  "taskId": "bg1",
+                  "type": "shell",
+                  "description": "task bg1"
+                }
+              ]
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.background_tasks"
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": true,
+        "lastChunk": false,
+        "parts": [
+          {
+            "text": "build "
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": true,
+        "lastChunk": false,
+        "parts": [
+          {
+            "text": "started"
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": true,
+        "lastChunk": true,
+        "parts": [
+          {
+            "text": "build started"
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "build started",
+        "metaKeys": [
+          "backgroundTasks"
+        ]
+      },
+      {
+        "k": "artifact",
+        "name": "trace.background_tasks",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "806ae2ee-c228-4261-8d63-3a7970895816",
+              "backend": "claude",
+              "count": 0,
+              "tasks": []
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.background_tasks"
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": true,
+        "lastChunk": false,
+        "parts": [
+          {
+            "text": "build passed"
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "fd99031c-88fd-4c48-81c5-7a39dfea976b",
+              "state": "finished",
+              "backend": "claude",
+              "usage": {
+                "input_tokens": 100,
+                "output_tokens": 40,
+                "cache_read_input_tokens": 10,
+                "cache_creation_input_tokens": 5
+              },
+              "totalCostUsd": 0.0123,
+              "numTurns": 3
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": true,
+        "lastChunk": true,
+        "parts": [
+          {
+            "text": "build passed"
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "completed",
+        "metaKeys": [
+          "x-usage"
+        ],
+        "usage": {
+          "inputTokens": 200,
+          "outputTokens": 80,
+          "cacheReadTokens": 20,
+          "cacheWriteTokens": 10,
+          "reasoningTokens": 0,
+          "durationMs": 0,
+          "llmCalls": 2,
+          "model": "claude-test-model",
+          "cost": 0.0246,
+          "calls": [
+            {
+              "model": "claude-test-model",
+              "inputTokens": 100,
+              "outputTokens": 40,
+              "cacheReadTokens": 10,
+              "cacheWriteTokens": 5,
+              "reasoningTokens": 0,
+              "durationMs": 0,
+              "timeToFirstTokenMs": null,
+              "cost": 0.0123,
+              "apiEndpoint": null,
+              "initiator": "claude"
+            },
+            {
+              "model": "claude-test-model",
+              "inputTokens": 100,
+              "outputTokens": 40,
+              "cacheReadTokens": 10,
+              "cacheWriteTokens": 5,
+              "reasoningTokens": 0,
+              "durationMs": 0,
+              "timeToFirstTokenMs": null,
+              "cost": 0.0123,
+              "apiEndpoint": null,
+              "initiator": "claude"
+            }
+          ]
+        }
+      }
+    ],
+    "blocking": {
+      "state": "completed",
+      "artifacts": [
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.background_tasks",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "response",
+          "text": "build startedbuild started",
+          "parts": 3
+        },
+        {
+          "name": "trace.background_tasks",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "response",
+          "text": "build passedbuild passed",
+          "parts": 2
+        },
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        }
+      ],
+      "metaKeys": [
+        "backgroundTasks",
+        "x-usage"
+      ]
+    }
+  },
+  "held-three-rounds": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "11f445e6-d410-42da-8f33-5c3e3f0da9c2",
+              "state": "started",
+              "backend": "claude",
+              "model": "claude-test"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.background_tasks",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "049f0694-950d-4452-8d71-642939f6f932",
+              "backend": "claude",
+              "count": 1,
+              "tasks": [
+                {
+                  "taskId": "bg1",
+                  "type": "shell",
+                  "description": "task bg1"
+                }
+              ]
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.background_tasks"
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "text": "one"
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "one",
+        "metaKeys": [
+          "backgroundTasks"
+        ]
+      },
+      {
+        "k": "artifact",
+        "name": "trace.background_tasks",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "ed25a30e-a786-4e42-adad-8fcbf37780de",
+              "backend": "claude",
+              "count": 0,
+              "tasks": []
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.background_tasks"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.background_tasks",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "00f36e90-d2d3-404b-8c48-a4fbf85d6b75",
+              "backend": "claude",
+              "count": 1,
+              "tasks": [
+                {
+                  "taskId": "bg2",
+                  "type": "shell",
+                  "description": "task bg2"
+                }
+              ]
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.background_tasks"
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "text": "two"
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "two",
+        "metaKeys": [
+          "backgroundTasks"
+        ]
+      },
+      {
+        "k": "artifact",
+        "name": "trace.background_tasks",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "c8458b10-83a1-4535-b80f-b4845669fb3b",
+              "backend": "claude",
+              "count": 0,
+              "tasks": []
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.background_tasks"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "9df94373-21dc-4a65-ac81-5e93988643b3",
+              "state": "finished",
+              "backend": "claude",
+              "usage": {
+                "input_tokens": 100,
+                "output_tokens": 40,
+                "cache_read_input_tokens": 10,
+                "cache_creation_input_tokens": 5
+              },
+              "totalCostUsd": 0.0123,
+              "numTurns": 3
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "text": "three"
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "completed",
+        "metaKeys": [
+          "x-usage"
+        ],
+        "usage": {
+          "inputTokens": 300,
+          "outputTokens": 120,
+          "cacheReadTokens": 30,
+          "cacheWriteTokens": 15,
+          "reasoningTokens": 0,
+          "durationMs": 0,
+          "llmCalls": 3,
+          "model": "claude-test-model",
+          "cost": 0.0369,
+          "calls": [
+            {
+              "model": "claude-test-model",
+              "inputTokens": 100,
+              "outputTokens": 40,
+              "cacheReadTokens": 10,
+              "cacheWriteTokens": 5,
+              "reasoningTokens": 0,
+              "durationMs": 0,
+              "timeToFirstTokenMs": null,
+              "cost": 0.0123,
+              "apiEndpoint": null,
+              "initiator": "claude"
+            },
+            {
+              "model": "claude-test-model",
+              "inputTokens": 100,
+              "outputTokens": 40,
+              "cacheReadTokens": 10,
+              "cacheWriteTokens": 5,
+              "reasoningTokens": 0,
+              "durationMs": 0,
+              "timeToFirstTokenMs": null,
+              "cost": 0.0123,
+              "apiEndpoint": null,
+              "initiator": "claude"
+            },
+            {
+              "model": "claude-test-model",
+              "inputTokens": 100,
+              "outputTokens": 40,
+              "cacheReadTokens": 10,
+              "cacheWriteTokens": 5,
+              "reasoningTokens": 0,
+              "durationMs": 0,
+              "timeToFirstTokenMs": null,
+              "cost": 0.0123,
+              "apiEndpoint": null,
+              "initiator": "claude"
+            }
+          ]
+        }
+      }
+    ],
+    "blocking": {
+      "state": "completed",
+      "artifacts": [
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.background_tasks",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "response",
+          "text": "one",
+          "parts": 1
+        },
+        {
+          "name": "trace.background_tasks",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.background_tasks",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "response",
+          "text": "two",
+          "parts": 1
+        },
+        {
+          "name": "trace.background_tasks",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "response",
+          "text": "three",
+          "parts": 1
+        }
+      ],
+      "metaKeys": [
+        "backgroundTasks",
+        "x-usage"
+      ]
+    }
+  },
+  "held-flag-off": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "caa0d1f0-73ec-45e8-a0eb-db03ebb41877",
+              "state": "started",
+              "backend": "claude",
+              "model": "claude-test"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.background_tasks",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "9b26f2f5-d551-493e-9c63-c639f51230c3",
+              "backend": "claude",
+              "count": 1,
+              "tasks": [
+                {
+                  "taskId": "bg1",
+                  "type": "shell",
+                  "description": "task bg1"
+                }
+              ]
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.background_tasks"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "15081432-86ec-47d7-bd8d-eedf057d0905",
+              "state": "finished",
+              "backend": "claude",
+              "usage": {
+                "input_tokens": 100,
+                "output_tokens": 40,
+                "cache_read_input_tokens": 10,
+                "cache_creation_input_tokens": 5
+              },
+              "totalCostUsd": 0.0123,
+              "numTurns": 3
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "text": "build started"
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "completed",
+        "metaKeys": [
+          "x-usage"
+        ],
+        "usage": {
+          "inputTokens": 100,
+          "outputTokens": 40,
+          "cacheReadTokens": 10,
+          "cacheWriteTokens": 5,
+          "reasoningTokens": 0,
+          "durationMs": 0,
+          "llmCalls": 1,
+          "model": "claude-test-model",
+          "cost": 0.0123,
+          "calls": [
+            {
+              "model": "claude-test-model",
+              "inputTokens": 100,
+              "outputTokens": 40,
+              "cacheReadTokens": 10,
+              "cacheWriteTokens": 5,
+              "reasoningTokens": 0,
+              "durationMs": 0,
+              "timeToFirstTokenMs": null,
+              "cost": 0.0123,
+              "apiEndpoint": null,
+              "initiator": "claude"
+            }
+          ]
+        }
+      }
+    ],
+    "blocking": {
+      "state": "completed",
+      "artifacts": [
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.background_tasks",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "response",
+          "text": "build started",
+          "parts": 1
+        }
+      ],
+      "metaKeys": [
+        "x-usage"
+      ]
+    }
+  },
+  "held-iterator-ends": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "c7606643-063e-404e-8f11-db17d682ee23",
+              "state": "started",
+              "backend": "claude",
+              "model": "claude-test"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.background_tasks",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "71ea7484-1447-4509-b6a3-06bc00648e57",
+              "backend": "claude",
+              "count": 1,
+              "tasks": [
+                {
+                  "taskId": "bg1",
+                  "type": "shell",
+                  "description": "task bg1"
+                }
+              ]
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.background_tasks"
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "text": "still waiting"
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "still waiting",
+        "metaKeys": [
+          "backgroundTasks"
+        ]
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "1f01c758-40e3-4fb4-9d85-e4e8376d05a7",
+              "state": "finished",
+              "backend": "claude",
+              "usage": {
+                "input_tokens": 100,
+                "output_tokens": 40,
+                "cache_read_input_tokens": 10,
+                "cache_creation_input_tokens": 5
+              },
+              "totalCostUsd": 0.0123,
+              "numTurns": 3
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "status",
+        "state": "completed",
+        "metaKeys": [
+          "x-usage"
+        ],
+        "usage": {
+          "inputTokens": 100,
+          "outputTokens": 40,
+          "cacheReadTokens": 10,
+          "cacheWriteTokens": 5,
+          "reasoningTokens": 0,
+          "durationMs": 0,
+          "llmCalls": 1,
+          "model": "claude-test-model",
+          "cost": 0.0123,
+          "calls": [
+            {
+              "model": "claude-test-model",
+              "inputTokens": 100,
+              "outputTokens": 40,
+              "cacheReadTokens": 10,
+              "cacheWriteTokens": 5,
+              "reasoningTokens": 0,
+              "durationMs": 0,
+              "timeToFirstTokenMs": null,
+              "cost": 0.0123,
+              "apiEndpoint": null,
+              "initiator": "claude"
+            }
+          ]
+        }
+      }
+    ],
+    "blocking": {
+      "state": "completed",
+      "artifacts": [
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.background_tasks",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "response",
+          "text": "still waiting",
+          "parts": 1
+        },
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        }
+      ],
+      "metaKeys": [
+        "backgroundTasks",
+        "x-usage"
+      ]
+    }
+  },
+  "held-timeout": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "17842b9d-c49e-4b5a-85fc-5cdaf7d0210c",
+              "state": "started",
+              "backend": "claude",
+              "model": "claude-test"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.background_tasks",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "569a9f1c-87e5-4497-81ba-38c3962b8c76",
+              "backend": "claude",
+              "count": 1,
+              "tasks": [
+                {
+                  "taskId": "bg1",
+                  "type": "shell",
+                  "description": "task bg1"
+                }
+              ]
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.background_tasks"
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "text": "waiting"
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "waiting",
+        "metaKeys": [
+          "backgroundTasks"
+        ]
+      },
+      {
+        "k": "status",
+        "state": "failed",
+        "text": "Prompt timed out after 50ms.",
+        "metaKeys": []
+      }
+    ],
+    "blocking": {
+      "state": "failed",
+      "text": "Prompt timed out after 50ms.",
+      "artifacts": [
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.background_tasks",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "response",
+          "text": "waiting",
+          "parts": 1
+        }
+      ],
+      "metaKeys": [
+        "backgroundTasks"
+      ]
+    }
+  },
+  "held-error-result": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "54cee4b7-d9ac-40fd-8610-c4ec317affef",
+              "state": "started",
+              "backend": "claude",
+              "model": "claude-test"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.background_tasks",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "94bcffb8-4b47-4709-b06d-3f456f3db5de",
+              "backend": "claude",
+              "count": 1,
+              "tasks": [
+                {
+                  "taskId": "bg1",
+                  "type": "shell",
+                  "description": "task bg1"
+                }
+              ]
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.background_tasks"
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "text": "round one"
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "round one",
+        "metaKeys": [
+          "backgroundTasks"
+        ]
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "dd00b6c0-7f50-46b6-97eb-61ea1f149f6f",
+              "state": "error",
+              "backend": "claude",
+              "message": "Budget limit reached (max_budget_usd)."
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "status",
+        "state": "failed",
+        "text": "Budget limit reached (max_budget_usd).",
+        "metaKeys": []
+      }
+    ],
+    "blocking": {
+      "state": "failed",
+      "text": "Budget limit reached (max_budget_usd).",
+      "artifacts": [
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.background_tasks",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "response",
+          "text": "round one",
+          "parts": 1
+        },
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        }
+      ],
+      "metaKeys": [
+        "backgroundTasks"
+      ]
+    }
+  },
+  "rate-limit-rejected": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "6eb86e03-f7ed-46ab-933a-08d69853c169",
+              "state": "started",
+              "backend": "claude",
+              "model": "claude-test"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "status",
+        "state": "failed",
+        "text": "Rate limit reached (5-hour limit). Resets at 2100-01-01T00:00:00.000Z. Retry on the same contextId to continue this conversation.",
+        "metaKeys": [
+          "rateLimitType",
+          "reason",
+          "resetsAt",
+          "resetsAtIso",
+          "source",
+          "utilization"
+        ]
+      }
+    ],
+    "blocking": {
+      "state": "failed",
+      "text": "Rate limit reached (5-hour limit). Resets at 2100-01-01T00:00:00.000Z. Retry on the same contextId to continue this conversation.",
+      "artifacts": [
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        }
+      ],
+      "metaKeys": [
+        "rateLimitType",
+        "reason",
+        "resetsAt",
+        "resetsAtIso",
+        "source",
+        "utilization"
+      ]
+    }
+  },
+  "rate-limit-rejected-chunks-in-flight": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "5918ed50-db85-47b6-b445-a44b556ae1a1",
+              "state": "started",
+              "backend": "claude",
+              "model": "claude-test"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": true,
+        "lastChunk": false,
+        "parts": [
+          {
+            "text": "partial "
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": true,
+        "lastChunk": true,
+        "parts": [
+          {
+            "text": ""
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "failed",
+        "text": "Rate limit reached (5-hour limit). Resets at 2100-01-01T00:00:00.000Z. Retry on the same contextId to continue this conversation.",
+        "metaKeys": [
+          "rateLimitType",
+          "reason",
+          "resetsAt",
+          "resetsAtIso",
+          "source",
+          "utilization"
+        ]
+      }
+    ],
+    "blocking": {
+      "state": "failed",
+      "text": "Rate limit reached (5-hour limit). Resets at 2100-01-01T00:00:00.000Z. Retry on the same contextId to continue this conversation.",
+      "artifacts": [
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "response",
+          "text": "partial ",
+          "parts": 2
+        }
+      ],
+      "metaKeys": [
+        "rateLimitType",
+        "reason",
+        "resetsAt",
+        "resetsAtIso",
+        "source",
+        "utilization"
+      ]
+    }
+  },
+  "rate-limit-warning-completes": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "cbaaa872-38ff-46d6-aefc-f8ac7fb7e562",
+              "state": "started",
+              "backend": "claude",
+              "model": "claude-test"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "c23a9f71-7876-4e31-9c08-2d933c97585b",
+              "state": "finished",
+              "backend": "claude",
+              "usage": {
+                "input_tokens": 100,
+                "output_tokens": 40,
+                "cache_read_input_tokens": 10,
+                "cache_creation_input_tokens": 5
+              },
+              "totalCostUsd": 0.0123,
+              "numTurns": 3
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "text": "finished anyway"
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "completed",
+        "metaKeys": [
+          "x-usage"
+        ],
+        "usage": {
+          "inputTokens": 100,
+          "outputTokens": 40,
+          "cacheReadTokens": 10,
+          "cacheWriteTokens": 5,
+          "reasoningTokens": 0,
+          "durationMs": 0,
+          "llmCalls": 1,
+          "model": "claude-test-model",
+          "cost": 0.0123,
+          "calls": [
+            {
+              "model": "claude-test-model",
+              "inputTokens": 100,
+              "outputTokens": 40,
+              "cacheReadTokens": 10,
+              "cacheWriteTokens": 5,
+              "reasoningTokens": 0,
+              "durationMs": 0,
+              "timeToFirstTokenMs": null,
+              "cost": 0.0123,
+              "apiEndpoint": null,
+              "initiator": "claude"
+            }
+          ]
+        }
+      }
+    ],
+    "blocking": {
+      "state": "completed",
+      "artifacts": [
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "response",
+          "text": "finished anyway",
+          "parts": 1
+        }
+      ],
+      "metaKeys": [
+        "x-usage"
+      ]
+    }
+  },
+  "assistant-rate-limit-error": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "7bd15191-7e43-4e55-94dd-7b02ae9d7e0e",
+              "state": "started",
+              "backend": "claude",
+              "model": "claude-test"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "status",
+        "state": "failed",
+        "text": "Rate limit reached. Retry on the same contextId to continue this conversation.",
+        "metaKeys": [
+          "reason",
+          "source"
+        ]
+      }
+    ],
+    "blocking": {
+      "state": "failed",
+      "text": "Rate limit reached. Retry on the same contextId to continue this conversation.",
+      "artifacts": [
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        }
+      ],
+      "metaKeys": [
+        "reason",
+        "source"
+      ]
+    }
+  },
+  "prompt-timeout": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "bd06faaf-87d9-4192-aa42-1aaed93283b2",
+              "state": "started",
+              "backend": "claude",
+              "model": "claude-test"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "status",
+        "state": "failed",
+        "text": "Prompt timed out after 50ms.",
+        "metaKeys": []
+      }
+    ],
+    "blocking": {
+      "state": "failed",
+      "text": "Prompt timed out after 50ms.",
+      "artifacts": [
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        }
+      ],
+      "metaKeys": []
+    }
+  },
+  "iterator-throws": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "be533770-a8e0-4ed4-a3c9-87ec8217b738",
+              "state": "started",
+              "backend": "claude",
+              "model": "claude-test"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "status",
+        "state": "failed",
+        "text": "Claude Code process exited with code 1 (api_key=<redacted>",
+        "metaKeys": []
+      }
+    ],
+    "blocking": {
+      "state": "failed",
+      "text": "Claude Code process exited with code 1 (api_key=<redacted>",
+      "artifacts": [
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        }
+      ],
+      "metaKeys": []
+    }
+  },
+  "no-messages": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "e46c1e52-2514-4b4e-8727-cae4db28dbf6",
+              "state": "finished",
+              "backend": "claude",
+              "usage": null,
+              "totalCostUsd": null,
+              "numTurns": null
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "status",
+        "state": "completed",
+        "metaKeys": [
+          "x-usage"
+        ],
+        "usage": {
+          "inputTokens": 0,
+          "outputTokens": 0,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "reasoningTokens": 0,
+          "durationMs": 0,
+          "llmCalls": 0,
+          "model": null,
+          "cost": null,
+          "calls": []
+        }
+      }
+    ],
+    "blocking": {
+      "state": "completed",
+      "artifacts": [
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        }
+      ],
+      "metaKeys": [
+        "x-usage"
+      ]
+    }
+  }
+}
