@@ -86,7 +86,8 @@ interface SessionEntry {
 /** Does this error say the runtime has no such session? */
 export function isSessionNotFound(error: unknown): boolean {
   const msg = ((error as Error)?.message ?? String(error)).toLowerCase();
-  return /session.*(not found|does not exist|unknown|no such)|(not found|no such|unknown).*session|enoent/.test(msg);
+  // the runtime says: "Failed to load session events: Session not found: <id>"
+  return /session not found|no such session|unknown session|session .*does not exist/.test(msg);
 }
 
 export class CopilotProvider implements ProviderExecutor {

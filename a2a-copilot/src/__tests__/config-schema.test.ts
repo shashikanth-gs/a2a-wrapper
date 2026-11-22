@@ -109,4 +109,26 @@ describe("AgentConfig JSON schema", () => {
     const ok = validate(cfg);
     expect(ok).toBe(false);
   });
+
+  it("accepts the interactions section and the steer ack timeout", () => {
+    const cfg = {
+      agentCard: { name: "Test", description: "x" },
+      interactions: {
+        mode: "ask",
+        timeoutMs: 120000,
+        onTimeout: "deny",
+        autoAnswer: [
+          { match: { tool: "read", risk: "low" }, answer: { kind: "allow_once" } },
+          { match: { kind: ["permission"] }, answer: { decline: true } },
+        ],
+      },
+      timeouts: { prompt: 1000, steerAck: 2000 },
+    };
+    expect(validate(cfg), JSON.stringify(validate.errors)).toBe(true);
+  });
+
+  it("rejects an unknown interaction mode and an unknown interactions field", () => {
+    expect(validate({ agentCard: { name: "T", description: "x" }, interactions: { mode: "sometimes" } })).toBe(false);
+    expect(validate({ agentCard: { name: "T", description: "x" }, interactions: { bogus: 1 } })).toBe(false);
+  });
 });
