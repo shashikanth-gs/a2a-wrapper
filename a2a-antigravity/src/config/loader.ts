@@ -7,7 +7,7 @@
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { substituteEnvTokensInRecord, substituteEnvTokensInString } from "@a2a-wrapper/core";
+import { substituteEnvTokensInRecord, substituteEnvTokensInString, normalizeModel } from "@a2a-wrapper/core";
 import { DEFAULTS } from "./defaults.js";
 import type { AgentConfig, McpServerConfig } from "./types.js";
 
@@ -129,6 +129,10 @@ export function resolveConfig(
 
   substituteEnvTokensInAntigravity(merged);
   substituteEnvTokensInMcp(merged);
+
+  // model: "auto"/"default"/empty mean the SDK chooses (left unset)
+  const ag = merged.antigravity as Record<string, unknown> | undefined;
+  if (ag) ag.model = normalizeModel(ag.model);
 
   return merged as unknown as Required<AgentConfig>;
 }

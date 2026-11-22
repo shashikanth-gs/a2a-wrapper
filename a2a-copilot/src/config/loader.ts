@@ -11,7 +11,7 @@
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { substituteEnvTokensInString, substituteEnvTokensInRecord } from "@a2a-wrapper/core";
+import { substituteEnvTokensInString, substituteEnvTokensInRecord, isAutoModel, AUTO_MODEL } from "@a2a-wrapper/core";
 import { DEFAULTS } from "./defaults.js";
 import type { AgentConfig, McpServerConfig } from "./types.js";
 
@@ -179,7 +179,26 @@ export function resolveConfig(
   // Layer 4: Substitute env-var tokens in MCP args, env, and headers
   substituteEnvTokensInMcp(merged);
 
+  // Layer 5: model — "auto" means Copilot chooses
+  normalizeCopilotModel(merged);
+
   return merged as unknown as Required<AgentConfig>;
+}
+
+/**
+ * `model`: unset, empty, "auto" and "default" all mean "let Copilot choose" and are
+ * passed as the literal "auto", which the Copilot runtime accepts. A custom
+ * (BYOK) provider cannot resolve "auto", so there the model is left unset and the
+ * existing "model is required" validation reports it.
+ */
+function normalizeCopilotModel(config: Record<string, unknown>): void {
+  const copilot = config.copilot as Record<string, unknown> | undefined;
+  if (!copilot) return;
+  if (!isAutoModel(copilot.model)) {
+    copilot.model = (copilot.model as string).trim();
+    return;
+  }
+  copilot.model = copilot.provider ? undefined : AUTO_MODEL;
 }
 
 // ─── Env Token Substitution ─────────────────────────────────────────────────

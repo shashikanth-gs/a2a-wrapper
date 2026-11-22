@@ -54,7 +54,7 @@
     "$comment": [
       "Controls how the wrapper connects to the GitHub Copilot SDK.",
       "",
-      "model          — The LLM to use. Examples: 'gpt-4o', 'gpt-4.1', 'claude-sonnet-4.5'",
+      "model          — 'auto' (default): Copilot chooses. Or pin one your account has, e.g. 'gpt-4.1'",
       "systemPromptMode:",
       "  'replace'    — Your prompt fully replaces the SDK's default system message.",
       "                 Use this for a clean, custom persona (recommended for production).",
@@ -78,7 +78,7 @@
       "    COPILOT_PROVIDER_BASE_URL, COPILOT_PROVIDER_TYPE,",
       "    COPILOT_PROVIDER_API_KEY, COPILOT_PROVIDER_WIRE_API, COPILOT_MODEL"
     ],
-    "model": "gpt-5.4-mini",
+    "model": "auto",
     "streaming": true,
     "systemPromptMode": "replace",
     "systemPrompt": "You are a helpful assistant. Replace this system prompt with instructions that define your agent's role, persona, and expected behaviour."

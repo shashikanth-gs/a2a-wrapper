@@ -199,7 +199,7 @@ a2a-copilot [options]
   --hostname <addr>             Bind address                     (default: 0.0.0.0)
   --advertise-host <host>       Hostname for agent card URLs     (default: localhost)
   --cli-url <url>               External Copilot CLI URL         (default: auto)
-  --model <model>               LLM model                        (default: gpt-4.1)
+  --model <model>               LLM model                        (default: auto = Copilot chooses)
   --workspace <path>            Workspace directory
   --agent-name <name>           Agent display name
   --agent-description <desc>    Agent description
@@ -297,6 +297,10 @@ Create a `config.json` (see `agents/example/config.json` for the fully annotated
 | `AGENT_DESCRIPTION` | Override agent card description | _(from config)_ |
 
 See [`.env.example`](.env.example) for the full reference.
+
+### Choosing a model
+
+`copilot.model` (or `--model`, `COPILOT_MODEL`) defaults to `auto`: the Copilot runtime picks a model your account can use. Unset, empty and `default` mean the same. Set an explicit name (for example `gpt-4.1`) to pin one; names change over time and depend on your plan, so the wrapper does not hard-code any. With a custom BYOK provider (below) `auto` does not apply and `model` is required.
 
 ## Bring Your Own Model (BYOK)
 

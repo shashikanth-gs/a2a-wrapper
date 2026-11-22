@@ -42,7 +42,7 @@ export const DEFAULTS: Readonly<DefaultAgentConfig> = Object.freeze({
   },
   copilot: {
     cliUrl: "",
-    model: "claude-sonnet-4.5",
+    model: "auto",                 // "auto": Copilot picks (also unset/""/"default"); or a model name
     streaming: true,
     systemPrompt: "",
     systemPromptMode: "append",
