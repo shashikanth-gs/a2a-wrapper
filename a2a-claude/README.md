@@ -16,8 +16,9 @@ Claude is Anthropic's model family, and the Claude Agent SDK gives it a producti
 - Powered by `@anthropic-ai/claude-agent-sdk` (pinned `0.3.245`) — `claude-sonnet-5`, `claude-opus-4-8`, and any SDK-compatible model
 - Permission-mode guardrails — headless-safe modes only, with an explicit opt-in for unrestricted access
 - MCP tool support — stdio and Streamable HTTP transports
-- Multi-turn context continuity — each A2A `contextId` maps to a persistent Claude session (resumed via the SDK's `resume` option)
-- AbortController-based cancellation
+- Multi-turn context continuity — each A2A `contextId` is bound to a persistent Claude session (resumed via the SDK's `resume` option, also after a restart with a durable store)
+- Cancellation (AbortController plus `query.interrupt()`), and steering of a running task (`steer`, `queue`, `interrupt`)
+- Permission requests and `AskUserQuestion` can go to the A2A client (`interactions.mode: "ask"`)
 - Multi-agent delegation via A2A sub-agents
 - Sideband observability events — thinking summaries, tool calls, file changes, todo lists, usage/cost
 - JSON config file with layered overrides (JSON → env vars → CLI flags)
@@ -205,6 +206,10 @@ Two more things worth knowing:
     "ttl": 0
   },
 
+  "interactions": {
+    "mode": "auto"
+  },
+
   "features": {
     "streamArtifactChunks": false,
     "emitThinkingEvents": true,
@@ -217,7 +222,8 @@ Two more things worth knowing:
   },
 
   "timeouts": {
-    "prompt": 600000
+    "prompt": 600000,
+    "steerAck": 5000
   },
 
   "logging": {
@@ -238,37 +244,40 @@ Disabling it has one consequence worth knowing: turns are serialized per context
 
 ### Session lifetime
 
-`session.ttl` controls expiry of the `contextId` → Claude session mapping. It
+`session.ttl` is the **maximum age** of a context's Claude session. It
 defaults to `0`, which disables expiry: a conversation resumes the same Claude
 session indefinitely. A positive value expires a session that many milliseconds
-after it was **created** — measured from the conversation's first message, not
-its last — so an active conversation is reset on a fixed schedule rather than
-after a period of inactivity. When a session is evicted, the next turn on that
+after it was **created**: measured from the conversation's first message, never
+extended by use, so an active conversation is reset on a fixed schedule rather
+than after a period of inactivity. When a session expires, the next turn on that
 `contextId` starts a brand-new Claude session with no memory of the conversation
-so far.
+so far (core deletes the context binding when it next resumes the context).
 
-`session.cleanupInterval` is a background sweep that reclaims expired sessions
-without waiting for their context to be used again. It also defaults to `0`
-(disabled), and it is only consulted at all when `ttl > 0` — with expiry off
-there is nothing to sweep. Setting `ttl` alone gives you expiry via the lazy
-check, but a context that is never touched again holds its record until the
-process exits; set `cleanupInterval` as well if you want that memory reclaimed.
+`session.idleTtl` (unset by default) is an optional, separate **idle** expiry:
+a context that was not used for that many milliseconds starts a new session on
+its next message. `session.reuseByContext: false` gives every task its own
+session and binds nothing.
+
+`session.cleanupInterval` is a background sweep that removes the bindings of
+contexts that have been idle for longer than `ttl`, without waiting for them to
+be used again. It defaults to `0` (disabled) and is only consulted when
+`ttl > 0`. Without it an expired context is reclaimed when it is next used.
 Both disabled states are logged at startup.
 
 ### Permission modes
 
-The SDK's `permissionMode` controls whether tool calls are auto-approved. Headless A2A execution cannot show an interactive approval prompt to a human, so two of the SDK's four modes are rejected at startup:
+The SDK's `permissionMode` controls whether tool calls are auto-approved. Headless A2A execution cannot show an interactive approval prompt to a human, so `default` and `auto` are rejected at startup, unless something can answer: with `interactions.mode: "ask"` (or `interactions.autoAnswer` rules) `default` is accepted and the prompts go to the A2A client, see [Permissions and questions](#permissions-and-questions-interactions).
 
 | Mode | Behaviour | Headless-safe |
 |---|---|---|
-| `default` | Interactive approval per tool call | **Rejected** — no human in the loop |
+| `default` | Interactive approval per tool call | **Rejected**, unless `interactions.mode` is `ask` (or rules are set): then each prompt goes to the A2A client |
 | `auto` | Heuristic/classifier-based approval | **Rejected** — not supported for headless A2A |
 | `acceptEdits` | Auto-approve file edits; other guardrails still apply | Yes (default) |
 | `dontAsk` | Never prompt; broadest auto-approval short of bypass | Yes |
 | `plan` | Read/analyze only — no mutating tool calls | Yes |
 | `bypassPermissions` | Unrestricted tool access | Yes, **only** with `dangerouslyAllowBypassPermissions: true` |
 
-Setting `permissionMode: "bypassPermissions"` without `dangerouslyAllowBypassPermissions: true` throws at startup. When bypass is enabled, the executor logs a loud warning on every startup as a reminder that Claude has unrestricted tool access — only use it inside an isolated container or VM.
+Setting `permissionMode: "bypassPermissions"` without `dangerouslyAllowBypassPermissions: true` throws at startup. When bypass is enabled, the provider logs a loud warning on every startup as a reminder that Claude has unrestricted tool access — only use it inside an isolated container or VM.
 
 ### `settingSources` isolation
 
@@ -422,11 +431,10 @@ Task with `error_max_turns`.
 **Further messages on the same `contextId` queue behind a held-open Task.**
 Turns are serialized per context — see [Prompt timeout](#prompt-timeout) —
 so a Task that's waiting on background work blocks every later message on
-that context, the same as any other slow turn would. `cancelTask`
-(`tasks/cancel`) is currently the only way to release the queue early, and
-there's a sharp edge worth calling out: the remedy a user would naturally
-reach for — sending another message on the same context — is exactly what's
-blocked.
+that context, the same as any other slow turn would. To release it early,
+cancel the task (`tasks/cancel`), or send a message to that task with
+`urn:a2a-wrapper:delivery:v1` set to `interrupt` (see
+[Steering a running task](#steering-a-running-task)).
 
 **`timeouts.prompt` bounds the whole Task, not one round.** The timer is
 armed once at turn start and is never re-armed, so it also covers the idle
@@ -444,6 +452,134 @@ Task stays in `working` indefinitely and holds its context's queue open with
 it. `cancelTask` is the only escape. This is a known limitation of the
 current design; a non-timeout release mechanism is planned. Operators running
 with the prompt timeout disabled should monitor for Tasks stuck in `working`.
+
+## Conversations and restarts
+
+Messages that carry the same `contextId` continue the same Claude session. The Claude session id is bound to the
+`contextId` by core (`run.bind`, as soon as the CLI reports it, before the first output) and resumed with the SDK's
+`resume` option on the next task, so the model remembers earlier turns. A session the CLI no longer has (it answers
+"No conversation found") is not an error: core forgets the binding and runs the same turn on a fresh session.
+
+> **Resume after a restart needs a durable `RunStore`.** The default store is in memory, so with the defaults **nothing
+> survives a restart**: the `contextId` to session binding is gone and the next message starts a new Claude session (the
+> old transcript stays on disk, unused). Core ships only the in-memory store today; a durable one is tracked in #69. To keep
+> conversations across restarts supply your own `RunStore` (see core's `RunStore` interface and its contract test suite):
+>
+> ```typescript
+> import { createA2AServer, resolveConfig } from 'a2a-claude';
+> const handle = await createA2AServer(resolveConfig('agent.json'), { runStore: new MyDurableRunStore() });
+> ```
+>
+> Tasks themselves are in memory either way (an in-flight task does not survive a restart; its Claude session does).
+
+What the binding also keeps: the running cost total of the session (`binding.session.meta.usageTotals`), so `x-usage`
+cost stays the cost of the turn after a restart.
+
+## Usage and cost
+
+`x-usage` on the completed status is the usage of the task. Tokens come from the SDK result's `usage` (the turn, main loop
+only). **Cost is the cost of the turn**: the SDK's `total_cost_usd` is a running total of the whole Claude session (it keeps
+growing across turns and resumes), so the wrapper reports the difference between two readings of the same session instead
+of the total. Earlier releases put the running total in `x-usage` on every task, so a long conversation's later tasks
+looked more and more expensive, and a held-open task counted the total once per round. A first turn of a session is
+unchanged. Core's own usage key (`urn:a2a-wrapper:usage:v1`) next to it carries the per-model breakdown of the turn
+(sub-agents and compaction included), from the same difference of the SDK's cumulative `modelUsage`.
+
+## Steering a running task
+
+Send a second message to a task that is still running and choose what it means with the message metadata
+`urn:a2a-wrapper:delivery:v1`:
+
+| Delivery | What happens |
+|---|---|
+| `queue` (default) | The message waits and runs as the next turn of the same task, on the same session (a new query that resumes it). |
+| `steer` | Pushed into the running query with the SDK's streaming-input `priority: "next"`: the CLI folds it into the running turn at the next tool boundary. The answer is `inserted` when the CLI says it folded the message in (a `command_lifecycle` `started` frame before the turn ends, or the message's uuid in the result's `user_message_uuids`), or `queued` (held by the CLI) when it did not say so in time (`timeouts.steerAck`, default 5 s) or the turn ended first. A queued message then runs as its own turn of the same task. |
+| `interrupt` | Asks the CLI to end the running turn (`query.interrupt()`), ends that process and runs the message next, resuming the same session. |
+
+The caller gets one `Message` carrying the result under `urn:a2a-wrapper:delivery-result:v1`. A cancel (`tasks/cancel`)
+aborts the query at once (and calls `interrupt()`); the session stays on disk and the next message on the context resumes it.
+
+Known limitations:
+
+- A `steer` answered `queued` splits the task into turns. If the CLI later folds the message into the turn in flight, the
+  wrapper keeps that turn going (no split).
+- The CLI's own queue lives in its process, so an `interrupt` (which replaces the process) drops a steered message the CLI
+  still held; it is reported `dropped`. Only text can be steered.
+- A task with a held (queued) message publishes the first turn's result as a non-final `working` status, so `x-usage` can
+  appear on a `working` status. Clients that read usage only from terminal metadata should read the completed status.
+- In `streamArtifactChunks` mode the stored task holds the response text twice (the chunks, then the last-chunk marker with
+  the full text, both appended). This is the behaviour of earlier releases and is kept.
+- Every extra turn of a task (a queued message) publishes its own response artifact id (`response-<taskId>-t<n>-<round>`).
+
+## Permissions and questions (`interactions`)
+
+By default the wrapper is headless: nobody is asked and `claude.permissionMode` decides (a tool call that needs
+permission and is not pre-approved is denied by the CLI), exactly as it always has. Set `interactions.mode` to `ask` to
+route permission requests and Claude's `AskUserQuestion` tool through the A2A client instead. This needs
+`claude.permissionMode: "default"` (or `acceptEdits`/`plan`, where the CLI still prompts for shell commands and the like):
+
+```json
+{
+  "claude": { "permissionMode": "default" },
+  "interactions": {
+    "mode": "ask",
+    "timeoutMs": 600000,
+    "onTimeout": "fail",
+    "autoAnswer": [
+      { "match": { "risk": "low" }, "answer": { "kind": "allow_once" } },
+      { "match": { "tool": "Bash" }, "answer": { "decline": true } }
+    ]
+  }
+}
+```
+
+- **`mode: "ask"`**: a permission request parks the task as `input-required`; the status message names it ("Use Bash", the
+  command, the risk) and lists the options (`1. Allow`, `2. Deny`) with a short reply code. Reply with a new message on
+  the same task: `1 K7M2` (the code is required to approve), `no`, or a structured reply `{ "interactionId": "...",
+  "optionId": "allow" | "reject", "feedback": "..." }`. Only an explicit allow approves; a timeout, a cancel or any unusable
+  reply denies, and the model is told (the `feedback` is what it sees). "Always allow" is not offered: it would make the SDK
+  write rules into the project's settings files.
+- **`AskUserQuestion`** arrives as a `question` interaction (header, options with descriptions, `multi`, free text
+  accepted). Reply `{ "interactionId": "...", "answers": { "q0": { "optionIds": ["1"] } } }` (or free text); the answer goes
+  back to Claude by question text. Up to four questions arrive as one interaction.
+- **`autoAnswer`**: rules answered without a person, first match wins, in both modes (with `mode: "auto"` and rules, what no
+  rule answers is denied: nobody is asked). `match` fields are `kind`, `risk` (`low` for reads, `medium` for fetches and
+  MCP tools, `high` for `Bash` and file edits), `tool` (the SDK tool name, for example `Bash`, `Write`,
+  `mcp__server__tool`) and `action` (`execute`, `edit`, `read`, `fetch`, `mcp`).
+- `timeoutMs` (default 10 minutes) and `onTimeout`: `fail` (default) ends the task, `deny` lets the run go on with the
+  request denied. The prompt timeout (`timeouts.prompt`) does not run while a person decides, and starts again afterwards.
+- A request the CLI withdraws (the turn was interrupted: the SDK's abort signal) ends withdrawn, and a canceled task
+  denies it and tells the SDK to stop.
+- Also `--interactions ask` and `INTERACTIONS_MODE=ask`.
+- After a restart a task waiting for an answer fails with "server restarted" (the pending SDK request lives in the CLI process).
+
+## Programmatic use and migration (breaking release)
+
+`a2a-claude` is built on `@a2a-wrapper/core`'s provider contract and no longer depends on `@a2a-js/sdk` (only core does).
+
+```typescript
+import { createA2AServer, resolveConfig } from 'a2a-claude';
+const handle = await createA2AServer(resolveConfig('agent.json'), { runStore, eventTransport });
+// handle.provider: the ClaudeProvider (a `ProviderExecutor` of @a2a-wrapper/core)
+// handle.registry: core's run runtime (cancel, steering, interactions, bindings)
+await handle.shutdown();
+```
+
+**Breaking changes and migration**
+
+- `ClaudeExecutor` and `SessionManager` are removed from the public API (`a2a-claude` and `a2a-claude/claude`), with no
+  shim. Use `ClaudeProvider` (a `ProviderExecutor`: `run`, `steer`, `abort`, `probeSession`) behind core's run runtime. It is
+  not an SDK `AgentExecutor`: there is no `execute(ctx, bus)` or `cancelTask`; cancel, steering and replies go through the
+  A2A endpoints (or core's `RunRegistry`). `prompt-builder`'s `promptStream` is gone with it.
+- `createA2AServer(config, options?)` takes `{ runStore?, eventTransport? }` and returns `{ provider, registry, executor,
+  server, app, shutdown }`: `provider` is the `ClaudeProvider`, `registry` core's run runtime, `executor` core's executor (it
+  used to be the `ClaudeExecutor`). Use `handle.provider.buildContext()` where you used `executor.buildContext()`.
+- Custom event transports: pass `{ eventTransport }` (it used to be set on `executor.customTransport`).
+- `ClaudeClientLike` (injected for tests) gained an optional `sessionExists`; `SDKUserMessageLike` gained `uuid` and `priority`.
+- What a client sees is unchanged except: the redundant `submitted` status after the initial task snapshot is gone; the
+  completed status also carries `urn:a2a-wrapper:usage:v1`; a failed status carries `code` (`backend`, `timeout`,
+  `rate_limit`), and a rate limit also `retryable`; `x-usage` **cost** is the cost of the turn (see [Usage and cost](#usage-and-cost));
+  a task that had a message steered in can carry `x-usage` on a non-final `working` status.
 
 ## Example Agents
 
@@ -571,9 +707,8 @@ The following are explicitly out of scope for this release and tracked as future
 - hooks configuration
 - native Claude subagents (`agents` option)
 - skills
-- richer usage/cost telemetry
 - session forking
-- `canUseTool` policy engine
+- `canUseTool` always-allow rules and persisted permission rules
 - file checkpointing/rewind
 - plan-mode review workflows
 
