@@ -163,7 +163,11 @@ interface CoreTaskRun {                                  // what a provider acts
 AND no provider-held handle remains un-run and un-dropped. A provider that answers a steer with `queued` (Copilot
 enqueue, OpenCode inbox, Claude `later`) holds the message; when that message starts, the provider calls
 `run.beginHeldTurn(handle)` and ends the returned view's turn with `complete`, `fail` or `reject`; when the provider
-discards it (a cancel or interrupt flushed its queue), it calls `run.dropHeld(handle)`. Without these calls
+discards it (a cancel or interrupt flushed its queue), it calls `run.dropHeld(handle)`. The `handle` is the one the
+provider returned in `SteerOutcome.queued`; it is REQUIRED there (a provider with nothing better uses
+`CoreMessage.id`), because without a handle the message could never be announced or dropped and the task would never
+go terminal. **Liveness backstop:** if `provider.run()` settles while held handles are neither begun nor dropped, core
+treats them as dropped (and reports it), so a provider that forgets cannot keep a task open forever. Without these calls
 `complete()` of the running turn would end the task and the held message's output would arrive after it is terminal and
 be dropped. These are types only here; the runtime is issue #107.
 
@@ -370,7 +374,7 @@ interface CoreMessage {
 
 type SteerOutcome =                                      // what a provider's steer handler returns
   | { state: "inserted" }                                // folded into the running turn
-  | { state: "queued"; handle?: string }                 // the provider holds it in its own queue
+  | { state: "queued"; handle: string }                  // the provider holds it in its own queue; handle is required
   | { state: "rejected"; reason: Open<"no-active-turn" | "not-steerable" | "unsupported">; detail?: string };
 
 type DeliveryResult =                                    // what core tells the caller
@@ -457,7 +461,7 @@ interface RunRecord extends RecordHeader {              // one per task (runId),
 }
 interface QueuedMessageRecord extends RecordHeader {     // a message held for a task, survives a restart
   taskId: string; contextId: string;
-  message: StoredMessage;                                // JSON-safe: parts as StoredPart
+  message: CoreMessage;                                  // live; encodeRecord stores bytes as $bytes:v1
   holder: "provider" | "core"; position?: number; handle?: string;
   state: "queued" | "running" | "done" | "dropped";
 }
@@ -465,17 +469,33 @@ interface QueuedMessageRecord extends RecordHeader {     // a message held for a
 
 `RunRecord.input` is diagnostics only: core never replays it after a crash (a replay could repeat side effects). It may
 hold bytes and secrets, so a store treats it like any other sensitive field (encryption, retention, redaction). A
-core-held `QueuedMessageRecord` is replayed as the next turn after a restart; a provider-held one is not (the provider's
-queue did not survive) and is marked `dropped`.
+`QueuedMessageRecord` is restart-safe as follows.
 
-`issuer` names the provider and version that created the session. Core compares it for equality only, to notice that a
-stored session may not be usable by the provider now running; it never branches on its content.
+*Core-queued messages* (`holder: "core"`): after a restart core replays only records still in `queued`, in `position`
+order. Before it calls `provider.run` for one it persists `queued -> running` with an atomic claim (compare-and-set on
+the record), so two core instances or a crash between claim and run cannot start it twice. A record found in `running`
+at restart is an orphaned turn: it is NEVER replayed (the turn may already have had side effects); the orphan sweep
+handles it (3.5). Queued messages may expire after a long outage (core drops those older than a policy age). If the
+orphan sweep fails the task, its remaining queued messages are marked `dropped` and reported, because the SDK rejects
+messages to a terminal task. The alternative is for the sweep to end only the orphaned turn (as `failed` for that turn)
+and let the task continue with its queue. **Recommended: the alternative**, ending only the orphaned turn and continuing
+the queue, whenever the provider session is reusable; fail the whole task (and drop and report the queue) only when the
+session must be discarded.
+
+*Provider-held messages* (`holder: "provider"`): do not assume the provider's queue died (the OpenCode v2 inbox is
+durable server side). Before marking one `dropped`, core calls `abortOrphan({reason: "cancel"})`; it marks the record
+`dropped` only when the outcome is `stopped: "confirmed"`. Otherwise it records "state unknown" and reports it. `reattach`
+may alternatively cover held handles, so a provider that can resume its queue gets them back and calls
+`run.beginHeldTurn` or `run.dropHeld` itself.
 
 `encodeRecord` turns a record into plain JSON (`JSON.stringify`-safe): file bytes inside file parts become
 `{kind: "file", bytes: {"$bytes:v1": "<base64>"}, uri?, ...}` (the marker is decoded wherever it appears, and a user
 object that merely looks like `{kind: "file", bytes: {base64}}` is left alone); `undefined` is dropped; anything else
-that is not JSON (a function, `Date`, `Map`, class instance, `NaN`, bigint, or an object using the reserved
-`$bytes:v1` key beside other keys) throws at write time. `decodeRecord` reverses it, restoring `Uint8Array`, and refuses a
+that is not JSON (a function, `Date`, `Map`, class instance, `NaN`, bigint) throws at write time, and so does ANY live
+object that uses the reserved `$bytes:v1` key (a client's data part must not be turned into bytes, so core never
+re-encodes stored data). A `__proto__` key is kept as an ordinary own property on both encode and decode, never as a
+prototype. `normalizeInteraction` also checks the whole request is JSON-safe (schema defaults, extra fields), so bad
+input is refused at ask time. `decodeRecord` reverses it, restoring `Uint8Array`, and refuses a
 record with no version or a version newer than this core's. `encodePart` / `decodePart` do the same for one part.
 
 After a restart, core finds open records (`presented`, `queued`). Those with a `handle` go to the provider's

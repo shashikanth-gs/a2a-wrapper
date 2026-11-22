@@ -314,6 +314,20 @@ export type NormalizeResult = { ok: true; interaction: CoreInteraction } | { ok:
 
 const KNOWN_KINDS: readonly string[] = ["permission", "confirm", "question", "form", "auth"];
 
+/** Copy without `undefined`-valued keys (JSON has none), so optional fields set to undefined do not count as non-JSON. */
+function withoutUndefined(v: unknown, depth = 0): unknown {
+  if (depth > 64) return v;
+  if (Array.isArray(v)) return v.map((x) => withoutUndefined(x, depth + 1));
+  if (typeof v === "object" && v !== null && (Object.getPrototypeOf(v) === Object.prototype || Object.getPrototypeOf(v) === null)) {
+    return Object.fromEntries(
+      Object.entries(v)
+        .filter(([, x]) => x !== undefined)
+        .map(([k, x]) => [k, withoutUndefined(x, depth + 1)]),
+    );
+  }
+  return v;
+}
+
 const dupes = (ids: readonly string[]) => ids.filter((id, n) => ids.indexOf(id) !== n);
 
 /**
@@ -391,6 +405,8 @@ export function normalizeInteraction(
     default:
       break;
   }
+  // The whole request is persisted with the interaction: schema defaults and extra fields included.
+  if (!isJson(withoutUndefined(request))) errors.push("request must be JSON-safe");
   if (r.meta !== undefined && !isJson(r.meta)) errors.push("meta must be JSON-safe");
   const subject = r.subject as { detail?: unknown } | undefined;
   if (subject?.detail !== undefined && !isJson(subject.detail)) errors.push("subject.detail must be JSON-safe");

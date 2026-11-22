@@ -17,7 +17,7 @@ import type { Json, JsonObject } from "./json.js";
 import { isJson } from "./json.js";
 import type { CoreInteraction, CoreInteractionResult } from "./interaction.js";
 import type { CoreMessage } from "./message.js";
-import type { CoreCaller, CorePart, CoreTaskState } from "./primitives.js";
+import type { CorePart, CoreTaskState } from "./primitives.js";
 import type { AbortOutcome, SessionRef } from "./run.js";
 
 /** Current record schema version. A reader rejects a record with a higher one. */
@@ -181,15 +181,15 @@ export function decodePart(stored: StoredPart): CorePart {
 function encodeValue(value: unknown, path: string): Json {
   if (value instanceof Uint8Array) return { [BYTES_KEY]: toBase64(value) };
   if (Array.isArray(value)) return value.map((v, n) => encodeValue(v, `${path}[${n}]`));
-  if (isStoredBytes(value)) return value; // already stored: encoding is idempotent
   if (isPlainObject(value)) {
+    // Never re-encode stored data: a live object may not use the reserved key at all.
     if (Object.hasOwn(value, BYTES_KEY)) throw new TypeError(`${path}: key "${BYTES_KEY}" is reserved for stored bytes`);
-    const out: Record<string, Json> = {};
-    for (const [k, v] of Object.entries(value)) {
-      if (v === undefined) continue; // JSON has no undefined; an absent field is the same thing
-      out[k] = encodeValue(v, `${path}.${k}`);
-    }
-    return out;
+    // fromEntries defines own data properties, so a "__proto__" key stays a key and never sets the prototype.
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([, v]) => v !== undefined) // JSON has no undefined; an absent field is the same thing
+        .map(([k, v]) => [k, encodeValue(v, `${path}.${k}`)]),
+    ) as Json;
   }
   if (!isJson(value)) throw new TypeError(`${path}: not JSON-safe (${Object.prototype.toString.call(value)})`);
   return value;
@@ -199,9 +199,7 @@ function decodeValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(decodeValue);
   if (isStoredBytes(value)) return new Uint8Array(Buffer.from(value[BYTES_KEY], "base64"));
   if (isPlainObject(value)) {
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value)) out[k] = decodeValue(v);
-    return out;
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, decodeValue(v)]));
   }
   return value;
 }
@@ -213,9 +211,8 @@ export type StoredRecord = JsonObject & { v: number };
  * Record to plain JSON, ready for `JSON.stringify`. Bytes (`Uint8Array`,
  * wherever they appear, normally in file parts) become `{"$bytes:v1": base64}`;
  * `undefined` fields are dropped. Anything else that is not JSON (a function, a
- * `Date`, a `Map`, `NaN`, bigint, a class instance) throws, as does an object that uses
- * the reserved `$bytes:v1` key together with other keys (an object that is exactly
- * stored bytes passes through, so encoding stored data again is harmless), so a bad record fails at write
+ * `Date`, a `Map`, `NaN`, bigint, a class instance) throws, as does ANY live object that
+ * uses the reserved `$bytes:v1` key (never re-encode stored data), so a bad record fails at write
  * time and not at the next restart.
  */
 export function encodeRecord<T extends RecordHeader>(record: T): StoredRecord {
@@ -236,28 +233,6 @@ export function decodeRecord<T extends RecordHeader>(stored: unknown): T {
 
 // ─── Core-queued messages ───────────────────────────────────────────────────
 
-/** A message as stored: parts in {@link StoredPart} form, everything JSON. */
-export interface StoredMessage {
-  id: string;
-  role: "user" | "agent";
-  parts: readonly StoredPart[];
-  from: CoreCaller;
-  delivery?: string;
-  idempotencyKey?: string;
-  at: string;
-  meta?: JsonObject;
-}
-
-/** Message to its stored form. Throws on a non-JSON value. */
-export function storeMessage(m: CoreMessage): StoredMessage {
-  return encodeValue(m, "message") as unknown as StoredMessage;
-}
-
-/** Stored message back to a message (bytes restored). */
-export function loadMessage(s: StoredMessage): CoreMessage {
-  return decodeValue(s) as CoreMessage;
-}
-
 /** Lifecycle of a message held for a task. `queued` waits; `running` became a turn; `dropped` was discarded (flush). */
 export type QueuedMessageState = "queued" | "running" | "done" | "dropped";
 
@@ -266,13 +241,18 @@ export type QueuedMessageState = "queued" | "running" | "done" | "dropped";
  * wait in core's per-context lane and run as the next turn. `holder: "provider"`
  * messages live in the provider's own queue: the record keeps the `handle` the
  * provider gave in `SteerOutcome.queued`, so core still knows the task is not
- * finished and can report or drop it. A provider-held message is not replayed by
- * core after a restart (the provider's queue did not survive); it is marked `dropped`.
+ * finished and can report or drop it. Restart rules (docs/design/core-data-model.md
+ * 3.6): core replays only `queued` core-held records, claiming `queued -> running`
+ * atomically BEFORE `provider.run`; a `running` record is an orphaned turn and is
+ * never replayed. A provider-held record is not assumed dead: core calls
+ * `abortOrphan({reason: "cancel"})` and marks it `dropped` only on
+ * `stopped: "confirmed"`, else "state unknown".
  */
 export interface QueuedMessageRecord extends RecordHeader {
   taskId: string;
   contextId: string;
-  message: StoredMessage;
+  /** Live message; encodeRecord stores its bytes. */
+  message: CoreMessage;
   holder: "provider" | "core";
   /** 1-based position when known. */
   position?: number;

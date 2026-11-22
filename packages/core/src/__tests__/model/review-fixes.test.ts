@@ -43,8 +43,6 @@ import {
   usageToMetadata,
   BYTES_KEY,
   REPLY_CODE_LENGTH,
-  loadMessage,
-  storeMessage,
   type CoreMessage,
   type QueuedMessageRecord,
   type CoreCaller,
@@ -254,6 +252,16 @@ describe("R5d interaction shapes: normalizing constructor", () => {
     expect(normalizeInteraction({ kind: "hologram", title: "t" } as never, { id: "x" }).ok).toBe(true);
   });
 
+  it("validates the whole request as JSON: schema defaults and extra fields, but tolerates undefined", () => {
+    const form = { kind: "form", title: "t", schema: { properties: { d: { type: "string", default: new Date() as never } } } } as CoreInteractionRequest;
+    const r = normalizeInteraction(form, { id: "x" });
+    expect(r.ok).toBe(false);
+    expect((r as { errors: string[] }).errors.join(" ")).toMatch(/request must be JSON-safe/);
+    expect(normalizeInteraction({ kind: "hologram", title: "t", extra: () => 1 } as never, { id: "x" }).ok).toBe(false);
+    expect(normalizeInteraction({ kind: "hologram", title: "t", extra: { n: 1 } } as never, { id: "x" }).ok).toBe(true);
+    expect(normalizeInteraction({ kind: "confirm", title: "t", description: undefined, expiresAt: undefined }, { id: "x" }).ok).toBe(true);
+  });
+
   it("validates subject.detail and option meta as JSON, not only meta", () => {
     const base = { kind: "permission", title: "t", options: [{ id: "a", label: "A", kind: "allow_once" }] } as const;
     for (const req of [
@@ -455,21 +463,60 @@ describe("QueuedMessageRecord", () => {
     };
     const rec: QueuedMessageRecord = {
       ...newRecordHeader({ id: "alice", kind: "user" }, "T"),
-      taskId: "t", contextId: "c", message: storeMessage(message), holder: "core", position: 1, state: "queued",
+      taskId: "t", contextId: "c", message, holder: "core", position: 1, state: "queued",
     };
     const wire = JSON.parse(JSON.stringify(encodeRecord(rec)));
-    const back = decodeRecord<QueuedMessageRecord>(wire);
-    expect(loadMessage(back.message)).toEqual(message);
-    expect(rec.message.parts[1]).toMatchObject({ kind: "file", bytes: { [BYTES_KEY]: "BQY=" } });
+    expect(wire.message.parts[1].bytes).toEqual({ [BYTES_KEY]: "BQY=" });
+    expect(decodeRecord<QueuedMessageRecord>(wire)).toEqual(rec);
   });
 
   it("a provider-held message keeps its handle", () => {
     const rec: QueuedMessageRecord = {
       ...newRecordHeader({ id: "a", kind: "user" }, "T"),
       taskId: "t", contextId: "c", holder: "provider", handle: "h-1", state: "queued",
-      message: storeMessage({ id: "m", role: "user", parts: [], from: { id: "a", kind: "user" }, at: "T" }),
+      message: { id: "m", role: "user", parts: [], from: { id: "a", kind: "user" }, at: "T" },
     };
     expect(decodeRecord<QueuedMessageRecord>(JSON.parse(JSON.stringify(encodeRecord(rec)))).handle).toBe("h-1");
+  });
+});
+
+describe("record codec: reserved key and __proto__", () => {
+  const header = newRecordHeader({ id: "u", kind: "user" }, "T");
+  const withInput = (input: unknown) =>
+    ({ ...header, runId: "r", taskId: "t", contextId: "c", turnId: "u", state: "working", startedAt: "T", input }) as unknown as RunRecord;
+
+  it("a live object that is exactly {\"$bytes:v1\": ...} (a client's data part) throws instead of turning into bytes", () => {
+    expect(() => encodeRecord(withInput([{ kind: "data", data: { [BYTES_KEY]: "aGk=" } }]))).toThrow(/reserved/);
+    expect(() => encodeRecord(withInput([{ kind: "data", data: { deep: [{ [BYTES_KEY]: "aGk=" }] } }]))).toThrow(/reserved/);
+    expect(() => encodeRecord(withInput([{ kind: "data", data: { [BYTES_KEY]: "x", other: 1 } }]))).toThrow(/reserved/);
+  });
+
+  it("stored data is not re-encoded: encoding an already stored message throws", () => {
+    const stored = encodeRecord(withInput([{ kind: "file", bytes: new Uint8Array([1]) }]));
+    expect(() => encodeRecord(stored as never)).toThrow(/reserved/);
+  });
+
+  it("encode keeps a __proto__ key as an own property and does not touch the prototype", () => {
+    const parsed = JSON.parse('{"__proto__":{"polluted":1},"ok":2}');
+    const stored = encodeRecord(withInput([{ kind: "data", data: parsed }]));
+    const data = (stored as unknown as { input: { data: Record<string, unknown> }[] }).input[0]!.data;
+    expect(Object.getPrototypeOf(data)).toBe(Object.prototype);
+    expect(Object.hasOwn(data, "__proto__")).toBe(true);
+    expect(data.ok).toBe(2);
+    expect((data as { polluted?: unknown }).polluted).toBeUndefined();
+    expect(JSON.stringify(stored)).toContain('"__proto__":{"polluted":1}');
+  });
+
+  it("decode of JSON with a __proto__ key yields an own property and a normal prototype", () => {
+    const wire = JSON.parse('{"v":1,"owner":{"id":"u","kind":"user"},"createdAt":"T","updatedAt":"T","x":{"__proto__":{"p":1}},"y":[{"__proto__":{"q":2},"ok":3}]}');
+    const back = decodeRecord<RunRecord>(wire) as unknown as { x: Record<string, unknown>; y: Record<string, unknown>[] };
+    expect(Object.getPrototypeOf(back.x)).toBe(Object.prototype);
+    expect(Object.hasOwn(back.x, "__proto__")).toBe(true);
+    expect((back.x as { p?: unknown }).p).toBeUndefined();
+    expect(Object.hasOwn(back.y[0]!, "__proto__")).toBe(true);
+    expect(back.y[0]!.ok).toBe(3);
+    expect(({} as { p?: unknown }).p).toBeUndefined(); // Object.prototype untouched
+    expect(JSON.stringify(back.x)).toBe('{"__proto__":{"p":1}}');
   });
 });
 

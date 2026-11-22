@@ -43,8 +43,13 @@ export type HistoryMessage = Omit<CoreMessage, "from" | "at"> & {
 /** What a provider's `steer` handler returns. */
 export type SteerOutcome =
   | { state: "inserted" }
-  /** The provider holds the message in its own queue; `handle` identifies it if the provider can. */
-  | { state: "queued"; handle?: string }
+  /**
+   * The provider holds the message in its own queue. `handle` is REQUIRED: it is
+   * what the provider later passes to `run.beginHeldTurn(handle)` or
+   * `run.dropHeld(handle)`, and without one the task could never go terminal. A
+   * provider with nothing better uses `CoreMessage.id`.
+   */
+  | { state: "queued"; handle: string }
   | {
       state: "rejected";
       reason: Open<"no-active-turn" | "not-steerable" | "unsupported">;

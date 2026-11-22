@@ -105,7 +105,7 @@ describe("contract shape (compile-checked)", () => {
   it("outcomes and records have the designed shapes", () => {
     const steer: SteerOutcome[] = [
       { state: "inserted" },
-      { state: "queued", handle: "q1" },
+      { state: "queued", handle: "q1" }, // handle is required: a provider with nothing better uses the message id
       { state: "rejected", reason: "not-steerable", detail: "review turn" },
       { state: "rejected", reason: "some-future-reason" },
     ];
