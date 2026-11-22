@@ -7,6 +7,7 @@
  */
 
 import type { Message } from "@a2a-js/sdk";
+import type { CorePart } from "../model/primitives.js";
 
 /**
  * Extracts and joins all text parts from a {@link Message}, in order.
@@ -26,6 +27,17 @@ import type { Message } from "@a2a-js/sdk";
 export function extractUserText(message: Message): string {
   return message.parts
     .map((part) => (part.content?.$case === "text" ? part.content.value : undefined))
+    .filter((text): text is string => text !== undefined)
+    .join("\n");
+}
+
+/**
+ * {@link extractUserText} for core parts: the text parts of a provider request's input, joined with newlines.
+ * Other parts (data, files, unmodelled) are ignored.
+ */
+export function corePartsText(parts: readonly CorePart[]): string {
+  return parts
+    .map((part) => (part.kind === "text" ? part.text : undefined))
     .filter((text): text is string => text !== undefined)
     .join("\n");
 }

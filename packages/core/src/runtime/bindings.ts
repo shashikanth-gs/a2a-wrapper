@@ -107,6 +107,11 @@ export interface ContextBindingsOptions {
   busy(contextId: string): boolean;
   /** Binding TTL in ms, measured from `lastUsedAt` (else `updatedAt`). `undefined`: bindings never expire. */
   ttlMs?: number;
+  /**
+   * Hard maximum age of a binding in ms, measured from `createdAt` (the start of the bound session) and never extended by
+   * use. `undefined`: no maximum age.
+   */
+  maxAgeMs?: number;
 }
 
 /** Concurrent `probeSession` calls during start-up validation. */
@@ -161,6 +166,15 @@ export class ContextBindings {
     const used = Date.parse(b.lastUsedAt ?? b.updatedAt);
     const now = Date.parse(this.o.now());
     return Number.isFinite(used) && Number.isFinite(now) && now - used > ttlMs;
+  }
+
+  /** Is the binding older than the hard maximum age (`bindingMaxAgeMs`), whatever its use? */
+  private overAge(b: ContextBinding): boolean {
+    const max = this.o.maxAgeMs;
+    if (max === undefined) return false;
+    const born = Date.parse(b.createdAt);
+    const now = Date.parse(this.o.now());
+    return Number.isFinite(born) && Number.isFinite(now) && now - born > max;
   }
 
   /** The binding as stored, after everything queued before this call. No checks, no touch. */
@@ -220,8 +234,8 @@ export class ContextBindings {
         return { kind: "none" };
       }
 
-      if (this.expired(b, this.o.ttlMs)) {
-        this.o.log.warn(`task ${i.taskId}: context binding expired (bindingTtlMs); starting a fresh session`);
+      if (this.expired(b, this.o.ttlMs) || this.overAge(b)) {
+        this.o.log.warn(`task ${i.taskId}: context binding expired (bindingTtlMs or bindingMaxAgeMs); starting a fresh session`);
         await this.deleteQuietly(i.contextId, session.ref);
         toRelease = session.ref;
         return { kind: "none" };
@@ -262,7 +276,8 @@ export class ContextBindings {
   }
 
   /**
-   * Persist `run.bind`. Replaces the previous binding (keeping its owner and `createdAt`). Dropped, with a debug log:
+   * Persist `run.bind`. Replaces the previous binding (keeping its owner and `createdAt`; a provider that starts a new
+   * session for a context deletes the old binding first, which is what resets the age measured by `bindingMaxAgeMs`). Dropped, with a debug log:
    * a bind from a turn older than the last one that bound this context (a stale turn must not overwrite a newer
    * binding) and a bind over a binding another caller owns. Never rejects.
    */
@@ -338,8 +353,8 @@ export class ContextBindings {
   }
 
   /**
-   * Binding GC. Removes the bindings that were last used more than `olderThanMs` ago (default `bindingTtlMs`; with
-   * neither, nothing is removed) AND whose context has no non-terminal run: not live or parked in this process, and no
+   * Binding GC. Removes the bindings that were last used more than `olderThanMs` ago (default `bindingTtlMs`) or are older than
+   * `bindingMaxAgeMs` (with neither set, nothing is removed) AND whose context has no non-terminal run: not live or parked in this process, and no
    * `active`, `interrupted` or `unknown` run record in the store (an orphan still needs its session for `abortOrphan`).
    * `provider.release` is called for each removed session this provider wrote.
    */
@@ -347,13 +362,14 @@ export class ContextBindings {
     const report: BindingSweepReport = { removed: [], skippedBusy: [], kept: 0 };
     const ttl = options.olderThanMs ?? this.o.ttlMs;
     const all = await this.o.store.listBindings();
-    if (ttl === undefined) {
+    const stale = (b: ContextBinding): boolean => (ttl !== undefined && this.expired(b, ttl)) || this.overAge(b);
+    if (ttl === undefined && this.o.maxAgeMs === undefined) {
       report.kept = all.length;
       return report;
     }
     const runContexts = new Set((await this.o.store.listNonTerminalRuns()).map((r) => r.contextId));
     for (const b of all) {
-      if (!this.expired(b, ttl)) {
+      if (!stale(b)) {
         report.kept++;
         continue;
       }
@@ -365,7 +381,7 @@ export class ContextBindings {
       const removed = await this.serial(b.contextId, async () => {
         // Look again inside the context's queue: it may have been touched, rebound or started meanwhile.
         const cur = await this.o.store.getBinding(b.contextId);
-        if (!cur || !this.expired(cur, ttl) || this.o.busy(b.contextId)) return false;
+        if (!cur || !stale(cur) || this.o.busy(b.contextId)) return false;
         const ok = cur.session ? await this.o.store.deleteBinding(b.contextId, cur.session.ref) : await this.o.store.deleteBinding(b.contextId);
         const now = this.o.issuer();
         if (ok && cur.session && now !== undefined && cur.session.issuer === now) releaseRef = cur.session.ref;

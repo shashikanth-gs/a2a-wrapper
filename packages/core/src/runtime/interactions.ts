@@ -122,14 +122,14 @@ export class InteractionsRuntime implements InteractionRuntime {
       return this.doAsk(handle, request, options);
     } catch (e) {
       this.host?.log.warn("run.ask failed", e instanceof Error ? e.message : String(e));
-      return Promise.resolve({ outcome: "unavailable", reason: "interactions failed internally" });
+      return Promise.resolve({ outcome: "unavailable", reason: "interactions failed internally", code: "internal" });
     }
   }
 
   /** Synchronous up to the returned promise, so the queue stays consistent when a provider asks twice in a row. */
   private doAsk(handle: RunInteractionHandle, request: CoreInteractionRequest, options?: AskOptions): Promise<CoreInteractionResult> {
     const host = this.host;
-    if (!host) return Promise.resolve({ outcome: "unavailable", reason: "interactions are not enabled" });
+    if (!host) return Promise.resolve({ outcome: "unavailable", reason: "interactions are not enabled", code: "interactions-disabled" });
     if (options?.signal?.aborted) return Promise.resolve({ outcome: "withdrawn" });
     const st = this.stateOf(handle);
 
@@ -152,7 +152,7 @@ export class InteractionsRuntime implements InteractionRuntime {
     // `auto` asks nobody: without autoAnswer rules there is nothing to do. With rules (an operator reproducing today's
     // behaviour with a catch-all allow_once, say) they still apply; whatever they do not answer is unavailable.
     if (this.policy.mode !== "ask" && this.policy.autoAnswer.length === 0) {
-      return Promise.resolve({ outcome: "unavailable", reason: 'core does not ask a person (interactions.mode is "auto")' });
+      return Promise.resolve({ outcome: "unavailable", reason: 'core does not ask a person (interactions.mode is "auto")', code: "policy-auto" });
     }
 
     const kind = String((request as { kind?: unknown }).kind ?? "");
@@ -164,7 +164,7 @@ export class InteractionsRuntime implements InteractionRuntime {
     const seq = st.nextSeq + 1;
     const id = host.newId();
     const normalized = normalizeInteraction(request, { id, seq, expiresAt });
-    if (!normalized.ok) return Promise.resolve({ outcome: "unavailable", reason: `invalid interaction: ${normalized.errors.join("; ")}` });
+    if (!normalized.ok) return Promise.resolve({ outcome: "unavailable", reason: `invalid interaction: ${normalized.errors.join("; ")}`, code: "invalid-request" });
     const interaction = normalized.interaction;
     st.nextSeq = seq;
 
@@ -189,7 +189,7 @@ export class InteractionsRuntime implements InteractionRuntime {
       return Promise.resolve(answeredByPolicy);
     }
     if (this.policy.mode !== "ask") {
-      return Promise.resolve({ outcome: "unavailable", reason: 'core does not ask a person (interactions.mode is "auto")' });
+      return Promise.resolve({ outcome: "unavailable", reason: 'core does not ask a person (interactions.mode is "auto")', code: "policy-auto" });
     }
 
     let resolve!: (r: CoreInteractionResult) => void;

@@ -2,8 +2,8 @@
  * MCP Evidence Hooks — Pure A2A Sideband Artifacts
  *
  * Captures tool arguments and results from the Copilot SDK's
- * onPreToolUse / onPostToolUse session hooks, then emits structured
- * A2A TaskArtifactUpdateEvent with `trace.*` artifact keys.
+ * onPreToolUse / onPostToolUse session hooks, then emits them through the
+ * run's event emitter as `trace.*` artifacts.
  *
  * These "sideband artifacts" flow through the A2A protocol itself —
  * no Kafka, no custom transport. The orchestrator receives them alongside
@@ -43,6 +43,14 @@ const SENSITIVE_KEYS = new Set([
 
 export class McpEvidenceHooks {
   private emitter: AgentEventEmitter | null = null;
+
+  /**
+   * @param autoAllow `true` (the default) keeps the headless behaviour: the pre-tool hook answers `allow`, so no tool call
+   *   ever waits for a person. `false` leaves the decision to the session's permission handler, which is what an operator
+   *   who configured `interactions.mode: "ask"` needs for permission requests to reach the A2A client.
+   */
+  constructor(private readonly autoAllow = true) {}
+
   /** Correlate start/end by session+toolName → { toolCallId, args, startTime }. */
   private activeToolCalls = new Map<
     string,
@@ -101,8 +109,9 @@ export class McpEvidenceHooks {
           });
         }
 
-        // IMPORTANT: return permissionDecision to allow execution
-        return { permissionDecision: "allow" };
+        // IMPORTANT: return permissionDecision to allow execution (headless default); in ask mode the
+        // permission handler decides instead.
+        return this.autoAllow ? { permissionDecision: "allow" } : {};
       },
 
       onPostToolUse: async (

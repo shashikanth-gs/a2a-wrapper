@@ -314,6 +314,45 @@ export interface TimeoutConfig {
   healthCheck?: number;
 }
 
+// ─── Interactions Config ────────────────────────────────────────────────────
+
+/**
+ * Whether a person is asked when the backend wants to do something that needs a decision (a permission, a
+ * question) and what happens when nobody answers. Read by a wrapper that implements the provider contract and
+ * handed to the run runtime (`RunRegistryOptions.interactionPolicy`).
+ *
+ * The default (`mode: "auto"`, no rules) keeps each wrapper's native behaviour and asks nobody.
+ *
+ * @see docs/design/core-data-model.md section 3.9
+ */
+export interface InteractionsConfig {
+  /**
+   * `"auto"`: nobody is asked; a rule in {@link autoAnswer} answers what it matches and the wrapper's native
+   * handling applies to the rest. `"ask"`: what no rule answers goes to the A2A client as `input-required` and the task
+   * waits for its reply.
+   * @default "auto"
+   */
+  mode?: "auto" | "ask";
+  /** Ask mode: how long an unanswered interaction waits before it expires, in ms (30 minutes for sign-in). @default 600_000 */
+  timeoutMs?: number;
+  /** Ask mode: expiry of a sign-in (`auth`) interaction, in ms. @default 1_800_000 */
+  authTimeoutMs?: number;
+  /**
+   * What an expiry does: `"fail"` fails the task; `"deny"` lets the run go on with the request denied (never approved).
+   * @default "fail"
+   */
+  onTimeout?: "fail" | "deny";
+  /**
+   * Rules that answer without a person, first match wins, in both modes. A rule is
+   * `{ match: { kind?, risk?, tool?, action? }, answer: { kind } | { optionId } | { decline: true } }`; an empty `match`
+   * matches everything. Only option-based interactions (permission, confirm) can be answered by a rule.
+   */
+  autoAnswer?: Array<{
+    match: { kind?: string | string[]; risk?: string | string[]; tool?: string | string[]; action?: string | string[] };
+    answer: { kind: string } | { optionId: string } | { decline: true };
+  }>;
+}
+
 // ─── Logging Config ─────────────────────────────────────────────────────────
 
 /**

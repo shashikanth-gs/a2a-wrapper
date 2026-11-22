@@ -21,4 +21,5 @@ export type {
   McpHttpServerConfig,
   McpStdioServerConfig,
   CustomAgentConfig,
+  InteractionsConfig,
 } from "./types.js";

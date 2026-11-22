@@ -34,6 +34,7 @@ export type {
   BaseFeatureFlags,
   TimeoutConfig,
   LoggingConfig,
+  InteractionsConfig,
   EventsConfig,
   BaseMcpServerConfig,
   BaseAgentConfig,
@@ -53,7 +54,7 @@ export {
   publishThoughtArtifact,
 } from "./events/event-publisher.js";
 
-export { extractUserText } from "./events/part-utils.js";
+export { extractUserText, corePartsText } from "./events/part-utils.js";
 
 // ─── Event Transport ────────────────────────────────────────────────────────
 
@@ -86,6 +87,9 @@ export { buildAgentCard, TRACE_EXTENSION_URI, type BuildAgentCardInput } from ".
 
 export {
   createA2AServer,
+  createProviderServer,
+  type ProviderServerOptions,
+  type ProviderServerHandle,
   type ServerOptions,
   type ServerHandle,
   type AgentCardSigningOptions,
@@ -171,6 +175,21 @@ export {
 
 export type { UsageCallRecord, UsageTelemetryData, ContextWindowSnapshot } from "./events/usage.js";
 export { LlmUsageAccumulator } from "./events/usage.js";
+
+// ─── Run-scoped observability for provider wrappers (design doc 3.14) ───────
+
+export {
+  DEFAULT_TERMINAL_EMIT_TIMEOUT_MS,
+  RunObservability,
+  RunTransport,
+  X_USAGE_KEY,
+  createResponseStream,
+  traceArtifact,
+  usageSummaryToCoreUsage,
+  type ResponseStream,
+  type RunFinish,
+  type RunObservabilityOptions,
+} from "./events/run-observability.js";
 
 // ─── OpenTelemetry (optional @opentelemetry/api peer) ───────────────────────
 
@@ -312,6 +331,22 @@ export { CoreExecutor } from "./a2a/core-executor.js";
 export { RunEventBusManager } from "./a2a/bus-manager.js";
 export { OrphanGuardTaskStore, contextForOwner, endTaskInStore } from "./a2a/orphan-task-store.js";
 export { createBusPublisher } from "./a2a/bus-publisher.js";
+// Test harness for wrappers (serves a provider through the real request handler; keeps the SDK out of wrapper tests).
+export {
+  createProviderTestServer,
+  createTestServer,
+  stateName,
+  summarizeEvent,
+  summarizeTask,
+  testMessage,
+  type EventSummary,
+  type LiveStream,
+  type ProviderTestServer,
+  type StreamResult,
+  type TestMessageInit,
+  type TestServer,
+  type TestServerOptions,
+} from "./a2a/test-server.js";
 export {
   createStorePublisher,
   createStorePublisherFactory,

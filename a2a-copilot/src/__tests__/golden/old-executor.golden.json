@@ -1,0 +1,2094 @@
+{
+  "streaming-buffered-rich": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "c1d97117-815e-445f-a1be-19f9809c3e28",
+              "state": "started",
+              "backend": "copilot"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Intent: Greeting the user",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.thinking",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "b58b132b-8f62-4588-8cf4-7892aaf57c4c",
+              "content": "think hard"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.thinking"
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Executing read_file...",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "reading 1/2",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Tool completed",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Executing secret_word...",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Tool error: boom",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Delegating to Helper...",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "helper completed",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Delegating to other...",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "other failed: nope",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "text": "Hello world"
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "a6bbe9a6-f18a-4f96-a669-445e746cec83",
+              "state": "finished",
+              "backend": "copilot",
+              "usage": {
+                "inputTokens": 120,
+                "outputTokens": 50,
+                "cacheReadTokens": 20,
+                "cacheWriteTokens": 0,
+                "reasoningTokens": 10,
+                "durationMs": 500,
+                "llmCalls": 2,
+                "model": "claude-sonnet-4.5",
+                "cost": 1.5,
+                "calls": [
+                  {
+                    "model": "gpt-4.1",
+                    "inputTokens": 100,
+                    "outputTokens": 40,
+                    "cacheReadTokens": 10,
+                    "cacheWriteTokens": 0,
+                    "reasoningTokens": 5,
+                    "durationMs": 250,
+                    "timeToFirstTokenMs": 90,
+                    "cost": 1,
+                    "apiEndpoint": "https://api.example/v1",
+                    "initiator": "agent"
+                  },
+                  {
+                    "model": "claude-sonnet-4.5",
+                    "inputTokens": 20,
+                    "outputTokens": 10,
+                    "cacheReadTokens": 10,
+                    "cacheWriteTokens": 0,
+                    "reasoningTokens": 5,
+                    "durationMs": 250,
+                    "timeToFirstTokenMs": 90,
+                    "cost": 0.5,
+                    "apiEndpoint": "https://api.example/v1",
+                    "initiator": "agent"
+                  }
+                ],
+                "contextWindow": {
+                  "currentTokens": 900,
+                  "tokenLimit": 8000,
+                  "conversationTokens": 700,
+                  "systemTokens": 100,
+                  "toolDefinitionsTokens": 100,
+                  "messagesLength": 4
+                }
+              }
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "status",
+        "state": "completed",
+        "metaKeys": [
+          "x-usage"
+        ],
+        "usage": {
+          "inputTokens": 120,
+          "outputTokens": 50,
+          "cacheReadTokens": 20,
+          "cacheWriteTokens": 0,
+          "reasoningTokens": 10,
+          "durationMs": 500,
+          "llmCalls": 2,
+          "model": "claude-sonnet-4.5",
+          "cost": 1.5,
+          "calls": [
+            {
+              "model": "gpt-4.1",
+              "inputTokens": 100,
+              "outputTokens": 40,
+              "cacheReadTokens": 10,
+              "cacheWriteTokens": 0,
+              "reasoningTokens": 5,
+              "durationMs": 250,
+              "timeToFirstTokenMs": 90,
+              "cost": 1,
+              "apiEndpoint": "https://api.example/v1",
+              "initiator": "agent"
+            },
+            {
+              "model": "claude-sonnet-4.5",
+              "inputTokens": 20,
+              "outputTokens": 10,
+              "cacheReadTokens": 10,
+              "cacheWriteTokens": 0,
+              "reasoningTokens": 5,
+              "durationMs": 250,
+              "timeToFirstTokenMs": 90,
+              "cost": 0.5,
+              "apiEndpoint": "https://api.example/v1",
+              "initiator": "agent"
+            }
+          ],
+          "contextWindow": {
+            "currentTokens": 900,
+            "tokenLimit": 8000,
+            "conversationTokens": 700,
+            "systemTokens": 100,
+            "toolDefinitionsTokens": 100,
+            "messagesLength": 4
+          }
+        }
+      }
+    ],
+    "blocking": {
+      "state": "completed",
+      "artifacts": [
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.thinking",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "response",
+          "text": "Hello world",
+          "parts": 1
+        },
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        }
+      ],
+      "metaKeys": [
+        "x-usage"
+      ]
+    }
+  },
+  "streaming-chunks-trackusage-rich": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "d47c04e1-cea9-455e-9a82-305273d294eb",
+              "state": "started",
+              "backend": "copilot"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Intent: Greeting the user",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.thinking",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "5ee69607-d994-42c0-847a-1d2f0e7727c7",
+              "content": "think hard"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.thinking"
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Executing read_file...",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "reading 1/2",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Tool completed",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Executing secret_word...",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Tool error: boom",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Delegating to Helper...",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "helper completed",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Delegating to other...",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "other failed: nope",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.usage",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "model": "gpt-4.1",
+              "inputTokens": 100,
+              "outputTokens": 40,
+              "cacheReadTokens": 10,
+              "cacheWriteTokens": 0,
+              "reasoningTokens": 5,
+              "durationMs": 250,
+              "timeToFirstTokenMs": 90,
+              "cost": 1,
+              "apiEndpoint": "https://api.example/v1",
+              "initiator": "agent"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.usage"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.usage",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "model": "claude-sonnet-4.5",
+              "inputTokens": 20,
+              "outputTokens": 10,
+              "cacheReadTokens": 10,
+              "cacheWriteTokens": 0,
+              "reasoningTokens": 5,
+              "durationMs": 250,
+              "timeToFirstTokenMs": 90,
+              "cost": 0.5,
+              "apiEndpoint": "https://api.example/v1",
+              "initiator": "agent"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.usage"
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": true,
+        "lastChunk": false,
+        "parts": [
+          {
+            "text": "Hello "
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": true,
+        "lastChunk": false,
+        "parts": [
+          {
+            "text": "world"
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": true,
+        "lastChunk": true,
+        "parts": [
+          {
+            "text": "Hello world"
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "d265d419-64f8-4822-bdee-fedc826d8c46",
+              "state": "finished",
+              "backend": "copilot",
+              "usage": {
+                "inputTokens": 120,
+                "outputTokens": 50,
+                "cacheReadTokens": 20,
+                "cacheWriteTokens": 0,
+                "reasoningTokens": 10,
+                "durationMs": 500,
+                "llmCalls": 2,
+                "model": "claude-sonnet-4.5",
+                "cost": 1.5,
+                "calls": [
+                  {
+                    "model": "gpt-4.1",
+                    "inputTokens": 100,
+                    "outputTokens": 40,
+                    "cacheReadTokens": 10,
+                    "cacheWriteTokens": 0,
+                    "reasoningTokens": 5,
+                    "durationMs": 250,
+                    "timeToFirstTokenMs": 90,
+                    "cost": 1,
+                    "apiEndpoint": "https://api.example/v1",
+                    "initiator": "agent"
+                  },
+                  {
+                    "model": "claude-sonnet-4.5",
+                    "inputTokens": 20,
+                    "outputTokens": 10,
+                    "cacheReadTokens": 10,
+                    "cacheWriteTokens": 0,
+                    "reasoningTokens": 5,
+                    "durationMs": 250,
+                    "timeToFirstTokenMs": 90,
+                    "cost": 0.5,
+                    "apiEndpoint": "https://api.example/v1",
+                    "initiator": "agent"
+                  }
+                ],
+                "contextWindow": {
+                  "currentTokens": 900,
+                  "tokenLimit": 8000,
+                  "conversationTokens": 700,
+                  "systemTokens": 100,
+                  "toolDefinitionsTokens": 100,
+                  "messagesLength": 4
+                }
+              }
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "status",
+        "state": "completed",
+        "metaKeys": [
+          "x-usage"
+        ],
+        "usage": {
+          "inputTokens": 120,
+          "outputTokens": 50,
+          "cacheReadTokens": 20,
+          "cacheWriteTokens": 0,
+          "reasoningTokens": 10,
+          "durationMs": 500,
+          "llmCalls": 2,
+          "model": "claude-sonnet-4.5",
+          "cost": 1.5,
+          "calls": [
+            {
+              "model": "gpt-4.1",
+              "inputTokens": 100,
+              "outputTokens": 40,
+              "cacheReadTokens": 10,
+              "cacheWriteTokens": 0,
+              "reasoningTokens": 5,
+              "durationMs": 250,
+              "timeToFirstTokenMs": 90,
+              "cost": 1,
+              "apiEndpoint": "https://api.example/v1",
+              "initiator": "agent"
+            },
+            {
+              "model": "claude-sonnet-4.5",
+              "inputTokens": 20,
+              "outputTokens": 10,
+              "cacheReadTokens": 10,
+              "cacheWriteTokens": 0,
+              "reasoningTokens": 5,
+              "durationMs": 250,
+              "timeToFirstTokenMs": 90,
+              "cost": 0.5,
+              "apiEndpoint": "https://api.example/v1",
+              "initiator": "agent"
+            }
+          ],
+          "contextWindow": {
+            "currentTokens": 900,
+            "tokenLimit": 8000,
+            "conversationTokens": 700,
+            "systemTokens": 100,
+            "toolDefinitionsTokens": 100,
+            "messagesLength": 4
+          }
+        }
+      }
+    ],
+    "blocking": {
+      "state": "completed",
+      "artifacts": [
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.thinking",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.usage",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.usage",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "response",
+          "text": "Hello worldHello world",
+          "parts": 3
+        },
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        }
+      ],
+      "metaKeys": [
+        "x-usage"
+      ]
+    }
+  },
+  "streaming-buffered-trackusage": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "f6f21474-09ab-4e88-8846-cc1bcbc8c2c2",
+              "state": "started",
+              "backend": "copilot"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.usage",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "model": "gpt-4.1",
+              "inputTokens": 100,
+              "outputTokens": 40,
+              "cacheReadTokens": 10,
+              "cacheWriteTokens": 0,
+              "reasoningTokens": 5,
+              "durationMs": 250,
+              "timeToFirstTokenMs": 90,
+              "cost": 1,
+              "apiEndpoint": "https://api.example/v1",
+              "initiator": "agent"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.usage"
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "text": "Hi"
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "5c17e77f-93fe-41af-afb4-5c213d59f583",
+              "state": "finished",
+              "backend": "copilot",
+              "usage": {
+                "inputTokens": 100,
+                "outputTokens": 40,
+                "cacheReadTokens": 10,
+                "cacheWriteTokens": 0,
+                "reasoningTokens": 5,
+                "durationMs": 250,
+                "llmCalls": 1,
+                "model": "gpt-4.1",
+                "cost": 1,
+                "calls": [
+                  {
+                    "model": "gpt-4.1",
+                    "inputTokens": 100,
+                    "outputTokens": 40,
+                    "cacheReadTokens": 10,
+                    "cacheWriteTokens": 0,
+                    "reasoningTokens": 5,
+                    "durationMs": 250,
+                    "timeToFirstTokenMs": 90,
+                    "cost": 1,
+                    "apiEndpoint": "https://api.example/v1",
+                    "initiator": "agent"
+                  }
+                ],
+                "contextWindow": {
+                  "currentTokens": 900,
+                  "tokenLimit": 8000,
+                  "conversationTokens": 700,
+                  "systemTokens": 100,
+                  "toolDefinitionsTokens": 100,
+                  "messagesLength": 4
+                }
+              }
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "status",
+        "state": "completed",
+        "metaKeys": [
+          "x-usage"
+        ],
+        "usage": {
+          "inputTokens": 100,
+          "outputTokens": 40,
+          "cacheReadTokens": 10,
+          "cacheWriteTokens": 0,
+          "reasoningTokens": 5,
+          "durationMs": 250,
+          "llmCalls": 1,
+          "model": "gpt-4.1",
+          "cost": 1,
+          "calls": [
+            {
+              "model": "gpt-4.1",
+              "inputTokens": 100,
+              "outputTokens": 40,
+              "cacheReadTokens": 10,
+              "cacheWriteTokens": 0,
+              "reasoningTokens": 5,
+              "durationMs": 250,
+              "timeToFirstTokenMs": 90,
+              "cost": 1,
+              "apiEndpoint": "https://api.example/v1",
+              "initiator": "agent"
+            }
+          ],
+          "contextWindow": {
+            "currentTokens": 900,
+            "tokenLimit": 8000,
+            "conversationTokens": 700,
+            "systemTokens": 100,
+            "toolDefinitionsTokens": 100,
+            "messagesLength": 4
+          }
+        }
+      }
+    ],
+    "blocking": {
+      "state": "completed",
+      "artifacts": [
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.usage",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "response",
+          "text": "Hi",
+          "parts": 1
+        },
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        }
+      ],
+      "metaKeys": [
+        "x-usage"
+      ]
+    }
+  },
+  "streaming-message-only-fallback": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "a88d341d-e3f7-41ec-b3e9-78aee2b5c09e",
+              "state": "started",
+              "backend": "copilot"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "text": "from final message"
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "f0948f91-3695-4bec-b930-9b6f383983bc",
+              "state": "finished",
+              "backend": "copilot",
+              "usage": {
+                "inputTokens": 0,
+                "outputTokens": 0,
+                "cacheReadTokens": 0,
+                "cacheWriteTokens": 0,
+                "reasoningTokens": 0,
+                "durationMs": 0,
+                "llmCalls": 0,
+                "model": null,
+                "cost": null,
+                "calls": []
+              }
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "status",
+        "state": "completed",
+        "metaKeys": [
+          "x-usage"
+        ],
+        "usage": {
+          "inputTokens": 0,
+          "outputTokens": 0,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "reasoningTokens": 0,
+          "durationMs": 0,
+          "llmCalls": 0,
+          "model": null,
+          "cost": null,
+          "calls": []
+        }
+      }
+    ],
+    "blocking": {
+      "state": "completed",
+      "artifacts": [
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "response",
+          "text": "from final message",
+          "parts": 1
+        },
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        }
+      ],
+      "metaKeys": [
+        "x-usage"
+      ]
+    }
+  },
+  "streaming-no-text": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "d36b0716-37d6-4d73-9ccb-1d11f1ea2dd9",
+              "state": "started",
+              "backend": "copilot"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "text": "No text response was returned."
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "12016ebe-34e8-4c19-b3c6-8c302e75057f",
+              "state": "finished",
+              "backend": "copilot",
+              "usage": {
+                "inputTokens": 100,
+                "outputTokens": 40,
+                "cacheReadTokens": 10,
+                "cacheWriteTokens": 0,
+                "reasoningTokens": 5,
+                "durationMs": 250,
+                "llmCalls": 1,
+                "model": "gpt-4.1",
+                "cost": 1,
+                "calls": [
+                  {
+                    "model": "gpt-4.1",
+                    "inputTokens": 100,
+                    "outputTokens": 40,
+                    "cacheReadTokens": 10,
+                    "cacheWriteTokens": 0,
+                    "reasoningTokens": 5,
+                    "durationMs": 250,
+                    "timeToFirstTokenMs": 90,
+                    "cost": 1,
+                    "apiEndpoint": "https://api.example/v1",
+                    "initiator": "agent"
+                  }
+                ]
+              }
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "status",
+        "state": "completed",
+        "metaKeys": [
+          "x-usage"
+        ],
+        "usage": {
+          "inputTokens": 100,
+          "outputTokens": 40,
+          "cacheReadTokens": 10,
+          "cacheWriteTokens": 0,
+          "reasoningTokens": 5,
+          "durationMs": 250,
+          "llmCalls": 1,
+          "model": "gpt-4.1",
+          "cost": 1,
+          "calls": [
+            {
+              "model": "gpt-4.1",
+              "inputTokens": 100,
+              "outputTokens": 40,
+              "cacheReadTokens": 10,
+              "cacheWriteTokens": 0,
+              "reasoningTokens": 5,
+              "durationMs": 250,
+              "timeToFirstTokenMs": 90,
+              "cost": 1,
+              "apiEndpoint": "https://api.example/v1",
+              "initiator": "agent"
+            }
+          ]
+        }
+      }
+    ],
+    "blocking": {
+      "state": "completed",
+      "artifacts": [
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "response",
+          "text": "No text response was returned.",
+          "parts": 1
+        },
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        }
+      ],
+      "metaKeys": [
+        "x-usage"
+      ]
+    }
+  },
+  "streaming-session-error": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "1d3bf55f-01cc-473c-9409-227ab0429732",
+              "state": "started",
+              "backend": "copilot"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "2516035d-1331-4ded-bed5-490c2667662b",
+              "state": "error",
+              "backend": "copilot",
+              "message": "Error: model exploded",
+              "usage": null
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "status",
+        "state": "failed",
+        "text": "Error: model exploded",
+        "metaKeys": []
+      }
+    ],
+    "blocking": {
+      "state": "failed",
+      "text": "Error: model exploded",
+      "artifacts": [
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        }
+      ],
+      "metaKeys": []
+    }
+  },
+  "streaming-timeout-error-is-completion": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "943f6d6c-60f4-4995-b7a4-36bf6a2ad38d",
+              "state": "started",
+              "backend": "copilot"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "text": "partial\n\n---\n*Response truncated: processing time limit reached.*"
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "6e1b71dc-1f7e-4753-ba1a-00f7446e7674",
+              "state": "finished",
+              "backend": "copilot",
+              "usage": {
+                "inputTokens": 0,
+                "outputTokens": 0,
+                "cacheReadTokens": 0,
+                "cacheWriteTokens": 0,
+                "reasoningTokens": 0,
+                "durationMs": 0,
+                "llmCalls": 0,
+                "model": null,
+                "cost": null,
+                "calls": []
+              }
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "status",
+        "state": "completed",
+        "metaKeys": [
+          "x-usage"
+        ],
+        "usage": {
+          "inputTokens": 0,
+          "outputTokens": 0,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "reasoningTokens": 0,
+          "durationMs": 0,
+          "llmCalls": 0,
+          "model": null,
+          "cost": null,
+          "calls": []
+        }
+      }
+    ],
+    "blocking": {
+      "state": "completed",
+      "artifacts": [
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "response",
+          "text": "partial\n\n---\n*Response truncated: processing time limit reached.*",
+          "parts": 1
+        },
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        }
+      ],
+      "metaKeys": [
+        "x-usage"
+      ]
+    }
+  },
+  "nonstreaming-usage": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "cf1fe62d-b515-4650-89ed-4f5f6e9efb6a",
+              "state": "started",
+              "backend": "copilot"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.usage",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "model": "gpt-4.1",
+              "inputTokens": 100,
+              "outputTokens": 40,
+              "cacheReadTokens": 10,
+              "cacheWriteTokens": 0,
+              "reasoningTokens": 5,
+              "durationMs": 250,
+              "timeToFirstTokenMs": 90,
+              "cost": 1,
+              "apiEndpoint": "https://api.example/v1",
+              "initiator": "agent"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.usage"
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "text": "answer"
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "4ffeabc1-00e7-4548-b433-f5277cf69f17",
+              "state": "finished",
+              "backend": "copilot",
+              "usage": {
+                "inputTokens": 100,
+                "outputTokens": 40,
+                "cacheReadTokens": 10,
+                "cacheWriteTokens": 0,
+                "reasoningTokens": 5,
+                "durationMs": 250,
+                "llmCalls": 1,
+                "model": "gpt-4.1",
+                "cost": 1,
+                "calls": [
+                  {
+                    "model": "gpt-4.1",
+                    "inputTokens": 100,
+                    "outputTokens": 40,
+                    "cacheReadTokens": 10,
+                    "cacheWriteTokens": 0,
+                    "reasoningTokens": 5,
+                    "durationMs": 250,
+                    "timeToFirstTokenMs": 90,
+                    "cost": 1,
+                    "apiEndpoint": "https://api.example/v1",
+                    "initiator": "agent"
+                  }
+                ],
+                "contextWindow": {
+                  "currentTokens": 900,
+                  "tokenLimit": 8000,
+                  "conversationTokens": 700,
+                  "systemTokens": 100,
+                  "toolDefinitionsTokens": 100,
+                  "messagesLength": 4
+                }
+              }
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "status",
+        "state": "completed",
+        "metaKeys": [
+          "x-usage"
+        ],
+        "usage": {
+          "inputTokens": 100,
+          "outputTokens": 40,
+          "cacheReadTokens": 10,
+          "cacheWriteTokens": 0,
+          "reasoningTokens": 5,
+          "durationMs": 250,
+          "llmCalls": 1,
+          "model": "gpt-4.1",
+          "cost": 1,
+          "calls": [
+            {
+              "model": "gpt-4.1",
+              "inputTokens": 100,
+              "outputTokens": 40,
+              "cacheReadTokens": 10,
+              "cacheWriteTokens": 0,
+              "reasoningTokens": 5,
+              "durationMs": 250,
+              "timeToFirstTokenMs": 90,
+              "cost": 1,
+              "apiEndpoint": "https://api.example/v1",
+              "initiator": "agent"
+            }
+          ],
+          "contextWindow": {
+            "currentTokens": 900,
+            "tokenLimit": 8000,
+            "conversationTokens": 700,
+            "systemTokens": 100,
+            "toolDefinitionsTokens": 100,
+            "messagesLength": 4
+          }
+        }
+      }
+    ],
+    "blocking": {
+      "state": "completed",
+      "artifacts": [
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.usage",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "response",
+          "text": "answer",
+          "parts": 1
+        },
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        }
+      ],
+      "metaKeys": [
+        "x-usage"
+      ]
+    }
+  },
+  "nonstreaming-chunks-no-usage": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "790da783-81fe-4acf-8afb-8737401b4e4d",
+              "state": "started",
+              "backend": "copilot"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": true,
+        "lastChunk": true,
+        "parts": [
+          {
+            "text": "answer"
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "a5096ea6-6c48-41e1-b331-4a89cdb37c46",
+              "state": "finished",
+              "backend": "copilot",
+              "usage": {
+                "inputTokens": 0,
+                "outputTokens": 0,
+                "cacheReadTokens": 0,
+                "cacheWriteTokens": 0,
+                "reasoningTokens": 0,
+                "durationMs": 0,
+                "llmCalls": 0,
+                "model": null,
+                "cost": null,
+                "calls": []
+              }
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "status",
+        "state": "completed",
+        "metaKeys": [
+          "x-usage"
+        ],
+        "usage": {
+          "inputTokens": 0,
+          "outputTokens": 0,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "reasoningTokens": 0,
+          "durationMs": 0,
+          "llmCalls": 0,
+          "model": null,
+          "cost": null,
+          "calls": []
+        }
+      }
+    ],
+    "blocking": {
+      "state": "completed",
+      "artifacts": [
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "response",
+          "text": "answer",
+          "parts": 1
+        },
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        }
+      ],
+      "metaKeys": [
+        "x-usage"
+      ]
+    }
+  },
+  "send-fails": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "d1aa4a02-76b7-4c8e-a34c-304c8488512b",
+              "state": "started",
+              "backend": "copilot"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "4ff7f180-0387-4547-a42c-d650c06365d4",
+              "state": "error",
+              "backend": "copilot",
+              "message": "Error: ECONNREFUSED 127.0.0.1",
+              "usage": null
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "status",
+        "state": "failed",
+        "text": "Error: ECONNREFUSED 127.0.0.1",
+        "metaKeys": []
+      }
+    ],
+    "blocking": {
+      "state": "failed",
+      "text": "Error: ECONNREFUSED 127.0.0.1",
+      "artifacts": [
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        }
+      ],
+      "metaKeys": []
+    }
+  },
+  "byok-raw-tool-call-guard": {
+    "stream": [
+      {
+        "k": "task",
+        "state": "submitted"
+      },
+      {
+        "k": "status",
+        "state": "submitted",
+        "metaKeys": []
+      },
+      {
+        "k": "status",
+        "state": "working",
+        "text": "Processing request...",
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "8cc78b2e-12ac-4eea-bf09-31eba7b9056b",
+              "state": "started",
+              "backend": "copilot"
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "artifact",
+        "name": "response",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "text": "The configured model returned a tool call as plain text instead of a usable response. This usually means the model does not fully support the native function-calling (tool) protocol required by the agent runtime. Try a model with robust tool-calling support (e.g. qwen3.6, llama3.3, mistral-nemo)."
+          }
+        ],
+        "extensions": [],
+        "metaKeys": []
+      },
+      {
+        "k": "artifact",
+        "name": "trace.lifecycle",
+        "append": false,
+        "lastChunk": true,
+        "parts": [
+          {
+            "data": {
+              "agent_id": "golden-agent",
+              "agent_name": "Golden Agent",
+              "trace_id": "ctx-g",
+              "event_id": "1ea32b03-68b0-45b5-9f97-12d3c3a5178f",
+              "state": "finished",
+              "backend": "copilot",
+              "usage": {
+                "inputTokens": 0,
+                "outputTokens": 0,
+                "cacheReadTokens": 0,
+                "cacheWriteTokens": 0,
+                "reasoningTokens": 0,
+                "durationMs": 0,
+                "llmCalls": 0,
+                "model": null,
+                "cost": null,
+                "calls": []
+              }
+            },
+            "mimeType": "application/json"
+          }
+        ],
+        "extensions": [
+          "urn:x-a2a:trace:v1"
+        ],
+        "metaKeys": [
+          "eventId",
+          "timestamp",
+          "traceType"
+        ],
+        "traceType": "trace.lifecycle"
+      },
+      {
+        "k": "status",
+        "state": "completed",
+        "metaKeys": [
+          "x-usage"
+        ],
+        "usage": {
+          "inputTokens": 0,
+          "outputTokens": 0,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "reasoningTokens": 0,
+          "durationMs": 0,
+          "llmCalls": 0,
+          "model": null,
+          "cost": null,
+          "calls": []
+        }
+      }
+    ],
+    "blocking": {
+      "state": "completed",
+      "artifacts": [
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        },
+        {
+          "name": "response",
+          "text": "The configured model returned a tool call as plain text instead of a usable response. This usually means the model does not fully support the native function-calling (tool) protocol required by the agent runtime. Try a model with robust tool-calling support (e.g. qwen3.6, llama3.3, mistral-nemo).",
+          "parts": 1
+        },
+        {
+          "name": "trace.lifecycle",
+          "text": "",
+          "parts": 1
+        }
+      ],
+      "metaKeys": [
+        "x-usage"
+      ]
+    }
+  }
+}

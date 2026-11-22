@@ -1,390 +1,104 @@
 /**
- * Integration tests — LLM Usage Telemetry
+ * Integration tests: LLM usage telemetry through the provider and the real request handler.
  *
- * Tests for CopilotExecutor's usage telemetry behaviour:
- *   10.1  streaming + trackUsage:true  → K trace.usage artifacts
- *   10.2  streaming + trackUsage:false → 0 trace.usage artifacts
- *   10.3  final completed event has correct metadata["x-usage"] structure
- *   10.4  metadata["x-usage"] absent on failed / canceled / rejected events
- *   10.5  non-streaming mode emits same metadata["x-usage"] shape as streaming
+ *   10.1  streaming + trackUsage:true  -> K trace.usage artifacts
+ *   10.2  streaming + trackUsage:false -> 0 trace.usage artifacts
+ *   10.3  final completed event has the correct metadata["x-usage"] structure
+ *   10.4  metadata["x-usage"] absent on failed / canceled events
+ *   10.5  non-streaming mode emits the same metadata["x-usage"] shape as streaming
+ *   10.6  (new) the same totals travel as core usage metadata, per model
  *
- * Strategy: mock the Copilot SDK + SessionManager so no real network calls
- * are made. The executor's event handling logic is exercised in isolation.
- *
- * A2A v1.0 note: `ExecutionEventBus.publish()` takes a `{kind, data}`
- * envelope, and `TaskStatus.state` is the numeric `TaskState` enum, with no
- * `final` field on the wire (terminality is inferred from `state` alone) —
- * see `@a2a-wrapper/core`'s event-publisher.ts module doc for details.
+ * Strategy: a faked Copilot session fires `assistant.usage` events; what is asserted is what an A2A client receives.
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { RequestContext, ExecutionEventBus } from "@a2a-js/sdk/server";
-import type { Message as A2AMessage } from "@a2a-js/sdk";
-import { TaskState } from "@a2a-js/sdk";
+import { describe, it, expect } from "vitest";
+import { stateName } from "@a2a-wrapper/core";
+import { ManualClient, ManualSession } from "./helpers/manual-session.js";
+import { runTask, usagePayload, xUsageOf } from "./helpers/run-task.js";
+import { CopilotProvider } from "../copilot/provider.js";
+import { createProviderTestServer, summarizeEvent } from "@a2a-wrapper/core";
+import { makeConfig } from "./helpers/config.js";
 
-import { CopilotExecutor } from "../copilot/executor.js";
-import type { CopilotSession } from "../copilot/session-manager.js";
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-const TERMINAL_STATES = new Set<TaskState>([
-  TaskState.TASK_STATE_COMPLETED,
-  TaskState.TASK_STATE_FAILED,
-  TaskState.TASK_STATE_CANCELED,
-  TaskState.TASK_STATE_REJECTED,
-]);
-
-/** True if `e` is a `{kind: "statusUpdate", data}` envelope. */
-function isStatusUpdate(e: any): boolean {
-  return e?.kind === "statusUpdate";
-}
-
-/** True if `e` is a `{kind: "artifactUpdate", data}` envelope. */
-function isArtifactUpdate(e: any): boolean {
-  return e?.kind === "artifactUpdate";
-}
-
-/** Build the minimal Required<AgentConfig> shape the executor needs. */
-function makeConfig(overrides: {
-  streaming?: boolean;
-  trackUsage?: boolean;
-} = {}): any {
-  return {
-    agentCard: { name: "Test Agent", description: "test" },
-    server: { port: 3000, hostname: "0.0.0.0", advertiseHost: "localhost", advertiseProtocol: "http" },
-    copilot: {
-      cliUrl: "",
-      model: "gpt-4",
-      streaming: overrides.streaming !== false,
-      systemPrompt: "",
-      systemPromptMode: "append",
-      contextFile: "context.md",
-      contextPrompt: "",
-      workspaceDirectory: "",
-    },
-    session: { reuseByContext: true, ttl: 3_600_000, cleanupInterval: 300_000, titlePrefix: "A2A" },
-    features: {
-      streamArtifactChunks: false,
-      trackUsage: overrides.trackUsage ?? false,
-    },
-    timeouts: { prompt: 600_000 },
-    logging: { level: "error" },
-    mcp: {},
-    customAgents: [],
-    events: { enabled: true, transport: "a2a" },
-    memory: undefined,
-    configDir: undefined,
-    subAgents: undefined,
-  };
-}
-
-/** Build a minimal A2A message (v1.0 proto-oneof Part shape). */
-function makeUserMessage(text: string): A2AMessage {
-  return {
-    messageId: "msg-1",
-    contextId: "ctx-test",
-    taskId: "",
-    role: 1, // Role.ROLE_USER
-    parts: [{ content: { $case: "text", value: text }, metadata: undefined }],
-    metadata: undefined,
-    extensions: [],
-    referenceTaskIds: [],
-  } as unknown as A2AMessage;
-}
-
-/** Build a minimal RequestContext. */
-function makeContext(overrides: Partial<RequestContext> = {}): RequestContext {
-  return {
-    taskId: "task-1",
-    contextId: "ctx-1",
-    userMessage: makeUserMessage("hello"),
-    task: null,
-    ...overrides,
-  } as RequestContext;
-}
-
-/**
- * Build a mock ExecutionEventBus that records every published event.
- */
-function makeMockBus() {
-  const events: any[] = [];
-  const bus = {
-    publish: vi.fn((event: any) => { events.push(event); }),
-    finished: vi.fn(),
-    events,
-  };
-  return bus as typeof bus & ExecutionEventBus;
-}
-
-/**
- * Build a mock CopilotSession.
- *
- * The session stores registered event handlers and exposes
- * `emit(event, data)` so tests can fire synthetic SDK events.
- */
-function makeMockSession(sessionId = "sess-1") {
-  const handlers: Map<string, Array<(event: unknown) => void>> = new Map();
-
-  const session: CopilotSession & { emit: (event: string, data?: unknown) => void } = {
-    sessionId,
-    on: vi.fn((event: string, handler: (e: unknown) => void) => {
-      if (!handlers.has(event)) handlers.set(event, []);
-      handlers.get(event)!.push(handler);
-      // Return an unsubscribe function
-      return () => {
-        const arr = handlers.get(event) ?? [];
-        const idx = arr.indexOf(handler);
-        if (idx !== -1) arr.splice(idx, 1);
-      };
-    }),
-    send: vi.fn(async (_params: { prompt: string }) => {
-      // Triggers session.idle so the streaming path resolves
-    }),
-    sendAndWait: vi.fn(async (_params: { prompt: string }) => {
-      return { data: { content: "assistant response" } };
-    }),
-    abort: vi.fn(async () => {}),
-    disconnect: vi.fn(async () => {}),
-    destroy: vi.fn(async () => {}),
-    emit(event: string, data?: unknown) {
-      const arr = handlers.get(event) ?? [];
-      for (const h of arr) {
-        h({ data });
-      }
-    },
-  };
-
-  return session;
-}
-
-/** Build a UsageCallRecord-shaped SDK event payload. */
-function makeUsageEventData(overrides: Record<string, unknown> = {}) {
-  return {
-    model: "gpt-4",
-    inputTokens: 100,
-    outputTokens: 50,
-    cacheReadTokens: 0,
-    cacheWriteTokens: 0,
-    reasoningTokens: 0,
-    duration: 200,
-    timeToFirstTokenMs: 80,
-    cost: 0,
-    apiEndpoint: null,
-    initiator: null,
-    ...overrides,
-  };
-}
-
-/**
- * Run an executor with a fully mocked session.
- *
- * - Patches `initialize()` to be a no-op.
- * - Patches `sessionManager.getOrCreate` to return the mock session.
- * - For streaming: after `session.send()` is resolved, automatically fires
- *   `usageEvents` payloads then `session.idle`.
- * - For non-streaming: after `session.sendAndWait()` resolves, fires
- *   `usageEvents` payloads synchronously before returning the response.
- */
-async function runExecutor(opts: {
-  config: any;
-  usageEventPayloads?: Record<string, unknown>[];
-  throwInExecute?: Error;
-}) {
-  const { config, usageEventPayloads = [] } = opts;
-
-  const executor = new CopilotExecutor(config);
-  const session = makeMockSession();
-  const bus = makeMockBus();
-  const ctx = makeContext();
-
-  // Patch initialize to skip real Copilot SDK startup
-  vi.spyOn(executor as any, "initialize").mockResolvedValue(undefined);
-
-  // Build a fake SessionManager with trackTask / untrackTask
-  const fakeSessionManager = {
-    getOrCreate: vi.fn(async () => ({
-      sessionId: session.sessionId,
-      session,
-      isNew: true,
-    })),
-    trackTask: vi.fn(),
-    untrackTask: vi.fn(),
-    getSessionForTask: vi.fn(),
-    getContextForTask: vi.fn(() => "ctx-1"),
-    startCleanup: vi.fn(),
-    shutdown: vi.fn(async () => {}),
-  };
-  (executor as any).sessionManager = fakeSessionManager;
-
-  // Patch mcpHooks to avoid null-ref
-  (executor as any).mcpHooks = { setEmitter: vi.fn(), clearEmitter: vi.fn() };
-
-  const isStreaming = config.copilot.streaming !== false;
-
-  if (isStreaming) {
-    // After send() is called, fire usage events then idle
-    session.send = vi.fn(async () => {
-      for (const payload of usageEventPayloads) {
-        session.emit("assistant.usage", payload);
-      }
-      session.emit("session.idle");
-    });
-  } else {
-    // For non-streaming, fire usage events during sendAndWait resolution
-    session.sendAndWait = vi.fn(async () => {
-      // Usage events fire while sendAndWait "runs" — the subscription is set up
-      // before sendAndWait is called per the implementation
-      for (const payload of usageEventPayloads) {
-        session.emit("assistant.usage", payload);
-      }
-      return { data: { content: "assistant response" } };
-    });
-  }
-
-  await executor.execute(ctx, bus as any);
-
-  return { bus, session };
-}
-
-// ─── 10.1 — Streaming + trackUsage:true → K trace.usage artifacts ────────────
+const traceUsage = (summary: ReturnType<typeof Array.prototype.slice>) =>
+  (summary as any[]).filter((e) => e.k === "artifact" && e.name === "trace.usage");
 
 describe("10.1 streaming mode, trackUsage:true emits K trace.usage artifacts", () => {
   it("emits exactly K trace.usage artifacts when K assistant.usage events fire", async () => {
     const K = 3;
-    const { bus } = await runExecutor({
-      config: makeConfig({ streaming: true, trackUsage: true }),
-      usageEventPayloads: Array.from({ length: K }, (_, i) =>
-        makeUsageEventData({ inputTokens: (i + 1) * 10 }),
-      ),
+    const { summary } = await runTask({
+      streaming: true,
+      trackUsage: true,
+      usage: Array.from({ length: K }, (_, i) => usagePayload({ inputTokens: (i + 1) * 10 })),
     });
-
-    const traceUsageArtifacts = bus.events.filter(
-      (e: any) => isArtifactUpdate(e) && e.data?.artifact?.name === "trace.usage",
-    );
-    expect(traceUsageArtifacts).toHaveLength(K);
+    expect(traceUsage(summary)).toHaveLength(K);
+    // each carries the call record as a JSON data part
+    expect(traceUsage(summary)[0].parts[0].data).toMatchObject({ model: "gpt-4", inputTokens: 10, durationMs: 200 });
+    expect(traceUsage(summary)[0].extensions).toEqual(["urn:x-a2a:trace:v1"]);
   });
 
   it("emits 0 trace.usage artifacts when no assistant.usage events fire", async () => {
-    const { bus } = await runExecutor({
-      config: makeConfig({ streaming: true, trackUsage: true }),
-      usageEventPayloads: [],
-    });
-
-    const traceUsageArtifacts = bus.events.filter(
-      (e: any) => isArtifactUpdate(e) && e.data?.artifact?.name === "trace.usage",
-    );
-    expect(traceUsageArtifacts).toHaveLength(0);
+    const { summary } = await runTask({ streaming: true, trackUsage: true, usage: [] });
+    expect(traceUsage(summary)).toHaveLength(0);
   });
 });
-
-// ─── 10.2 — Streaming + trackUsage:false → 0 trace.usage artifacts ───────────
 
 describe("10.2 streaming mode, trackUsage:false emits 0 trace.usage artifacts", () => {
   it("emits no trace.usage artifacts regardless of K assistant.usage events", async () => {
-    const { bus } = await runExecutor({
-      config: makeConfig({ streaming: true, trackUsage: false }),
-      usageEventPayloads: [
-        makeUsageEventData({ inputTokens: 100 }),
-        makeUsageEventData({ inputTokens: 200 }),
-      ],
+    const { summary } = await runTask({
+      streaming: true,
+      trackUsage: false,
+      usage: [usagePayload({ inputTokens: 100 }), usagePayload({ inputTokens: 200 })],
     });
-
-    const traceUsageArtifacts = bus.events.filter(
-      (e: any) => isArtifactUpdate(e) && e.data?.artifact?.name === "trace.usage",
-    );
-    expect(traceUsageArtifacts).toHaveLength(0);
+    expect(traceUsage(summary)).toHaveLength(0);
   });
 
   it("emits no trace.usage artifacts when trackUsage is absent from config", async () => {
-    const config = makeConfig({ streaming: true });
-    delete config.features.trackUsage; // absent is same as false
-
-    const { bus } = await runExecutor({
-      config,
-      usageEventPayloads: [makeUsageEventData()],
-    });
-
-    const traceUsageArtifacts = bus.events.filter(
-      (e: any) => isArtifactUpdate(e) && e.data?.artifact?.name === "trace.usage",
-    );
-    expect(traceUsageArtifacts).toHaveLength(0);
+    const { summary } = await runTask({ streaming: true, usage: [usagePayload()], features: { trackUsage: undefined } });
+    expect(traceUsage(summary)).toHaveLength(0);
   });
 });
 
-// ─── 10.3 — Final completed event has correct metadata["x-usage"] structure ──
-
-describe("10.3 final completed event has correct metadata[\"x-usage\"] structure", () => {
+describe('10.3 final completed event has correct metadata["x-usage"] structure', () => {
   it("final completed event has state:completed and a valid x-usage object", async () => {
-    const { bus } = await runExecutor({
-      config: makeConfig({ streaming: true }),
-      usageEventPayloads: [makeUsageEventData({ inputTokens: 150, outputTokens: 75, cost: 0 })],
-    });
-
-    const finalCompleted = bus.events.find(
-      (e: any) => isStatusUpdate(e) && e.data?.status?.state === TaskState.TASK_STATE_COMPLETED,
-    );
-
+    const { summary } = await runTask({ streaming: true, usage: [usagePayload({ inputTokens: 150, outputTokens: 75, cost: 0 })] });
+    const finalCompleted = summary.find((e) => e.k === "status" && e.state === "completed");
     expect(finalCompleted).toBeDefined();
-    expect(finalCompleted.data.status.state).toBe(TaskState.TASK_STATE_COMPLETED);
 
-    const xUsage = finalCompleted.data.metadata?.["x-usage"];
+    const xUsage = xUsageOf(summary);
     expect(xUsage).toBeDefined();
-
-    // Shape checks — UsageTelemetryData fields
     expect(typeof xUsage.llmCalls).toBe("number");
     expect(xUsage.llmCalls).toBeGreaterThanOrEqual(0);
-
     expect(typeof xUsage.inputTokens).toBe("number");
     expect(xUsage.inputTokens).toBeGreaterThanOrEqual(0);
-
     expect(typeof xUsage.outputTokens).toBe("number");
     expect(xUsage.outputTokens).toBeGreaterThanOrEqual(0);
-
-    // cost must be null or a finite number >= 0 (Requirement 5.3 / 10.3)
+    // cost must be null or a finite number >= 0
     if (xUsage.cost !== null) {
       expect(typeof xUsage.cost).toBe("number");
       expect(Number.isFinite(xUsage.cost)).toBe(true);
       expect(xUsage.cost).toBeGreaterThanOrEqual(0);
     }
-
-    // calls array must be present
     expect(Array.isArray(xUsage.calls)).toBe(true);
   });
 
   it("x-usage reflects accumulated token counts from all usage events", async () => {
-    const { bus } = await runExecutor({
-      config: makeConfig({ streaming: true }),
-      usageEventPayloads: [
-        makeUsageEventData({ inputTokens: 100, outputTokens: 50, cost: 0.01 }),
-        makeUsageEventData({ inputTokens: 200, outputTokens: 80, cost: 0.02 }),
+    const { summary } = await runTask({
+      streaming: true,
+      usage: [
+        usagePayload({ inputTokens: 100, outputTokens: 50, cost: 0.01 }),
+        usagePayload({ inputTokens: 200, outputTokens: 80, cost: 0.02 }),
       ],
     });
-
-    const finalCompleted = bus.events.find(
-      (e: any) => isStatusUpdate(e) && e.data?.status?.state === TaskState.TASK_STATE_COMPLETED,
-    );
-
-    const xUsage = finalCompleted?.data?.metadata?.["x-usage"];
-    expect(xUsage).toBeDefined();
+    const xUsage = xUsageOf(summary);
     expect(xUsage.llmCalls).toBe(2);
     expect(xUsage.inputTokens).toBe(300);
     expect(xUsage.outputTokens).toBe(130);
-    // cost: 0.01 + 0.02 = 0.03 (within float precision)
     expect(xUsage.cost).toBeCloseTo(0.03, 5);
   });
 
   it("x-usage is present and valid even when zero LLM calls were made", async () => {
-    const { bus } = await runExecutor({
-      config: makeConfig({ streaming: true }),
-      usageEventPayloads: [],
-    });
-
-    const finalCompleted = bus.events.find(
-      (e: any) => isStatusUpdate(e) && e.data?.status?.state === TaskState.TASK_STATE_COMPLETED,
-    );
-
-    const xUsage = finalCompleted?.data?.metadata?.["x-usage"];
-    expect(xUsage).toBeDefined();
+    const { summary } = await runTask({ streaming: true, usage: [] });
+    const xUsage = xUsageOf(summary);
     expect(xUsage.llmCalls).toBe(0);
     expect(xUsage.inputTokens).toBe(0);
     expect(xUsage.cost).toBeNull();
@@ -392,231 +106,104 @@ describe("10.3 final completed event has correct metadata[\"x-usage\"] structure
   });
 });
 
-// ─── 10.4 — metadata["x-usage"] absent on failed / canceled / rejected ────────
-
-describe("10.4 metadata[\"x-usage\"] absent on failed, canceled, rejected events", () => {
-  it("failed terminal event has no metadata[\"x-usage\"]", async () => {
-    const executor = new CopilotExecutor(makeConfig({ streaming: true }));
-    const bus = makeMockBus();
-
-    // Patch mcpHooks before initialize runs so the finally block can clear it
-    (executor as any).mcpHooks = { setEmitter: vi.fn(), clearEmitter: vi.fn() };
-
-    // Provide a sessionManager stub BEFORE initialize() is patched, since
-    // executor.execute() tries this.sessionManager!.untrackTask() in finally.
-    // When initialize() throws, this.sessionManager stays null — we pre-set it.
-    (executor as any).sessionManager = {
-      getOrCreate: vi.fn(),
-      trackTask: vi.fn(),
-      untrackTask: vi.fn(),
-      getContextForTask: vi.fn(() => "ctx-1"),
-    };
-
-    // Make initialize throw AFTER sessionManager stub is set
-    vi.spyOn(executor as any, "initialize").mockImplementation(async () => {
-      // Simulate a failure that happens inside execute() before session setup
-      // but we need the catch branch to run, so throw from the try block.
-      // We achieve this by having the sessionManager.getOrCreate throw instead,
-      // keeping initialize() as a no-op:
-    });
-
-    // Force failure via getOrCreate throwing
-    (executor as any).sessionManager.getOrCreate = vi.fn(async () => {
-      throw new Error("forced session failure");
-    });
-
-    await executor.execute(makeContext(), bus as any);
-
-    const terminalEvents = bus.events.filter(
-      (e: any) => isStatusUpdate(e) && TERMINAL_STATES.has(e.data?.status?.state),
-    );
-
-    // There must be at least one final event (the failed one)
-    expect(terminalEvents.length).toBeGreaterThanOrEqual(1);
-
-    // The failed terminal event must not carry x-usage
-    const failedEvents = terminalEvents.filter(
-      (e: any) => e.data?.status?.state === TaskState.TASK_STATE_FAILED,
-    );
-    expect(failedEvents.length).toBeGreaterThanOrEqual(1);
-
-    for (const event of failedEvents) {
-      expect(event.data?.metadata?.["x-usage"]).toBeUndefined();
+describe('10.4 metadata["x-usage"] absent on failed, canceled events', () => {
+  it("failed terminal event has no metadata[x-usage]", async () => {
+    const { summary } = await runTask({ streaming: true, failCreate: new Error("forced session failure") });
+    const failed = summary.filter((e) => e.k === "status" && e.state === "failed") as Array<{ metaKeys: string[]; usage?: unknown }>;
+    expect(failed.length).toBeGreaterThanOrEqual(1);
+    for (const e of failed) {
+      expect(e.metaKeys).not.toContain("x-usage");
+      expect(e.usage).toBeUndefined();
     }
   });
 
-  it("canceled event published by cancelTask has no metadata[\"x-usage\"]", async () => {
-    const executor = new CopilotExecutor(makeConfig({ streaming: true }));
-    const bus = makeMockBus();
-    const session = makeMockSession();
-    session.abort = vi.fn(async () => {});
-    // The turn never idles on its own: it is running when the cancel arrives.
-    session.send = vi.fn(async () => {});
+  it("canceled event has no metadata[x-usage]", async () => {
+    const session = new ManualSession();
+    const provider = new CopilotProvider(makeConfig({ streaming: true }), { clientFactory: () => new ManualClient([session]) as never });
+    const server = createProviderTestServer(provider);
+    const live = server.startStream({ text: "hello", contextId: "c" });
+    await new Promise((r) => setTimeout(r, 20));
+    const taskId = (live.events[0] as any).payload.value.id as string;
+    await server.cancel(taskId);
+    const { events } = await live.done;
 
-    vi.spyOn(executor as any, "initialize").mockResolvedValue(undefined);
-    (executor as any).sessionManager = {
-      getOrCreate: vi.fn(async () => ({ sessionId: session.sessionId, session, isNew: true })),
-      trackTask: vi.fn(),
-      untrackTask: vi.fn(),
-      getSessionForTask: vi.fn(() => undefined),
-      getContextForTask: vi.fn(() => "ctx-1"),
-      destroySession: vi.fn(async () => {}),
-    };
-    (executor as any).mcpHooks = { setEmitter: vi.fn(), clearEmitter: vi.fn() };
-
-    const running = executor.execute(makeContext({ taskId: "task-cancel" }), bus as any);
-    await new Promise((r) => setTimeout(r, 0));
-    await executor.cancelTask("task-cancel", bus as any);
-    await running;
-
-    const canceledEvents = bus.events.filter(
-      (e: any) => isStatusUpdate(e) && e.data?.status?.state === TaskState.TASK_STATE_CANCELED,
-    );
-
-    expect(canceledEvents.length).toBeGreaterThanOrEqual(1);
-    for (const event of canceledEvents) {
-      expect(event.data?.metadata?.["x-usage"]).toBeUndefined();
-    }
+    const canceled = events.map(summarizeEvent).filter((e) => e.k === "status" && e.state === "canceled") as Array<{ metaKeys: string[] }>;
+    expect(canceled.length).toBeGreaterThanOrEqual(1);
+    for (const e of canceled) expect(e.metaKeys).not.toContain("x-usage");
   });
 
   it("only the final completed event carries x-usage; working / submitted events do not", async () => {
-    const { bus } = await runExecutor({
-      config: makeConfig({ streaming: true }),
-      usageEventPayloads: [makeUsageEventData()],
-    });
-
-    const nonCompletedStatusEvents = bus.events.filter(
-      (e: any) => isStatusUpdate(e) && e.data?.status?.state !== TaskState.TASK_STATE_COMPLETED,
-    );
-
-    for (const event of nonCompletedStatusEvents) {
-      expect(event.data?.metadata?.["x-usage"]).toBeUndefined();
+    const { summary } = await runTask({ streaming: true, usage: [usagePayload()] });
+    for (const e of summary) {
+      if (e.k === "status" && e.state !== "completed") expect(e.metaKeys).not.toContain("x-usage");
     }
   });
 });
 
-// ─── 10.5 — Non-streaming mode emits same metadata["x-usage"] shape ──────────
-
-describe("10.5 non-streaming mode emits same metadata[\"x-usage\"] shape as streaming", () => {
+describe('10.5 non-streaming mode emits same metadata["x-usage"] shape as streaming', () => {
   it("non-streaming: final completed event has the same x-usage structure as streaming", async () => {
-    const streamingBusResult = await runExecutor({
-      config: makeConfig({ streaming: true }),
-      usageEventPayloads: [makeUsageEventData({ inputTokens: 100, outputTokens: 50, cost: 0 })],
-    });
-    const nonStreamingBusResult = await runExecutor({
-      config: makeConfig({ streaming: false }),
-      usageEventPayloads: [makeUsageEventData({ inputTokens: 100, outputTokens: 50, cost: 0 })],
-    });
+    const payload = usagePayload({ inputTokens: 100, outputTokens: 50, cost: 0 });
+    const s = xUsageOf((await runTask({ streaming: true, usage: [payload] })).summary);
+    const ns = xUsageOf((await runTask({ streaming: false, usage: [payload] })).summary);
 
-    const streamingFinal = streamingBusResult.bus.events.find(
-      (e: any) => isStatusUpdate(e) && e.data?.status?.state === TaskState.TASK_STATE_COMPLETED,
-    );
-    const nonStreamingFinal = nonStreamingBusResult.bus.events.find(
-      (e: any) => isStatusUpdate(e) && e.data?.status?.state === TaskState.TASK_STATE_COMPLETED,
-    );
-
-    expect(streamingFinal).toBeDefined();
-    expect(nonStreamingFinal).toBeDefined();
-
-    const sUsage = streamingFinal?.data?.metadata?.["x-usage"];
-    const nsUsage = nonStreamingFinal?.data?.metadata?.["x-usage"];
-
-    // Both must be present
-    expect(sUsage).toBeDefined();
-    expect(nsUsage).toBeDefined();
-
-    // The shape (keys) must be identical
-    const sKeys = Object.keys(sUsage).sort();
-    const nsKeys = Object.keys(nsUsage).sort();
-    expect(nsKeys).toEqual(sKeys);
-
-    // The values must match for the fields from our identical mock usage events
-    expect(nsUsage.llmCalls).toBe(sUsage.llmCalls);
-    expect(nsUsage.inputTokens).toBe(sUsage.inputTokens);
-    expect(nsUsage.outputTokens).toBe(sUsage.outputTokens);
-    expect(nsUsage.cost).toBe(sUsage.cost);
-    expect(nsUsage.calls).toHaveLength(sUsage.calls.length);
+    expect(s).toBeDefined();
+    expect(ns).toBeDefined();
+    expect(Object.keys(ns).sort()).toEqual(Object.keys(s).sort());
+    expect(ns.llmCalls).toBe(s.llmCalls);
+    expect(ns.inputTokens).toBe(s.inputTokens);
+    expect(ns.outputTokens).toBe(s.outputTokens);
+    expect(ns.cost).toBe(s.cost);
+    expect(ns.calls).toHaveLength(s.calls.length);
   });
 
   it("non-streaming: x-usage present even with zero usage events (zero-call task)", async () => {
-    const { bus } = await runExecutor({
-      config: makeConfig({ streaming: false }),
-      usageEventPayloads: [],
-    });
-
-    const finalCompleted = bus.events.find(
-      (e: any) => isStatusUpdate(e) && e.data?.status?.state === TaskState.TASK_STATE_COMPLETED,
-    );
-
-    expect(finalCompleted).toBeDefined();
-    const xUsage = finalCompleted?.data?.metadata?.["x-usage"];
-    expect(xUsage).toBeDefined();
+    const xUsage = xUsageOf((await runTask({ streaming: false, usage: [] })).summary);
     expect(xUsage.llmCalls).toBe(0);
     expect(xUsage.cost).toBeNull();
   });
 
   it("non-streaming: x-usage accumulates multiple usage events correctly", async () => {
-    const { bus } = await runExecutor({
-      config: makeConfig({ streaming: false }),
-      usageEventPayloads: [
-        makeUsageEventData({ inputTokens: 50, outputTokens: 20, cost: null }),
-        makeUsageEventData({ inputTokens: 75, outputTokens: 30, cost: 0.005 }),
-      ],
-    });
-
-    const finalCompleted = bus.events.find(
-      (e: any) => isStatusUpdate(e) && e.data?.status?.state === TaskState.TASK_STATE_COMPLETED,
+    const xUsage = xUsageOf(
+      (
+        await runTask({
+          streaming: false,
+          usage: [usagePayload({ inputTokens: 50, outputTokens: 20, cost: null }), usagePayload({ inputTokens: 75, outputTokens: 30, cost: 0.005 })],
+        })
+      ).summary,
     );
-
-    const xUsage = finalCompleted?.data?.metadata?.["x-usage"];
-    expect(xUsage).toBeDefined();
     expect(xUsage.llmCalls).toBe(2);
     expect(xUsage.inputTokens).toBe(125);
     expect(xUsage.outputTokens).toBe(50);
-    // First call cost:null, second cost:0.005 → sum of non-null = 0.005
+    // First call cost:null, second cost:0.005 -> sum of non-null = 0.005
     expect(xUsage.cost).toBeCloseTo(0.005, 6);
   });
 
   it("non-streaming: unsubscribes usage handlers after sendAndWait completes", async () => {
-    const executor = new CopilotExecutor(makeConfig({ streaming: false }));
-    const session = makeMockSession();
-    const bus = makeMockBus();
-
-    vi.spyOn(executor as any, "initialize").mockResolvedValue(undefined);
-
-    (executor as any).sessionManager = {
-      getOrCreate: vi.fn(async () => ({ sessionId: session.sessionId, session, isNew: true })),
-      trackTask: vi.fn(),
-      untrackTask: vi.fn(),
-      getSessionForTask: vi.fn(),
-      getContextForTask: vi.fn(() => "ctx-1"),
-    };
-    (executor as any).mcpHooks = { setEmitter: vi.fn(), clearEmitter: vi.fn() };
-
-    let resolveWait!: (v: any) => void;
-    const waitPromise = new Promise<any>((res) => { resolveWait = res; });
-
-    session.sendAndWait = vi.fn(async () => {
-      session.emit("assistant.usage", makeUsageEventData({ inputTokens: 42 }));
-      resolveWait(undefined);
-      return { data: { content: "done" } };
-    });
-
-    await executor.execute(makeContext(), bus as any);
-    await waitPromise; // ensure sendAndWait was called
-
-    // After execute(), emit another usage event — it should NOT be picked up
-    // because the unsub should have been called in the finally block
-    session.emit("assistant.usage", makeUsageEventData({ inputTokens: 9999 }));
-
-    const finalCompleted = bus.events.find(
-      (e: any) => isStatusUpdate(e) && e.data?.status?.state === TaskState.TASK_STATE_COMPLETED,
-    );
-
-    const xUsage = finalCompleted?.data?.metadata?.["x-usage"];
-    expect(xUsage).toBeDefined();
-    // Only the event emitted during sendAndWait should be recorded
+    const r = await runTask({ streaming: false, usage: [usagePayload({ inputTokens: 42 })] });
+    // After the task, another usage event must not be picked up (the listener was removed)
+    expect(r.session.listenerCount("assistant.usage")).toBe(0);
+    r.session.emit("assistant.usage", usagePayload({ inputTokens: 9999 }));
+    const xUsage = xUsageOf(r.summary);
     expect(xUsage.inputTokens).toBe(42);
     expect(xUsage.llmCalls).toBe(1);
+  });
+});
+
+describe("10.6 the same totals travel as core usage metadata", () => {
+  it("the completed status carries urn:a2a-wrapper:usage:v1 next to x-usage, with a per-model breakdown", async () => {
+    const r = await runTask({
+      streaming: true,
+      usage: [
+        usagePayload({ model: "a", inputTokens: 100, outputTokens: 50, cost: 1 }),
+        usagePayload({ model: "b", inputTokens: 20, outputTokens: 10, cost: null }),
+      ],
+    });
+    const done = r.events.find((e: any) => e.payload.$case === "statusUpdate" && stateName(e.payload.value.status.state) === "completed");
+    const meta = done.payload.value.metadata;
+    expect(Object.keys(meta).sort()).toEqual(["urn:a2a-wrapper:usage:v1", "x-usage"]);
+    const core = meta["urn:a2a-wrapper:usage:v1"];
+    expect(core).toMatchObject({ scope: "delta", tokens: { input: 120, output: 60, total: 180 }, costUsd: 1 });
+    expect(core.byModel).toMatchObject({ a: { input: 100, costUsd: 1 }, b: { input: 20, costUsd: null } });
+    expect(core.model).toBeUndefined(); // an aggregate over models leaves `model` unset
   });
 });

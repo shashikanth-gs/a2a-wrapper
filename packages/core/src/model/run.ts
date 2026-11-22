@@ -99,6 +99,8 @@ export interface CoreArtifact {
   name?: string;
   description?: string;
   parts: readonly CorePart[];
+  /** Extension URIs the artifact belongs to (for example the trace extension of a sideband artifact). */
+  extensions?: readonly string[];
   /** Append `parts` to the artifact with this id (streaming chunk). */
   append?: boolean;
   /** This is the last chunk of the artifact. */
@@ -261,6 +263,15 @@ export interface CoreTaskRun {
    * terminal if nothing else remains.
    */
   dropHeld(handle: string): void;
+  /**
+   * Record the real delivery of a provider-held steer after the fact. A provider that answered a steer `queued{handle}`
+   * (because the backend had not said yet) learns later that the message was in fact `inserted` into a turn that was
+   * running, or that it was never delivered (`dropped`). Core marks the message's record `done` or `dropped` and stops
+   * holding the handle (the task may now go terminal), WITHOUT starting a turn: use {@link beginHeldTurn} when the held
+   * message begins its own turn. Idempotent: a handle that is not (or no longer) held is ignored. Silently dropped after the
+   * task was canceled.
+   */
+  settleSteer(handle: string, outcome: "inserted" | "dropped"): void;
 }
 
 /** Read-only identity of a run, passed to `abort`. */

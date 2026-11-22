@@ -67,7 +67,9 @@ import type { EventTransport, EventTransportFn } from "../events/transport.js";
 import { RunEventBusManager } from "../a2a/bus-manager.js";
 import { OrphanGuardTaskStore, endTaskInStore } from "../a2a/orphan-task-store.js";
 import { createStorePublisherFactory } from "../a2a/store-publisher.js";
-import type { RunRegistry } from "../runtime/run-registry.js";
+import { CoreExecutor } from "../a2a/core-executor.js";
+import type { ProviderExecutor } from "../model/index.js";
+import { RunRegistry, type RunRegistryOptions } from "../runtime/run-registry.js";
 import { instrumentExecutor } from "../telemetry/instrument.js";
 import { PEER_HEADER } from "../telemetry/propagation.js";
 import type { OtelConfig } from "../telemetry/types.js";
@@ -520,4 +522,43 @@ export async function createA2AServer<T extends BuildAgentCardInput>(
       await executor.shutdown();
     },
   };
+}
+
+// ─── createProviderServer ───────────────────────────────────────────────────
+
+/** Options of {@link createProviderServer}: the {@link ServerOptions} (minus `runRegistry`, which it builds) and the run runtime's. */
+export interface ProviderServerOptions extends Omit<ServerOptions, "runRegistry"> {
+  /**
+   * Options of the run runtime (`RunRegistry`): the run store, interaction policy, authorizer, binding TTL, timeouts.
+   * Everything but `provider`, which is the first argument.
+   */
+  registry?: Omit<RunRegistryOptions, "provider">;
+}
+
+/** What {@link createProviderServer} returns: the usual handle plus the run runtime it built. */
+export interface ProviderServerHandle extends ServerHandle {
+  /** The run runtime (cancel, steering, interactions, context bindings) over the provider. */
+  registry: RunRegistry;
+  /** The provider, as passed or built. */
+  provider: ProviderExecutor;
+}
+
+/**
+ * {@link createA2AServer} for a wrapper that implements {@link ProviderExecutor}: builds the run runtime over the
+ * provider and serves it with the core executor. The wrapper never touches the A2A SDK, the event bus or the
+ * executor contract; core owns cancel, steering, interactions and context binding for it.
+ *
+ * `provider` is the provider itself or a function that builds it from the resolved config (the factory then also
+ * initialises it, like any executor).
+ */
+export async function createProviderServer<T extends BuildAgentCardInput>(
+  config: Required<T>,
+  provider: ProviderExecutor | ((config: Required<T>) => ProviderExecutor),
+  options: ProviderServerOptions = {},
+): Promise<ProviderServerHandle> {
+  const built = typeof provider === "function" ? provider(config) : provider;
+  const { registry: registryOptions, ...serverOptions } = options;
+  const registry = new RunRegistry({ ...(registryOptions ?? {}), provider: built });
+  const handle = await createA2AServer(config, () => new CoreExecutor(registry), { ...serverOptions, runRegistry: registry });
+  return { ...handle, registry, provider: built };
 }

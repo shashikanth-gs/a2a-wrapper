@@ -137,23 +137,8 @@ export class A2ATransport implements EventTransport {
   ) {}
 
   async send(event: AgentEvent): Promise<void> {
-    const traceKey = EVENT_TO_TRACE_KEY[event.eventType];
-    if (!traceKey) return; // unmapped event types are silently dropped
-
-    // Build structured data payload with agent identity
-    const data: Record<string, unknown> = {
-      agent_id: event.agentId,
-      agent_name: event.agentName,
-      trace_id: event.traceId,
-    };
-    data.event_id = event.eventId;
-    if (event.parentAgentId) data.parent_agent_id = event.parentAgentId;
-    if (event.otelTraceId) data.otel_trace_id = event.otelTraceId;
-    if (event.otelSpanId) data.otel_span_id = event.otelSpanId;
-    if (event.propagatedMetadata) data.propagated_metadata = event.propagatedMetadata;
-    const state = LIFECYCLE_STATE[event.eventType];
-    if (state) data.state = state;
-    Object.assign(data, event.data);
+    const trace = agentEventToTrace(event);
+    if (!trace) return; // unmapped event types are silently dropped
 
     // A2A v1.0: ExecutionEventBus.publish() takes a {kind, data} envelope
     // (was the raw event object itself in v0.3) — see event-publisher.ts's
@@ -164,20 +149,13 @@ export class A2ATransport implements EventTransport {
       append: false,
       lastChunk: true,
       artifact: {
-        artifactId: `${traceKey}-${uuidv4()}`,
-        name: traceKey,
+        artifactId: `${trace.name}-${uuidv4()}`,
+        name: trace.name,
         extensions: [TRACE_EXTENSION_URI],
-        metadata: {
-          traceType: traceKey,
-          timestamp: event.timestamp,
-          eventId: event.eventId,
-          ...(event.parentAgentId ? { parentAgentId: event.parentAgentId } : {}),
-          ...(event.otelTraceId ? { otelTraceId: event.otelTraceId } : {}),
-          ...(event.otelSpanId ? { otelSpanId: event.otelSpanId } : {}),
-        },
+        metadata: trace.metadata,
         parts: [
           {
-            data,
+            data: trace.data,
             metadata: { mimeType: "application/json" },
           },
         ],
@@ -185,6 +163,47 @@ export class A2ATransport implements EventTransport {
     });
     this.bus.publish({ kind: "artifactUpdate", data: artifactEvent });
   }
+}
+
+/**
+ * What an {@link AgentEvent} looks like as an A2A trace artifact: the artifact name, its
+ * metadata and the data payload (agent identity, trace ids and the event's own data).
+ * `undefined` for an event type with no trace key (it is not carried on the A2A transport).
+ * Shared by every transport that renders to A2A so the wire shape stays identical.
+ */
+export function agentEventToTrace(
+  event: AgentEvent,
+): { name: string; metadata: Record<string, unknown>; data: Record<string, unknown> } | undefined {
+  const traceKey = EVENT_TO_TRACE_KEY[event.eventType];
+  if (!traceKey) return undefined;
+
+  // Build structured data payload with agent identity
+  const data: Record<string, unknown> = {
+    agent_id: event.agentId,
+    agent_name: event.agentName,
+    trace_id: event.traceId,
+  };
+  data.event_id = event.eventId;
+  if (event.parentAgentId) data.parent_agent_id = event.parentAgentId;
+  if (event.otelTraceId) data.otel_trace_id = event.otelTraceId;
+  if (event.otelSpanId) data.otel_span_id = event.otelSpanId;
+  if (event.propagatedMetadata) data.propagated_metadata = event.propagatedMetadata;
+  const state = LIFECYCLE_STATE[event.eventType];
+  if (state) data.state = state;
+  Object.assign(data, event.data);
+
+  return {
+    name: traceKey,
+    metadata: {
+      traceType: traceKey,
+      timestamp: event.timestamp,
+      eventId: event.eventId,
+      ...(event.parentAgentId ? { parentAgentId: event.parentAgentId } : {}),
+      ...(event.otelTraceId ? { otelTraceId: event.otelTraceId } : {}),
+      ...(event.otelSpanId ? { otelSpanId: event.otelSpanId } : {}),
+    },
+    data,
+  };
 }
 
 /**
@@ -365,6 +384,19 @@ export function resolveTransport(
   contextId: string,
   custom?: EventTransport | EventTransportFn,
 ): EventTransport {
+  return resolveTransportWith(cfg, () => new A2ATransport(bus, taskId, contextId), custom);
+}
+
+/**
+ * {@link resolveTransport} with the A2A sideband supplied by the caller: `a2a` builds the transport that
+ * carries trace events on the A2A stream, whatever that is (an event bus, or a provider run). The priority
+ * and the `http` / `both` handling are the same.
+ */
+export function resolveTransportWith(
+  cfg: EventsConfig | undefined,
+  a2a: () => EventTransport,
+  custom?: EventTransport | EventTransportFn,
+): EventTransport {
   const eventsConfig = resolveEventsConfig(cfg);
   if (eventsConfig.enabled === false) return new NullTransport();
 
@@ -383,11 +415,11 @@ export function resolveTransport(
       eventsConfig.httpHeaders ?? {},
     );
     if (type === "http") return http;
-    return new CompositeTransport([new A2ATransport(bus, taskId, contextId), http]);
+    return new CompositeTransport([a2a(), http]);
   }
 
   // Default: A2A sideband
-  return new A2ATransport(bus, taskId, contextId);
+  return a2a();
 }
 
 // ─── Agent Event Emitter ─────────────────────────────────────────────────────

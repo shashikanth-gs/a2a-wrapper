@@ -56,7 +56,6 @@
     "url": "https://github.com/shashikanth-gs/a2a-wrapper/issues"
   },
   "dependencies": {
-    "@a2a-js/sdk": "^1.3.0",
     "@a2a-wrapper/core": "2.1.1",
     "@github/copilot-sdk": "^1.0.34",
     "express": "^4.18.2",

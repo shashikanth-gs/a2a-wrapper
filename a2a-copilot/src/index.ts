@@ -4,11 +4,11 @@
  * Re-exports everything consumers need for programmatic use.
  */
 
-export { createA2AServer, buildAgentCard } from "./server/index.js";
-export type { ServerHandle } from "./server/index.js";
+export { createA2AServer, buildAgentCard, interactionPolicyOf, registryOptionsOf } from "./server/index.js";
+export type { ServerHandle, CopilotServerOptions } from "./server/index.js";
 
-export { CopilotExecutor } from "./copilot/executor.js";
-export { SessionManager } from "./copilot/session-manager.js";
+export { CopilotProvider } from "./copilot/provider.js";
+export type { CopilotProviderOptions } from "./copilot/provider.js";
 
 export {
   publishStatus,
@@ -32,6 +32,7 @@ export type {
   McpHttpServerConfig,
   McpStdioServerConfig,
   CustomAgentConfig,
+  InteractionsConfig,
 } from "./config/types.js";
 export { DEFAULTS } from "./config/defaults.js";
 export type { DefaultAgentConfig } from "./config/defaults.js";

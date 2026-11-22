@@ -6,6 +6,7 @@ the principles. This document is the data model, designed from evidence. Evidenc
 
 Steering of in-flight tasks (#109) is implemented and described in section 3.12; 3.4, 3.5, 3.10 and 3.11 carry its choices.
 Context binding persistence and resume after a restart (#110) is implemented and described in section 3.13; 3.2, 3.5, 3.6 and 3.8 carry its choices.
+The first wrapper on the contract, Copilot (#111), and what core gained for it are described in section 3.14.
 
 Revised after the review of #106 (types, adapter and this document): turn semantics, unknown states, owned and
 versioned records, interaction shapes, usage deltas and versioned wire keys. Sections 3.1-3.8 and 4 describe the
@@ -304,6 +305,10 @@ type CoreInteractionResult =
   | { outcome: "unavailable"; reason: string };                     // nobody can answer (policy, no client, malformed request)
 ```
 
+`unavailable` also carries a typed `code` (`policy-auto`, `interactions-disabled`, `invalid-request`, `internal`; an open union, `reason`
+stays human text): a provider acts on the code, not on the text and not on its own configuration. An unknown or missing code is an
+ordinary denial.
+
 Per D5, a provider treats `selected` of an `allow_*` option as approval and everything else as denial. Providers map
 `feedback` to their native field (Claude deny `message`, Copilot reject feedback, OpenCode reply `message`) and
 `amendment` to theirs (Claude `updatedInput`). `freeText` is text typed beside or instead of the options ("other");
@@ -419,7 +424,9 @@ Provider handler: `steer?(run, message): Promise<SteerOutcome>`. Outcomes map to
 `delivery: steering | queued`, OpenCode 2 `steer | queue`, Claude `priority now | next | later`, Codex app-server
 `turn/steer` (or `rejected: not-steerable` for review/compact turns), Antigravity workaround (cancel and re-run, then
 `inserted`). A provider that returns `queued` holds the message (`holder: "provider"`; `deliveryFromSteer`) and must later call
-`run.beginHeldTurn(handle)` or `run.dropHeld(handle)` (3.2). A `SteerOutcome` with a state this core version does not know
+`run.beginHeldTurn(handle)` or `run.dropHeld(handle)` (3.2), or `run.settleSteer(handle, "inserted" | "dropped")` when the backend
+reveals only later that the message was folded into a turn that was running (record `done`) or never delivered (record `dropped`):
+the handle is released without starting a turn; idempotent; silent after a cancel. A `SteerOutcome` with a state this core version does not know
 is reported as `rejected` / `unsupported` even though the provider may have accepted the message, so a caller must not
 blindly resend: resend only with the same `idempotencyKey` or `messageId`. A provider
 without `steer` gets the core default: core holds the message in its own per-context lane (`queued`,
@@ -1076,6 +1083,12 @@ what request 1 bound, also across a process restart (test: two requests on one c
 and deleting the `gone` ones; `SweepReport.bindings` reports `alive`, `gone`, `unknown`, `skipped` (another issuer, or the
 context has a run). The orphan sweep runs first, so the sessions of orphaned runs are handled by `abortOrphan` before.
 
+**Hard maximum age: `bindingMaxAgeMs`.** A binding older than this (measured from `createdAt`, the start of the bound session, and never
+extended by use) is deleted and released when its context next resumes, exactly like an idle-TTL expiry, and removed by
+`sweepBindings`; the turn starts fresh and its `bind` creates a new binding with a new age. It is independent of `bindingTtlMs` and
+both may be set. A rebind of the same context keeps `createdAt`, so a provider that starts a new session for a context deletes
+the old binding first (every abort-discard and `session-not-found` path does).
+
 **Binding GC: `sweepBindings({olderThanMs?})`.** Removes bindings whose `lastUsedAt` is older than `olderThanMs` (default
 `bindingTtlMs`; with neither nothing is removed) and whose context has no non-terminal run: no run in this process (live,
 parked, adopted or waiting in the lane) AND no `active`, `interrupted` (parked) or unknown-state run record in the store (an
@@ -1147,6 +1160,93 @@ resumes from `request.session` instead of its own in-memory map:
   can tell cheaply, `probeSession`; report `session-not-found` before emitting anything.
 - The `bind` `meta` is the place for what a resume needs besides the id (a working directory, a model); it is persisted
   with the binding and must be JSON.
+
+### 3.14 Provider wrappers on the contract: Copilot first (#111)
+
+`a2a-copilot` is the first wrapper on the contract and has no `@a2a-js/sdk` dependency (the guard test no longer lists it).
+Parity with the executor it replaced is proved by a golden test: the same scripted Copilot sessions (11 scenarios, streaming
+and not, chunks and buffered, usage tracking, errors, the BYOK raw tool-call guard) were recorded through the old
+`AgentExecutor` and the real `DefaultRequestHandler` (`a2a-copilot/src/__tests__/golden/old-executor.golden.json`) and are
+replayed through the provider and the same handler. What a client receives (status sequence and text, artifact names, append
+and last-chunk flags, extensions, parts, `x-usage`) is identical, except for the documented, asserted differences: the
+redundant `submitted` status after the Task snapshot is not published, the completed status also carries
+`urn:a2a-wrapper:usage:v1`, a failed status carries `code`, and `agent_started` follows the opening of the session.
+
+**What core gained for this (all additive; the four wrappers still on the bus-based executor are untouched).**
+
+- `RunObservability` (`events/run-observability.ts`): the per-turn sideband a wrapper used to build around a bus. Its
+  `AgentEventEmitter` publishes the same trace artifacts through `run.artifact` (`RunTransport`, sharing
+  `agentEventToTrace` with `A2ATransport` so the wire shape cannot drift; `http`, `both` and custom transports are the same
+  `resolveTransportWith`). It owns usage accumulation (`recordCall`, `setContextWindow`, `trace.usage` and `context_window`
+  under `trackUsage`) and the lifecycle (`start`, then exactly one of `finish`, `error`, `canceled`; the terminal event is
+  awaited for at most 2 s). `finish()` returns the `x-usage` metadata and the same totals as a `CoreUsage` (per model), which a
+  wrapper hands to `run.complete({ usage, meta })`: `x-usage` stays exactly as it is, and core's own usage key rides along.
+- `createResponseStream`: the `response-<uuid>` artifact, chunked (appended chunks and a last-chunk marker carrying the full
+  text) or buffered, as `publishStreamingChunk` / `publishLastChunkMarker` / `publishFinalArtifact` publish today.
+- `CoreArtifact.extensions`, `corePartsText`, `InteractionsConfig` (the config shape of the interaction policy),
+  `createProviderServer` (`createA2AServer` over a provider) and a test harness (`createProviderTestServer`,
+  `summarizeEvent`, `summarizeTask`) so a wrapper's tests need no SDK import.
+
+Text deltas deliberately do not use `run.event({type: "text"})`: that renders as an artifact with another name and chunking, which
+would change what clients see. A wrapper that wants today's `response` artifacts uses `createResponseStream`.
+
+**How the Copilot provider uses the contract (all wrapper-side).**
+
+- **Session and binding.** `run` opens the session first (live handle, else `resumeSession(request.session.ref)`, else
+  `createSession`), calls `run.bind` before anything is published, and only then emits the lifecycle bookend. Order matters:
+  a lifecycle or trace artifact is output, and after output core cannot retry a turn with `session-not-found`. The runtime's
+  "Session not found" on resume is reported with `run.fail({code: SESSION_NOT_FOUND})` and `run` returns. `release` drops the
+  in-process handle (the session stays on disk), `probeSession` asks the runtime's session list, `abortOrphan` is a no-op for a
+  runtime this process spawned (it died with it) and resumes-and-aborts for an external `cliUrl`. `session.ttl`
+  becomes `bindingMaxAgeMs` (the age of the session, never extended by use, exactly as before), the optional `session.idleTtl`
+  becomes `bindingTtlMs`, `ttl <= 0` and `reuseByContext: false` mean no binding.
+- **Steering.** `steer` sends `mode: "immediate"` with a `clientTurnId`. Copilot says how it delivered a message with a
+  `user.message` event that echoes the id, but only when the message is consumed, which can be long after the send. `steer`
+  waits `timeouts.steerAck` (5 s) for it: `steering` is `inserted`; `queued` or `idle`, or no echo yet, is `queued{handle}`.
+  When a held message's `user.message` arrives the turn splits there: the segment so far completes and `beginHeldTurn(handle)`
+  hands the output to the message's own turn. A late `steering` echo (after the window) means the message went into the
+  turn in flight: `run.settleSteer(handle, "inserted")` and no split. A held message never consumed (the session went idle
+  first) is settled `dropped`.
+- **Abort.** `session.abort()`, then wait (3 s) for `session.idle`: `confirmed` or `unconfirmed`, always `reusable`; a rejected
+  abort makes core discard (and `release`) the session. `cancel` also clears Copilot's native queue and drops held handles;
+  `interrupt` keeps it.
+- **Interactions.** The session's `onPermissionRequest` asks through the running turn (`run.ask`), `onUserInputRequest`
+  (`ask_user`) is registered only under `mode: "ask"`, and the pre-tool hook stops answering `allow` under `ask` (it would
+  bypass the handler). `unavailable` is read by its `code`: `policy-auto` (nobody is asked, no rule answered) approves
+  (`approveAll`, as it always did) only while the wrapper itself is `auto`; every other code denies, and the model is told a
+  fixed message rather than core's reason text. Under `ask` only an explicit allow approves. The prompt timer is paused while a person decides.
+
+**Settled after review (round 2).** `run.settleSteer(handle, "inserted" | "dropped")` (3.4) lets a provider that had to answer a
+steer `queued` say later that Copilot folded the message into the running turn (record `done`, handle released, no turn);
+`bindingMaxAgeMs` (3.13) keeps `session.ttl` a hard maximum age (a Copilot context is resumed only while its session is younger
+than `ttl`), with the idle expiry (`bindingTtlMs`) left as a separate optional `session.idleTtl`; `unavailable` carries a typed
+`code` (3.3), so the provider's own mode no longer decides approve versus deny (problems 2 and 4 below are resolved by these).
+Still open: 1 (stated plainly below), 3, 5, 6 and 7 as known limitations.
+
+**Spec problems found.**
+
+1. Output counts: the contract says `session-not-found` is only retried before the turn publishes anything, but it never says
+   that trace and lifecycle artifacts are output: `run.artifact` marks the turn observable, and an observable turn cannot be
+   retried. A wrapper that emits `agent_started` (or any `trace.*` artifact) before it has opened the resumed session silently
+   loses the retry, which is why the Copilot provider publishes `agent_started` AFTER the session opens.
+2. `SteerOutcome` is returned before the truth is known. Copilot reports `steering` / `queued` only when it consumes the message.
+   The contract has no "accepted, outcome pending"; the provider answers `queued{handle}` and turns the late echo into a turn
+   boundary, so a message that was in fact folded into the running turn is reported as held and its output is attributed to a
+   new turn. A `run.settleSteer(handle, "inserted")` (core drops the handle and records the message `done`) would be exact.
+3. (Known limitation.) `interrupt` with a provider-held message outstanding: the contract says keep the native queue, but the held message then
+   starts inside the NEXT turn's run, whose view does not know the handle. Output is attributed to the held turn from the
+   moment its `user.message` arrives. Documented limitation.
+4. `interaction` `unavailable` does not say why. In `auto` mode it means "nobody is asked", under `ask` it can mean "malformed";
+   the provider has to know the policy itself (it reads its own config) to choose approve versus deny. A typed reason would let
+   core own the distinction.
+5. A non-last turn's `complete({meta})` publishes `meta` (so `x-usage`) on a `working` status. A task with a held turn therefore
+   has `x-usage` on a non-terminal status, which "only the completed status carries x-usage" did not allow. Known limitation:
+   clients that read usage only from terminal metadata should read it from the completed status.
+6. Persisting bindings needs a durable `RunStore`, which only exists as a test double (#69). Until it exists a restart loses
+   every binding with the default in-memory store. The wrapper exposes `createA2AServer(config, { runStore })` and says so
+   prominently in its README.
+7. (Known limitation.) In chunk mode the stored task holds the response twice (the chunks, then the last-chunk marker with the full text, both
+   appended). That is today's behaviour and is kept for parity; fixing it is an A2A-visible change.
 
 ## 4. A2A mapping and the run model (core internal)
 

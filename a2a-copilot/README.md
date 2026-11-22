@@ -58,6 +58,9 @@ GitHub Copilot is a production-grade agent. It already handles multi-step planni
   - [`agentCard.skills` vs `memory.skills`](#agentcardskills-vs-memoryskills)
   - [Example](#example)
 - [Calling Other A2A Agents](#calling-other-a2a-agents)
+- [Conversations and restarts](#conversations-and-restarts)
+- [Steering a running task](#steering-a-running-task)
+- [Permissions and questions](#permissions-and-questions-interactions)
 - [Event Transport (Observability)](#event-transport-observability)
   - [Default (A2A sideband)](#default-a2a-sideband)
   - [HTTP collector](#http-collector)
@@ -141,12 +144,14 @@ Express Server  (a2a-copilot)
   │  ├─ /context/build                → Trigger context discovery
   │  └─ /health                       → Health check
   │
-  │  @a2a-js/sdk  DefaultRequestHandler
+  │  @a2a-wrapper/core  (owns the A2A protocol and the A2A SDK)
+  │  ├─ run runtime      — task lifecycle, cancel, queue / steer / interrupt, input-required
+  │  └─ context binding  — contextId → Copilot session id (persisted, survives a restart)
   ▼
-CopilotExecutor  (AgentExecutor)
-  │  ├─ SessionManager  — contextId → Copilot session
-  │  ├─ Streaming       — delta events → A2A artifact chunks
-  │  └─ EventPublisher  — Copilot events → A2A events
+CopilotProvider  (core's provider contract; knows only Copilot)
+  │  ├─ sessions         — create / resume Copilot sessions, permission + question handlers
+  │  ├─ streaming        — Copilot events → status text, artifacts, trace events, usage
+  │  └─ steering         — native `mode: "immediate"` sends, abort, queue flush
   │
   │  @github/copilot-sdk
   ▼
@@ -205,6 +210,7 @@ a2a-copilot [options]
   --agent-description <desc>    Agent description
   --stream-artifacts            Stream chunks in real time (A2A spec mode)
   --no-stream-artifacts         Buffer artifacts — Inspector-compatible (default)
+  --interactions <mode>         auto | ask                       (default: auto, see "Permissions and questions")
   --log-level <level>           debug | info | warn | error      (default: info)
   --help                        Show this help
   --version                     Show version
@@ -215,11 +221,31 @@ a2a-copilot [options]
 ```typescript
 import { createA2AServer, resolveConfig } from 'a2a-copilot';
 
-const config = await resolveConfig({ configPath: 'agents/example/config.json' });
-const { server, url } = await createA2AServer(config);
+const config = resolveConfig('agents/example/config.json');
+const handle = await createA2AServer(config, {
+  // optional: where context bindings live (see "Conversations and restarts")
+  // runStore: myPersistentRunStore,
+  // optional: custom sideband event transport (Kafka, Redis, ...)
+  // eventTransport: async (event) => { /* ... */ },
+});
 
-console.log(`Agent running at ${url}`);
+// handle.provider: the CopilotProvider (a `ProviderExecutor` of @a2a-wrapper/core)
+// handle.registry: core's run runtime (cancel, steering, interactions, bindings)
+await handle.shutdown();
 ```
+
+`CopilotProvider` implements `@a2a-wrapper/core`'s `ProviderExecutor`; it does not depend on `@a2a-js/sdk`
+(only core does).
+
+#### Breaking changes (major release) and migration
+
+- **`CopilotExecutor` and `SessionManager` are removed**, with no shim. Use `CopilotProvider` (a `ProviderExecutor`: `run`,
+  `steer`, `abort`, `release`, `probeSession`) behind core's run runtime. It is not an SDK `AgentExecutor`: there is no
+  `execute(ctx, bus)` or `cancelTask`; cancel, steering and replies go through the A2A endpoints (or core's `RunRegistry`).
+- **`createA2AServer(config, options?)`** takes `{ runStore?, eventTransport? }` and returns `{ provider, registry, executor,
+  server, app, shutdown }`: `provider` is the `CopilotProvider`, `registry` core's run runtime, `executor` core's executor
+  (it used to be the `CopilotExecutor`). Use `handle.provider.buildContext()` where you used `executor.buildContext()`.
+- Custom event transports: pass `{ eventTransport }` (it used to be set on `executor.customTransport`).
 
 ## Configuration
 
@@ -292,6 +318,7 @@ Create a `config.json` (see `agents/example/config.json` for the fully annotated
 | `COPILOT_PROVIDER_WIRE_API` | BYOK wire API: `completions`\|`responses` | `completions` |
 | `WORKSPACE_DIR` | Workspace directory | _(empty)_ |
 | `STREAM_ARTIFACTS` | Stream chunks in real time | `false` |
+| `INTERACTIONS_MODE` | `auto` or `ask`: ask the A2A client for permissions and questions | `auto` |
 | `LOG_LEVEL` | `debug`\|`info`\|`warn`\|`error` | `info` |
 | `AGENT_NAME` | Override agent card name | _(from config)_ |
 | `AGENT_DESCRIPTION` | Override agent card description | _(from config)_ |
@@ -301,6 +328,89 @@ See [`.env.example`](.env.example) for the full reference.
 ### Choosing a model
 
 `copilot.model` (or `--model`, `COPILOT_MODEL`) defaults to `auto`: the Copilot runtime picks a model your account can use. Unset, empty and `default` mean the same. Set an explicit name (for example `gpt-4.1`) to pin one; names change over time and depend on your plan, so the wrapper does not hard-code any. With a custom BYOK provider (below) `auto` does not apply and `model` is required.
+
+## Conversations and restarts
+
+Messages that carry the same `contextId` continue the same Copilot session. The Copilot session id is bound to the
+`contextId` by core (`run.bind`, before the first output) and resumed with the SDK's `resumeSession` on the next turn, so
+the model remembers earlier turns. A session the Copilot runtime no longer has is not an error: core forgets the binding
+and runs the same turn on a fresh session.
+
+> **Resume after a restart needs a durable `RunStore`.** The default store is in memory, so with the defaults **nothing
+> survives a restart**: the `contextId` to session binding is gone and the next message starts a new Copilot session (the
+> old one stays on disk, unused). Core ships only the in-memory store today; a durable one is tracked in #69. To keep
+> conversations across restarts supply your own `RunStore` (see core's `RunStore` interface and its contract test suite):
+>
+> ```typescript
+> import { createA2AServer, resolveConfig } from 'a2a-copilot';
+> const handle = await createA2AServer(resolveConfig('agent.json'), { runStore: new MyDurableRunStore() });
+> ```
+>
+> Tasks themselves are in memory either way (an in-flight task does not survive a restart; its Copilot session does).
+
+- `session.reuseByContext: false` (or `session.ttl <= 0`) gives every turn its own session and binds nothing.
+- `session.ttl` (default 1 hour) is the **maximum age** of a context's session, as it always was: a context is resumed only
+  while its session is younger than `ttl`, however recently it was used; after that the next message starts a new session.
+- `session.idleTtl` (unset by default) is an optional **idle** expiry, measured from the last use of the context.
+- `session.cleanupInterval` only releases the idle in-process handle; the session stays on disk and resumes.
+
+## Steering a running task
+
+Send a second message to a task that is still running and choose what it means with the message metadata
+`urn:a2a-wrapper:delivery:v1`:
+
+| Delivery | What happens |
+|---|---|
+| `queue` (default) | The message waits and runs as the next turn of the same task, on the same session. |
+| `steer` | Sent with Copilot's native `mode: "immediate"`. The answer is `inserted` when Copilot reports it folded the message into the turn in flight, or `queued` (held by Copilot) when it did not consume it in time (`timeouts.steerAck`, default 5 s) or ran it as its own run; the task then continues with that message's own turn. |
+| `interrupt` | `session.abort()`, then the message runs next. Copilot's own queue is kept. |
+
+The caller gets one `Message` carrying the result under `urn:a2a-wrapper:delivery-result:v1`. A cancel (`tasks/cancel`)
+calls `session.abort()` and also clears Copilot's queue. `mode: "immediate"` is an experimental Copilot SDK surface.
+
+Known limitations:
+
+- A `steer` answered `queued` splits the task into turns. If Copilot later reports that it folded the message into the turn
+  in flight, the wrapper keeps that turn going (no split). Output that Copilot produces for a held message while an
+  `interrupt` is running is attributed to the held message's turn.
+- A task with a held (queued) message publishes the first turn's result as a non-final `working` status, so `x-usage` can
+  appear on a `working` status. Clients that read usage only from terminal metadata should read the completed status.
+- In `streamArtifactChunks` mode the stored task holds the response text twice (the chunks, then the last-chunk marker with
+  the full text, both appended). This is the behaviour of earlier releases and is kept.
+
+## Permissions and questions (`interactions`)
+
+By default the wrapper is headless: nobody is asked and **every permission request is approved** (this is what it has
+always done). Set `interactions.mode` to `ask` to route them through the A2A client instead:
+
+```json
+{
+  "interactions": {
+    "mode": "ask",
+    "timeoutMs": 600000,
+    "onTimeout": "fail",
+    "autoAnswer": [
+      { "match": { "risk": "low" }, "answer": { "kind": "allow_once" } },
+      { "match": { "tool": "shell" }, "answer": { "decline": true } }
+    ]
+  }
+}
+```
+
+- **`mode: "ask"`**: a permission request (run a command, write a file, fetch a URL, call a tool) parks the task as
+  `input-required`; the status message names it ("Run a shell command", the command, the risk) and lists the options
+  (`1. Allow`, `2. Deny`) with a short reply code. Reply with a new message on the same task: `1 K7M2` (the code is
+  required to approve), `no`, or a structured reply `{ "interactionId": "...", "optionId": "allow" | "reject",
+  "feedback": "..." }`. Only an explicit allow approves; a timeout, a cancel or any unusable reply denies. Copilot's
+  `ask_user` questions are offered to the model only in this mode and arrive as `question` interactions.
+- **`autoAnswer`**: rules answered without a person, first match wins, in both modes. `match` fields are `kind`, `risk`
+  (`low` for reads and read-only MCP tools, `medium` for URLs and other MCP tools, `high` for shell and writes), `tool`
+  (`shell`, `write`, `read`, `fetch`, `<server>/<tool>`) and `action`. In `auto` mode a rule decides what it matches and the
+  rest is still approved.
+- `timeoutMs` (default 10 minutes) and `onTimeout`: `fail` (default) ends the task, `deny` lets the run go on with the
+  request denied.
+- Also `--interactions ask` and `INTERACTIONS_MODE=ask`.
+- After a restart a task waiting for an answer fails with "server restarted" (the Copilot request id is not re-attached).
 
 ## Bring Your Own Model (BYOK)
 
@@ -606,7 +716,7 @@ Every event goes through the configured transport (A2A sideband by default, or y
 
 | Event | When | `data` | A2A sideband artifact |
 |---|---|---|---|
-| `agent_started` | Once per task, right after the `working` status | `{ "backend": "copilot" }` | `trace.lifecycle` (`state: "started"`) |
+| `agent_started` | Once per task, right after the `working` status and the opening of the Copilot session | `{ "backend": "copilot" }` | `trace.lifecycle` (`state: "started"`) |
 | `tool_call_start` / `tool_call_end` | Around each MCP tool call | tool name, sanitized arguments / result, duration | `trace.mcp.start` / `trace.mcp` |
 | `thinking` | When the model streams reasoning | `{ "content": "…" }` | `trace.thinking` |
 | `context_window` | After each turn, when `trackUsage: true` | context-window snapshot | _none — transport only_ |

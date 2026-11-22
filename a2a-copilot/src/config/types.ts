@@ -8,6 +8,7 @@
 import type {
   AgentCardConfig,
   EventsConfig,
+  InteractionsConfig,
   MemoryConfig,
   OtelCopilotConfig,
   SubAgentsConfig,
@@ -15,7 +16,7 @@ import type {
 
 // ─── Agent Card Config ──────────────────────────────────────────────────────
 
-export type { AgentCardConfig, SkillConfig } from "@a2a-wrapper/core";
+export type { AgentCardConfig, SkillConfig, InteractionsConfig } from "@a2a-wrapper/core";
 
 // ─── Server Config ──────────────────────────────────────────────────────────
 
@@ -200,8 +201,17 @@ export interface SessionConfig {
   titlePrefix?: string;
   /** Reuse sessions by A2A contextId (default: true) */
   reuseByContext?: boolean;
-  /** Session TTL in ms (default: 3_600_000 = 1 hour) */
+  /**
+   * Maximum age of a context's Copilot session in ms (default: 3_600_000 = 1 hour). A context is resumed only while its
+   * session is younger than this, however recently it was used; after that the next message starts a new session. `0`
+   * means never reuse.
+   */
   ttl?: number;
+  /**
+   * Optional idle expiry in ms, measured from the last use of a context (unset by default: a context that keeps being used
+   * is only limited by `ttl`). A context unused for this long starts a new session on its next message.
+   */
+  idleTtl?: number;
   /** Session cleanup interval in ms (default: 300_000 = 5 min) */
   cleanupInterval?: number;
 }
@@ -227,6 +237,12 @@ export interface FeatureFlags {
 export interface TimeoutConfig {
   /** Timeout for a single prompt in ms (default: 600_000 = 10 min) */
   prompt?: number;
+  /**
+   * How long a `steer` waits for Copilot to report how it delivered the message, in ms (default: 5_000). The report
+   * comes when Copilot consumes the message, which can be long after the send; without it the message is answered as
+   * queued by Copilot and joins the task when it starts.
+   */
+  steerAck?: number;
 }
 
 // ─── Logging Config ─────────────────────────────────────────────────────────
@@ -338,6 +354,13 @@ export interface AgentConfig {
   customAgents?: CustomAgentConfig[];
   /** Event transport configuration for sideband observability events. */
   events?: EventsConfig;
+  /**
+   * Whether a person is asked when Copilot wants to run a command, write a file or call a tool (permission requests) or asks
+   * a question (`ask_user`), and for how long. The default (`mode: "auto"`, no rules) is the headless behaviour this wrapper
+   * has always had: nobody is asked and every permission is approved. With `mode: "ask"`, what no `autoAnswer` rule answers
+   * reaches the A2A client as `input-required` and the task resumes on the reply.
+   */
+  interactions?: InteractionsConfig;
   /**
    * Optional memory configuration for persisting instructions and skills.
    * When present, the materializer writes these to backend-specific paths

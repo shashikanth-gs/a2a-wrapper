@@ -989,3 +989,50 @@ describe("round 2: policy, timers, restart edge cases", () => {
     expect((await s.store.listPending("t1"))[0]).toMatchObject({ state: "expired", result: { outcome: "expired" } });
   });
 });
+
+describe("the typed reason of an unavailable answer", () => {
+  it('"auto" with no rule: code policy-auto (the reason text is still there)', async () => {
+    const s = setup({});
+    const done = s.registry.execute(makeInit("t1", "ctx", makePublisher()));
+    await until(() => s.provider.runs.length === 1);
+    expect(await s.provider.runs[0].view.ask(permission())).toEqual({
+      outcome: "unavailable",
+      reason: expect.stringContaining("interactions.mode"),
+      code: "policy-auto",
+    });
+    s.provider.runs[0].view.complete({});
+    await done;
+  });
+
+  it('"auto" with rules and no match: policy-auto; "ask" with a malformed request: invalid-request (never policy-auto)', async () => {
+    const auto = setup({ mode: "auto", autoAnswer: [{ match: { tool: "nothing" }, answer: { kind: "allow_once" } }] });
+    const d1 = auto.registry.execute(makeInit("t1", "ctx", makePublisher()));
+    await until(() => auto.provider.runs.length === 1);
+    expect(await auto.provider.runs[0].view.ask(permission())).toMatchObject({ outcome: "unavailable", code: "policy-auto" });
+    auto.provider.runs[0].view.complete({});
+    await d1;
+
+    const ask = setup({ mode: "ask" });
+    const { answer, done } = await parkOn(ask, { kind: "permission", title: "x", options: [] } as any);
+    expect(await answer).toMatchObject({ outcome: "unavailable", code: "invalid-request" });
+    ask.provider.runs[0].view.complete({});
+    await done;
+  });
+
+  it("a run with no interactions runtime: interactions-disabled", async () => {
+    const provider = makeProvider();
+    const registry = new RunRegistry({ provider, store: new InMemoryRunStore(), interactions: undefined as any, interactionPolicy: { mode: "ask" } });
+    (registry as any).interactions = undefined;
+    const done = registry.execute(makeInit("t1", "ctx", makePublisher()));
+    await until(() => provider.runs.length === 1);
+    expect(await provider.runs[0].view.ask(permission())).toMatchObject({ outcome: "unavailable", code: "interactions-disabled" });
+    provider.runs[0].view.complete({});
+    await done;
+  });
+
+  it("an unavailable answer never approves, with or without a code (an unknown code is an ordinary denial)", () => {
+    const i = permission() as any;
+    expect(isApproval(i, { outcome: "unavailable", reason: "r" })).toBe(false);
+    expect(isApproval(i, { outcome: "unavailable", reason: "r", code: "something-new" })).toBe(false);
+  });
+});

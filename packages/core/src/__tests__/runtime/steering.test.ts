@@ -777,3 +777,70 @@ describe("restart (design doc 3.6): what the sweep does with queue records writt
     expect((await records(s))[0].state).toBe("unknown");
   });
 });
+
+describe("settleSteer: the real delivery of a provider-held steer, learned after the fact", () => {
+  it("inserted: the record is done, the handle stops being held (the task can end), and no turn starts", async () => {
+    const s = setup({ steer: async () => ({ state: "queued", handle: "h1" }) });
+    const first = await startRun(s);
+    await deliver(s, makeMessage("steer", "later"));
+    first.call.view.complete({ text: "one" });
+    await tick();
+    expect(first.publisher.terminal()).toEqual([]); // still held
+
+    first.call.view.settleSteer("h1", "inserted");
+    expect(await first.done).toBe("ended");
+    expect(first.publisher.terminal().map((t) => t.state)).toEqual(["completed"]);
+    await s.registry.drain();
+    expect((await records(s))[0]).toMatchObject({ state: "done" });
+    expect(s.provider.runs).toHaveLength(1);
+  });
+
+  it("dropped: the record is dropped with a reason and the task can end", async () => {
+    const s = setup({ steer: async () => ({ state: "queued", handle: "h1" }) });
+    const first = await startRun(s);
+    await deliver(s, makeMessage("steer", "later"));
+    first.call.view.complete({ text: "one" });
+    await tick();
+    first.call.view.settleSteer("h1", "dropped");
+    expect(await first.done).toBe("ended");
+    await s.registry.drain();
+    expect((await records(s))[0]).toMatchObject({ state: "dropped", reason: expect.stringContaining("dropped") });
+  });
+
+  it("is idempotent, and a handle that is not held (or was already begun or dropped) is ignored", async () => {
+    const s = setup({ steer: async () => ({ state: "queued", handle: "h1" }) });
+    const first = await startRun(s);
+    await deliver(s, makeMessage("steer", "later"));
+    first.call.view.settleSteer("unknown", "inserted");
+    first.call.view.settleSteer("h1", "inserted");
+    first.call.view.settleSteer("h1", "dropped"); // the second word does not rewrite the record
+    first.call.view.dropHeld("h1");
+    expect(() => first.call.view.beginHeldTurn("h1")).toThrow(); // gone: settled
+    first.call.view.complete({ text: "one" });
+    expect(await first.done).toBe("ended");
+    await s.registry.drain();
+    expect((await records(s))[0]).toMatchObject({ state: "done" });
+  });
+
+  it("while the running turn is still live the task stays open until the settle is not needed: settling mid-turn changes nothing visible", async () => {
+    const s = setup({ steer: async () => ({ state: "queued", handle: "h1" }) });
+    const first = await startRun(s);
+    await deliver(s, makeMessage("steer", "later"));
+    first.call.view.settleSteer("h1", "inserted");
+    await tick();
+    expect(first.publisher.terminal()).toEqual([]); // the turn is still running
+    first.call.view.complete({ text: "one" });
+    expect(await first.done).toBe("ended");
+    expect(first.publisher.terminal().map((t) => t.state)).toEqual(["completed"]); // and ends without waiting for the handle
+  });
+
+  it("after a cancel it is a silent no-op (the records were dropped by the cancel)", async () => {
+    const s = setup({ steer: async () => ({ state: "queued", handle: "h1" }) });
+    const first = await startRun(s);
+    await deliver(s, makeMessage("steer", "later"));
+    await s.registry.cancel("t1", ANONYMOUS_CALLER, () => first.publisher);
+    expect(() => first.call.view.settleSteer("h1", "inserted")).not.toThrow();
+    await s.registry.drain();
+    expect((await records(s))[0]).toMatchObject({ state: "dropped", reason: "task canceled" });
+  });
+});
