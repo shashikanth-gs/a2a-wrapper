@@ -108,6 +108,16 @@ describe("buildQueryOptions", () => {
     expect(opts.mcpServers).toEqual({ srv: { type: "stdio", command: "x" } });
   });
 
+  it("delivers mcp servers via initialize on the bundled CLI, argv for a custom executable, nothing without servers", () => {
+    const c = cfg();
+    expect(buildQueryOptions(c, {}).mcpServersDelivery).toBeUndefined();
+    c.mcp = { srv: { type: "stdio", command: "x" } };
+    expect(buildQueryOptions(c, {}).mcpServersDelivery).toBe("initialize");
+    const custom = cfg({ executablePathOverride: "/opt/claude" });
+    custom.mcp = { srv: { type: "stdio", command: "x" } };
+    expect(buildQueryOptions(custom, {}).mcpServersDelivery).toBe("argv");
+  });
+
   it("passes effort and thinking through to the SDK options", () => {
     const opts = buildQueryOptions(
       cfg({ effort: "high", thinking: { type: "enabled", budgetTokens: 4096 } }),
