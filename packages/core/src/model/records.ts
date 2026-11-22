@@ -233,8 +233,14 @@ export function decodeRecord<T extends RecordHeader>(stored: unknown): T {
 
 // ─── Core-queued messages ───────────────────────────────────────────────────
 
-/** Lifecycle of a message held for a task. `queued` waits; `running` became a turn; `dropped` was discarded (flush). */
-export type QueuedMessageState = "queued" | "running" | "done" | "dropped";
+/**
+ * Lifecycle of a message held for a task. `queued` waits; `running` became a turn;
+ * `dropped` was discarded (flush); `unknown` is a provider-held message whose fate
+ * core could not confirm (the restart sweep asked the provider to stop it and the
+ * outcome was not `stopped: "confirmed"`). `unknown` is never replayed and never
+ * assumed dropped.
+ */
+export type QueuedMessageState = "queued" | "running" | "done" | "dropped" | "unknown";
 
 /**
  * A message held for a task, so it survives a restart. `holder: "core"` messages
@@ -259,4 +265,6 @@ export interface QueuedMessageRecord extends RecordHeader {
   /** The provider's handle for a provider-held message. */
   handle?: string;
   state: QueuedMessageState;
+  /** Why the record ended as `dropped` or `unknown` (for example `"task canceled"`). */
+  reason?: string;
 }
