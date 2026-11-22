@@ -1923,6 +1923,23 @@ export class RunRegistry {
     } catch {
       /* no session known */
     }
+    // A LIVE run of the same context is using that session now (the context was resumed after the restart, or by another
+    // request): stopping "the orphan" would stop the live run, and a discard would drop its binding. Skip, report it as confirmed
+    // for this task and leave the binding alone.
+    for (const h of this.handles.values()) {
+      if (h.contextId === record.contextId && h.taskId !== record.taskId && h.phase !== "ended") {
+        this.log.warn(`abortOrphan skipped: context busy (task ${record.taskId}, live task ${h.taskId})`);
+        return { stopped: "confirmed", session: "reusable" };
+      }
+    }
+    let heldHandles: string[] = [];
+    try {
+      heldHandles = (await this.store.listQueued(record.taskId))
+        .filter((q) => q.holder === "provider" && q.handle !== undefined && q.state === "queued")
+        .map((q) => q.handle as string);
+    } catch {
+      /* none known */
+    }
     const info: OrphanInfo = {
       runId: record.runId,
       turnId: record.turnId,
@@ -1930,6 +1947,7 @@ export class RunRegistry {
       contextId: record.contextId,
       reason,
       ...(session ? { session } : {}),
+      ...(heldHandles.length > 0 ? { heldHandles } : {}),
     };
     let outcome: AbortOutcome = { ...ABORT_FAILED_OUTCOME };
     if (this.provider.abortOrphan) {

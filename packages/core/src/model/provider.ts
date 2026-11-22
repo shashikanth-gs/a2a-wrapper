@@ -55,10 +55,15 @@ export interface ProviderExecutor {
   /**
    * Stop the running turn. Rejection or timeout counts as unconfirmed/discard.
    *
-   * `reason` tells the provider what the stop is for. On `interrupt` the task
-   * continues with the next turn, so the provider keeps its native queue. On
-   * `cancel` the task is going away, so it must flush that queue. `shutdown` is
-   * a core stop; treat it as `cancel` unless the provider can resume.
+   * `reason` tells the provider what the stop is for. The rule for steers the
+   * provider holds (`SteerOutcome.queued`): on `interrupt` they are REQUEUED into
+   * core (`run.settleSteer(handle, "requeue")`, after taking them out of the
+   * native queue), because a native queue that the next prompt also drains
+   * would run them inside the next turn, where their output cannot be told
+   * apart; on `cancel` the task is going away, so they are cancelled and dropped
+   * (`run.dropHeld`). A provider whose native queue is private to the stopped
+   * process may let it die with the process. `shutdown` is a core stop; treat it
+   * as `cancel` unless the provider can resume.
    */
   abort?(run: TaskRunInfo, reason: AbortReason): Promise<AbortOutcome>;
   /**

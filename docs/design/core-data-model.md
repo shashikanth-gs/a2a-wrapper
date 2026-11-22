@@ -453,9 +453,11 @@ interface AbortOutcome {
 }
 ```
 
-`abort?(run, reason): Promise<AbortOutcome>`. The reason decides what happens to the provider's native queue: on
-`interrupt` the task continues with the next turn, so the provider **keeps** its queue; on `cancel` the task is going
-away, so it **flushes** it; `shutdown` is treated as `cancel` unless the provider can resume. A rejected or timed-out
+`abort?(run, reason): Promise<AbortOutcome>`. The reason decides what happens to the steers the provider holds. The rule (stated
+after the OpenCode migration): "interrupt keeps the native queue" cannot hold for a durable queue that the next prompt also drains,
+because the held message would run inside the next turn and its output could not be attributed. So on `interrupt` a provider's held
+steers are **requeued into core** (take them out of the native queue, then `settleSteer(handle, "requeue")`); on `cancel` the task is
+going away, so they are cancelled and dropped (`dropHeld`); a queue that dies with the provider's process needs nothing. `shutdown` is treated as `cancel` unless the provider can resume. A rejected or timed-out
 call is treated as `{ stopped: "unconfirmed", session: "discard" }`; core then clears the binding and calls
 `release?(session)` so the provider can drop its state. This replaces the earlier `onAbortFailed` hook.
 
@@ -1476,6 +1478,15 @@ failed status). What a real 2.3.2 server does (measured, not read from the types
    say that mapping `session.ttl` is the wrapper's decision and keep both `bindingTtlMs` and `bindingMaxAgeMs` first class.
 5. `reject` of one OpenCode permission rejects the session's other pending permissions: the contract's one-interaction-at-a-time model hides it from
    the client; the option description says so.
+
+### 3.18 Orphan handling follow-ups (round 2 of #111)
+
+- **`abortOrphan` versus a live context.** Core's orphan path (the startup sweep and the store-cancel) no longer calls
+  `provider.abortOrphan` when another run of the SAME context is live in this registry (a resumed context uses the binding's
+  session): stopping "the orphan" would stop the live run and a `discard` would drop the live binding. It logs "skipped: context
+  busy", answers `{stopped: "confirmed", session: "reusable"}` for the orphaned task and leaves the binding alone.
+- **`OrphanInfo.heldHandles`** (additive, optional): the provider-held steer handles core still knows for the run (queued records
+  with holder `provider`), so a provider cancels exactly those items instead of flushing a queue it may share.
 
 ## 4. A2A mapping and the run model (core internal)
 
