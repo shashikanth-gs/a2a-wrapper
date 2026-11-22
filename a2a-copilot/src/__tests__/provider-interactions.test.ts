@@ -15,11 +15,12 @@ import { McpEvidenceHooks } from "../copilot/mcp-hooks.js";
 import { makeConfig, type ConfigOptions } from "./helpers/config.js";
 import { ManualClient, ManualSession } from "./helpers/manual-session.js";
 
-function boot(config: ConfigOptions = {}) {
+function boot(config: ConfigOptions = {}, runtimeConfig: ConfigOptions = config) {
   const session = new ManualSession();
   const client = new ManualClient([session]);
   const provider = new CopilotProvider(makeConfig(config), { clientFactory: () => client as never });
-  const full = makeConfig(config);
+  // The runtime's policy is normally the provider's config; an embedder may build the runtime with another one.
+  const full = makeConfig(runtimeConfig);
   const server = createProviderTestServer(provider, { registry: { interactionPolicy: interactionPolicyOf(full) } });
   return { session, client, provider, server };
 }
@@ -280,6 +281,20 @@ describe("the mapping", () => {
       onTimeout: "deny",
       autoAnswer: [{ match: {}, answer: { kind: "allow_once" } }],
     });
+  });
+
+  it("the pre-tool hook follows the RUNTIME's interaction policy, not the provider's own config (a programmatic mismatch)", async () => {
+    const preTool = async (h: H) => {
+      const { live, options } = await running(h);
+      const decision = await options.hooks.onPreToolUse({ toolName: "t", toolArgs: {} }, { sessionId: "sess-1" });
+      finish(h);
+      await live.done;
+      return decision;
+    };
+    // provider configured auto, runtime asks: the hook must NOT approve (the permission handler decides, so a person can answer)
+    expect(await preTool(boot({}, { interactions: { mode: "ask" } }))).toEqual({});
+    // provider configured ask, runtime does not ask: nobody could answer, so the hook approves as the headless default does
+    expect(await preTool(boot({ interactions: { mode: "ask" } }, {}))).toEqual({ permissionDecision: "allow" });
   });
 
   it("MCP evidence hooks: allow by default, leave the decision when asked not to", async () => {

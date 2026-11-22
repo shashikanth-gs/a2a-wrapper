@@ -276,7 +276,7 @@ export class CopilotProvider implements ProviderExecutor {
         return { entry: live, reused: true };
       }
       try {
-        const entry = await this.openEntry("resume", ref);
+        const entry = await this.openEntry("resume", ref, req.interactionMode);
         log.info("Session resumed", { contextId: req.contextId, sessionId: ref });
         return { entry, reused: true };
       } catch (e) {
@@ -284,18 +284,22 @@ export class CopilotProvider implements ProviderExecutor {
         throw e;
       }
     }
-    return { entry: await this.openEntry("create"), reused: false };
+    return { entry: await this.openEntry("create", undefined, req.interactionMode), reused: false };
   }
 
-  private async openEntry(how: "create", id?: undefined): Promise<SessionEntry>;
-  private async openEntry(how: "resume", id: string): Promise<SessionEntry>;
-  private async openEntry(how: "create" | "resume", id?: string): Promise<SessionEntry> {
+  private async openEntry(how: "create", id?: undefined, interactionMode?: "auto" | "ask"): Promise<SessionEntry>;
+  private async openEntry(how: "resume", id: string, interactionMode?: "auto" | "ask"): Promise<SessionEntry>;
+  private async openEntry(how: "create" | "resume", id?: string, interactionMode?: "auto" | "ask"): Promise<SessionEntry> {
     const client = this.client;
     if (!client) throw new Error("Copilot client is not started");
     // Hooks and handlers belong to the session; they reach the running turn through `entry.current`.
+    // Whether the pre-tool hook may approve a call itself (nobody is asked) is the RUNTIME's interaction policy (what core
+    // reports on the request), not this provider's own configuration: an embedder can build the runtime with another policy.
+    // Without a request (re-opening a session to probe or abort it) or without a declared policy, the provider's own mode stands.
+    const asks = interactionMode !== undefined ? interactionMode === "ask" : this.askMode;
     const entry: SessionEntry = {
       session: undefined as unknown as CopilotSession,
-      hooks: new McpEvidenceHooks(!this.askMode),
+      hooks: new McpEvidenceHooks(!asks),
       lastUsed: Date.now(),
     };
     const opts = buildSessionOptions(this.config);
