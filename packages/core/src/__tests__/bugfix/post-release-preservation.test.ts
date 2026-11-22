@@ -255,16 +255,32 @@ describe("Test 2d — a2a-opencode Runtime Preservation", () => {
     // client, a Node 20 polyfill, and their tests. That is a deliberate extension, not the
     // accidental regression this test otherwise guards against.
     // The default-model change (#95) adds __tests__/model-setting.test.ts: also deliberate.
+    // The provider migration (#111, a2a-opencode) deliberately replaces `opencode/executor.ts`, `permission-handler.ts` and
+    // `session-manager.ts` with `opencode/provider.ts`, `turn.ts`, `interactions.ts`, `auto-replies.ts`, `sessions.ts`, `usage.ts`
+    // and `trace-data.ts` (OpenCode on core's provider contract, no `@a2a-js/sdk`), and adds their tests, the golden parity test
+    // with its fake OpenCode server (`__tests__/helpers/*`) and the interactions config test: the intended change this test
+    // otherwise guards against.
     expect(relativePaths).toEqual([
       "__tests__/backend-factory.test.ts",
+      "__tests__/client-v2-inbox.test.ts",
       "__tests__/client-v2-usage.test.ts",
       "__tests__/client-v2.test.ts",
       "__tests__/config-schema.test.ts",
       "__tests__/env-overrides.test.ts",
       "__tests__/event-transport-lifecycle.test.ts",
+      "__tests__/golden-parity.test.ts",
+      "__tests__/helpers/fake-backend.ts",
+      "__tests__/helpers/harness.ts",
+      "__tests__/helpers/scenarios.ts",
+      "__tests__/interactions-config.test.ts",
       "__tests__/live-server.test.ts",
       "__tests__/model-setting.test.ts",
       "__tests__/polyfills.test.ts",
+      "__tests__/provider-abort.test.ts",
+      "__tests__/provider-interactions.test.ts",
+      "__tests__/provider-sessions.test.ts",
+      "__tests__/provider-steering.test.ts",
+      "__tests__/provider-subsessions.test.ts",
       "__tests__/schema-up-to-date.test.ts",
       "__tests__/smoke.test.ts",
       "__tests__/sub-agents.test.ts",
@@ -275,17 +291,21 @@ describe("Test 2d — a2a-opencode Runtime Preservation", () => {
       "config/loader.ts",
       "config/types.ts",
       "index.ts",
+      "opencode/auto-replies.ts",
       "opencode/backend-factory.ts",
       "opencode/backend.ts",
       "opencode/client-v2.ts",
       "opencode/client.ts",
       "opencode/event-stream.ts",
-      "opencode/executor.ts",
       "opencode/index.ts",
+      "opencode/interactions.ts",
       "opencode/mcp-manager.ts",
-      "opencode/permission-handler.ts",
-      "opencode/session-manager.ts",
+      "opencode/provider.ts",
+      "opencode/sessions.ts",
+      "opencode/trace-data.ts",
+      "opencode/turn.ts",
       "opencode/types.ts",
+      "opencode/usage.ts",
       "server/index.ts",
       "utils/deferred.ts",
       "utils/logger.ts",
@@ -307,6 +327,6 @@ describe("Test 2d — a2a-opencode Runtime Preservation", () => {
     }
 
     // Verify the number of files matches our expected count
-    expect(Object.keys(hashMap)).toHaveLength(34);
+    expect(Object.keys(hashMap)).toHaveLength(49);
   });
 });

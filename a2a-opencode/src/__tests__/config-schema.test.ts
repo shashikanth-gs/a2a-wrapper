@@ -77,6 +77,20 @@ describe("AgentConfig JSON schema", () => {
     expect(validate(cfg)).toBe(false);
   });
 
+  it("accepts the interaction policy, the idle and maximum session age and the steer window", () => {
+    const cfg = {
+      agentCard: { name: "Test", description: "x" },
+      interactions: { mode: "ask", timeoutMs: 60000, onTimeout: "deny", autoAnswer: [{ match: { tool: "read" }, answer: { kind: "allow_once" } }] },
+      session: { ttl: 600000, maxAge: 3600000, cleanupInterval: 60000 },
+      timeouts: { steerAck: 2000 },
+    };
+    expect(validate(cfg), JSON.stringify(validate.errors)).toBe(true);
+  });
+
+  it("rejects an invalid interactions.mode", () => {
+    expect(validate({ agentCard: { name: "Test", description: "x" }, interactions: { mode: "maybe" } })).toBe(false);
+  });
+
   it("rejects an unknown top-level field", () => {
     const cfg = {
       agentCard: { name: "Test", description: "x" },

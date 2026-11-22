@@ -69,6 +69,37 @@ export interface SessionCreateOptions {
   agent?: string;
 }
 
+/**
+ * Does this error say the server has no such session? 1.x answers 404 (`NotFoundError`), 2.x a tagged `SessionNotFoundError`
+ * (the 2.x client maps it to a 404 {@link OpenCodeApiError}).
+ */
+export function isSessionNotFound(error: unknown): boolean {
+  if (error instanceof OpenCodeApiError) {
+    if (error.statusCode === 404) return true;
+    const data = error.errorData as { name?: string; _tag?: string } | undefined;
+    return data?._tag === "SessionNotFoundError" || data?.name === "NotFoundError";
+  }
+  const e = error as { name?: string; statusCode?: number; errorData?: { name?: string; _tag?: string } } | undefined;
+  return e?.statusCode === 404 || e?.errorData?._tag === "SessionNotFoundError" || e?.errorData?.name === "NotFoundError";
+}
+
+/** How an OpenCode 2.x server takes a prompt: `steer` at the next step boundary, `queue` after the work in hand. */
+export type PromptDelivery = "steer" | "queue";
+
+/** What a 2.x server answers a prompt with: the durable inbox item it was admitted as. */
+export interface PromptResult {
+  /** The id of the inbox item (the handle of a steered message). */
+  inboxId?: string;
+  delivery?: PromptDelivery;
+}
+
+/** One undelivered item of a 2.x session inbox. */
+export interface InboxEntry {
+  id: string;
+  delivery?: string;
+  text?: string;
+}
+
 export interface PromptBody {
   parts: Array<
     | { type: "text"; text: string; id?: string }
@@ -79,6 +110,8 @@ export interface PromptBody {
   model?: { providerID: string; modelID: string };
   agent?: string;
   system?: string;
+  /** 2.x only: how the server delivers the prompt when the session is busy (default: the server's, `steer`). */
+  delivery?: PromptDelivery;
 }
 
 /** Name → status map returned by MCP status queries. */
@@ -101,13 +134,19 @@ export interface OpenCodeBackend {
   // Sessions
   sessionCreate(directory?: string, opts?: SessionCreateOptions): Promise<Session>;
   sessionGet(sessionID: string, directory?: string): Promise<Session>;
+  /** Stop the session's running work. 1.x: `POST /session/:id/abort`. 2.x: `POST /api/session/:id/interrupt?resume=false` (parked inbox items stay parked). */
   sessionAbort(sessionID: string, directory?: string): Promise<boolean>;
   /** True when the session is not currently executing a prompt. */
   sessionIdle(sessionID: string, directory?: string): Promise<boolean>;
 
   // Messaging
   sessionMessages(sessionID: string, directory?: string, limit?: number): Promise<MessageWithParts[]>;
-  sessionPromptAsync(sessionID: string, body: PromptBody, directory?: string): Promise<void>;
+  /** Send a prompt. 2.x answers with the inbox item the prompt was admitted as; 1.x answers nothing. */
+  sessionPromptAsync(sessionID: string, body: PromptBody, directory?: string): Promise<PromptResult | void>;
+
+  // Durable inbox (2.x only: absent on 1.x, which has no native steering)
+  inboxList?(sessionID: string, directory?: string): Promise<InboxEntry[]>;
+  inboxCancel?(sessionID: string, inboxID: string, directory?: string): Promise<void>;
 
   // Permissions & questions
   permissionList(directory?: string): Promise<PermissionRequest[]>;

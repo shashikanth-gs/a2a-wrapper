@@ -28,6 +28,8 @@ export interface ReconnectConfig {
 
 export interface EventStreamOptions {
   sessionFilter?: string;
+  /** Event types that are delivered whatever session they belong to (the consumer decides whether the session is its own). */
+  crossSessionTypes?: readonly string[];
   reconnect?: ReconnectConfig;
   directory?: string;
 }
@@ -54,6 +56,7 @@ export class EventStreamManager {
     this.client = client;
     this.opts = {
       sessionFilter: opts?.sessionFilter ?? "",
+      crossSessionTypes: opts?.crossSessionTypes ?? [],
       reconnect: opts?.reconnect ?? {},
       directory: opts?.directory ?? "",
     };
@@ -154,7 +157,7 @@ export class EventStreamManager {
         if (this.opts.sessionFilter) {
           const props = (event as Record<string, unknown>).properties as Record<string, unknown> | undefined;
           const sid = props?.sessionID ?? (props?.info as Record<string, unknown> | undefined)?.sessionID;
-          if (sid && sid !== this.opts.sessionFilter) continue;
+          if (sid && sid !== this.opts.sessionFilter && !this.opts.crossSessionTypes.includes(String((event as Record<string, unknown>).type))) continue;
         }
         this.dispatch(event);
       }

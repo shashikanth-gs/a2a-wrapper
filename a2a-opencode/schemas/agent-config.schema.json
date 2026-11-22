@@ -141,6 +141,10 @@
           "$ref": "#/definitions/FeatureFlags",
           "description": "Feature flags"
         },
+        "interactions": {
+          "$ref": "#/definitions/InteractionsConfig",
+          "description": "Whether a person is asked when OpenCode raises a permission request or a question, and for how long. The default (`mode: \"auto\"`, no rules) is the headless behaviour this wrapper has always had: nobody is asked and `features.autoApprovePermissions` / `features.autoAnswerQuestions` decide. With `mode: \"ask\"`, what no `autoAnswer` rule answers reaches the A2A client as `input-required` and the task resumes on the reply (new sessions then ask for edits, shell commands, MCP, fetch and sub-agents instead of allowing them up front). `autoAnswer` rules also work in `auto` mode."
+        },
         "logging": {
           "$ref": "#/definitions/LoggingConfig",
           "description": "Logging settings"
@@ -243,6 +247,154 @@
         "streamArtifactChunks": {
           "description": "Stream artifact chunks individually (A2A spec-correct) vs buffer and send single artifact (inspector-compatible). Default: false (buffered).",
           "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "InteractionsConfig": {
+      "additionalProperties": false,
+      "description": "Whether a person is asked when the backend wants to do something that needs a decision (a permission, a question) and what happens when nobody answers. Read by a wrapper that implements the provider contract and handed to the run runtime (`RunRegistryOptions.interactionPolicy`).\n\nThe default (`mode: \"auto\"`, no rules) keeps each wrapper's native behaviour and asks nobody.",
+      "properties": {
+        "authTimeoutMs": {
+          "default": "1_800_000",
+          "description": "Ask mode: expiry of a sign-in (`auth`) interaction, in ms.",
+          "type": "number"
+        },
+        "autoAnswer": {
+          "description": "Rules that answer without a person, first match wins, in both modes. A rule is `{ match: { kind?, risk?, tool?, action? }, answer: { kind } | { optionId } | { decline: true } }`; an empty `match` matches everything. Only option-based interactions (permission, confirm) can be answered by a rule.",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "answer": {
+                "anyOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "kind": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "optionId": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "optionId"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "decline": {
+                        "const": true,
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "decline"
+                    ],
+                    "type": "object"
+                  }
+                ]
+              },
+              "match": {
+                "additionalProperties": false,
+                "properties": {
+                  "action": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    ]
+                  },
+                  "kind": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    ]
+                  },
+                  "risk": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    ]
+                  },
+                  "tool": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    ]
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "match",
+              "answer"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "mode": {
+          "default": "auto",
+          "description": "`\"auto\"`: nobody is asked; a rule in  {@link  autoAnswer }  answers what it matches and the wrapper's native handling applies to the rest. `\"ask\"`: what no rule answers goes to the A2A client as `input-required` and the task waits for its reply.",
+          "enum": [
+            "auto",
+            "ask"
+          ],
+          "type": "string"
+        },
+        "onTimeout": {
+          "default": "fail",
+          "description": "What an expiry does: `\"fail\"` fails the task; `\"deny\"` lets the run go on with the request denied (never approved).",
+          "enum": [
+            "fail",
+            "deny"
+          ],
+          "type": "string"
+        },
+        "timeoutMs": {
+          "default": "600_000",
+          "description": "Ask mode: how long an unanswered interaction waits before it expires, in ms (30 minutes for sign-in).",
+          "type": "number"
         }
       },
       "type": "object"
@@ -670,7 +822,12 @@
       "description": "Session lifecycle management.",
       "properties": {
         "cleanupInterval": {
-          "description": "Session cleanup interval in ms (default: 300_000 = 5 min)",
+          "default": "300_000 (5 min)",
+          "description": "How often the background sweep reclaims bindings of contexts unused for longer than `ttl`, in ms (the sweep only forgets the binding; the OpenCode session itself stays on the server). 0 or less disables it, leaving expiry to the check made when the context is next used.",
+          "type": "number"
+        },
+        "maxAge": {
+          "description": "Optional hard maximum age of a context's session in ms, measured from when the session was created and never extended by use. Unset (the default): a context that keeps being used is only limited by `ttl`.",
           "type": "number"
         },
         "reuseByContext": {
@@ -682,7 +839,8 @@
           "type": "string"
         },
         "ttl": {
-          "description": "Session TTL in ms (default: 3_600_000 = 1 hour)",
+          "default": "3_600_000 (1 hour)",
+          "description": "How long a context may sit unused before its next message starts a new OpenCode session, in ms: measured from the LAST USE of the context (each message renews it), as it always was. 0 or less disables the expiry (a context keeps resuming its session).",
           "type": "number"
         }
       },
@@ -868,6 +1026,10 @@
         },
         "prompt": {
           "description": "Timeout for a single prompt in ms (default: 300_000 = 5 min)",
+          "type": "number"
+        },
+        "steerAck": {
+          "description": "How long a steered message waits for an OpenCode 2.x server to say it delivered it into the running turn, in ms (default: 5_000). Without the signal the message is answered as queued (and settled when the server delivers it).",
           "type": "number"
         }
       },

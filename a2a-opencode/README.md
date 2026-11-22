@@ -123,7 +123,6 @@ npx a2a-opencode --config agents/example/config.json
 | OpenCode server | **1.19.6** (1.x API) and **2.3.2** (2.x API) |
 | `@opencode-ai/sdk` (1.x client) | **^1.19.6** |
 | `@opencode/client` (2.x client) | **2.3.2** |
-| `@a2a-js/sdk` | **1.0.0** |
 | A2A protocol | **v1.0 (native) + v0.3.x (backward compatible)** |
 | Node.js | **>=20** |
 
@@ -176,23 +175,23 @@ A2A Client (Orchestrator / Inspector / curl)
   │
   │  JSON-RPC or REST over HTTP
   ▼
-Express Server  (a2a-opencode)
+Express Server  (@a2a-wrapper/core: createProviderServer)
   │  ├─ /.well-known/agent-card.json  → Agent Card
   │  ├─ /a2a/jsonrpc                  → JSON-RPC  (message/send, message/stream, …)
   │  ├─ /a2a/rest                     → REST handler
-  │  ├─ /context                      → Read context.md
-  │  ├─ /context/build                → Trigger context discovery
+  │  ├─ /context, /context/build      → Read / build context.md
+  │  ├─ /mcp/status                   → MCP server status
   │  └─ /health                       → Health check
   │
-  │  @a2a-js/sdk  DefaultRequestHandler
+  │  core's run runtime (A2A tasks, cancel, queue and steering, interactions, contextId → session bindings)
   ▼
-OpenCodeExecutor  (AgentExecutor)
-  │  ├─ SessionManager      — contextId → OpenCode session
-  │  ├─ EventStreamManager  — SSE polling + automatic reconnect
-  │  ├─ PermissionHandler   — auto-approves tool calls
-  │  └─ EventPublisher      — OpenCode events → A2A events
+OpenCodeProvider  (a ProviderExecutor of @a2a-wrapper/core)
+  │  ├─ OpenCodeTurn        — one prompt: server events → status, artifacts, usage, questions
+  │  ├─ EventStreamManager  — SSE + automatic reconnect (+ polling fallback)
+  │  ├─ OpenCodeBackend     — 1.x client or 2.x client (durable inbox, interrupt)
+  │  └─ MCP manager         — registers the configured MCP servers with OpenCode
   │
-  │  @opencode-ai/sdk  (HTTP + SSE)
+  │  @opencode-ai/sdk (1.x) or @opencode/client (2.x)  (HTTP + SSE)
   ▼
 OpenCode Server  (opencode serve)
   │  ├─ LLM inference  (Anthropic, OpenAI, GitHub Copilot, …)
@@ -202,6 +201,8 @@ OpenCode Server  (opencode serve)
   ▼
 MCP Servers  (filesystem, custom tools, …)
 ```
+
+Only `@a2a-wrapper/core` knows A2A (and `@a2a-js/sdk`); this package only knows OpenCode.
 
 ## Installation
 
@@ -250,6 +251,7 @@ a2a-opencode [options]
   --directory <path>              Project directory for OpenCode
   --agent-name <name>             Agent display name
   --agent-description <desc>      Agent description
+  --interactions <mode>           auto | ask   (default: auto = nobody is asked)
   --auto-approve                  Auto-approve all tool permissions (default: on)
   --no-auto-approve               Require manual permission approval
   --auto-answer                   Auto-answer questions            (default: on)
@@ -266,11 +268,13 @@ a2a-opencode [options]
 ```typescript
 import { createA2AServer, resolveConfig } from 'a2a-opencode';
 
-const config = await resolveConfig({ configPath: 'agents/example/config.json' });
-const { server, url } = await createA2AServer(config);
-
-console.log(`Agent running at ${url}`);
+const handle = await createA2AServer(resolveConfig('agents/example/config.json'), { runStore, eventTransport });
+// handle.provider: the OpenCodeProvider (a `ProviderExecutor` of @a2a-wrapper/core)
+// handle.registry: core's run runtime (cancel, steering, interactions, bindings)
+await handle.shutdown();
 ```
+
+See [Programmatic use and migration](#programmatic-use-and-migration-breaking-release) for what changed in this release.
 
 ## Configuration
 
@@ -347,12 +351,167 @@ Create a `config.json` (see `agents/example/config.json` for the fully annotated
 | `DIRECTORY` | Project directory for OpenCode. (`WORKSPACE_DIR` is a separate variable read only by `server.sh` / `start.sh` to choose where `opencode serve` runs — set `DIRECTORY` to the same path if you want both to agree.) | _(empty)_ |
 | `AUTO_APPROVE` | Auto-approve tool permissions | `true` |
 | `AUTO_ANSWER` | Auto-answer questions | `true` |
+| `INTERACTIONS_MODE` | `auto` (nobody is asked) or `ask` (permissions and questions go to the A2A client) | `auto` |
 | `STREAM_ARTIFACTS` | Stream chunks in real time | `false` |
 | `LOG_LEVEL` | `debug`\|`info`\|`warn`\|`error` | `info` |
 | `AGENT_NAME` | Override agent card name | _(from config)_ |
 | `AGENT_DESCRIPTION` | Override agent card description | _(from config)_ |
 
 See [`.env.example`](.env.example) for the full reference.
+
+## Conversations and restarts
+
+Messages that carry the same `contextId` continue the same OpenCode session. The server session id is bound to the `contextId` by
+core (`run.bind`, as soon as the session exists, before the first output) and resumed on the next task, so the model remembers
+earlier turns. A session the server no longer has (it was deleted) is not an error: core forgets the binding and runs the same turn
+on a fresh session.
+
+> **Resume after a restart needs a durable `RunStore`.** The default store is in memory, so with the defaults **nothing survives
+> a restart**: the `contextId` to session binding is gone and the next message starts a new OpenCode session (the old one stays on
+> the OpenCode server, unused). Core ships only the in-memory store today; a durable one is tracked in #69. To keep conversations
+> across restarts supply your own `RunStore` (see core's `RunStore` interface and its contract test suite):
+>
+> ```typescript
+> import { createA2AServer, resolveConfig } from 'a2a-opencode';
+> const handle = await createA2AServer(resolveConfig('agent.json'), { runStore: new MyDurableRunStore() });
+> ```
+>
+> Tasks themselves are in memory either way (an in-flight task does not survive a restart; its OpenCode session does).
+
+With a durable store a restart is also handled on the server side: **a task that was running when the wrapper died is still being
+worked on by the OpenCode server**, so at start-up core calls the provider's `abortOrphan` for it, which stops the session by id
+(`POST /session/:id/abort`, 2.x `interrupt`) and reports the abort confirmed only when the server says the session is idle (a
+cancel also cancels the inbox items core says that run held, and only those, on 2.x). A binding whose session the server no longer has is dropped when its context is
+next used (or at start-up with core's `validateBindingsOnStart`, which asks the server with `GET` on the session).
+
+The system prompt (`opencode.systemPrompt`) goes into the first message of a session; the binding remembers that it was sent, so a
+resumed session does not get it again.
+
+### Session lifetime
+
+`session.ttl` (default 1 hour) is an **idle** expiry, as it always was: a context that is not used for that many milliseconds starts a
+new OpenCode session on its next message; every message renews it. `0` or less disables the expiry. `session.maxAge` (unset by
+default) is an optional **hard** maximum age, measured from when the session was created and never extended by use. The expiry
+only ends the context's binding; the OpenCode session itself stays on the server (this wrapper has never deleted sessions).
+`session.cleanupInterval` (default 5 minutes) is a background sweep that forgets the bindings of contexts idle for longer than
+`ttl`, without waiting for them to be used again; 0 disables it. `session.reuseByContext: false` gives every task its own session
+and binds nothing.
+
+## Steering a running task
+
+Send a second message to a task that is still running and choose what it means with the message metadata
+`urn:a2a-wrapper:delivery:v1`:
+
+| Delivery | What happens |
+|---|---|
+| `queue` (default) | The message waits and runs as the next turn of the same task, on the same session. |
+| `steer` | OpenCode **2.x**: sent with the server's native `delivery: "steer"` and folded into the running turn at its next step boundary. The answer is `inserted` when the server says it delivered the message (`session.inbox.delivered`) within `timeouts.steerAck` (default 5 s), otherwise `queued` with the server's inbox id as the handle; the stream then settles it: delivered while the turn runs means it was folded in (no new turn), an execution of its own means a new turn of the same task, a message that is never delivered is taken out of the inbox and handed back to core, which runs it as the next turn. OpenCode **1.x** has no such thing, so the provider has no `steer` handler there: core holds the message and runs it as the next turn and says so. |
+| `interrupt` | Stops the session's running work (`abort` / 2.x `interrupt` without resuming parked messages) and runs the message next, on the same session. |
+
+The caller gets one `Message` carrying the result under `urn:a2a-wrapper:delivery-result:v1`. A cancel (`tasks/cancel`) stops the
+session's work at once and takes steered messages the server still held out of its inbox; the session itself stays valid for the
+next message of the context. `abort` reports `confirmed` only when the server says the session is idle (stream event, else its
+status), and `unconfirmed` otherwise.
+
+Known limitations:
+
+- A steered message is only folded in at a step boundary: a long tool call or a long answer delays it (the first answer to the
+  task includes the answer to the steer when the model produced it in the same execution).
+- An `interrupt` removes steered messages that were still parked in the server's inbox and hands them to core: they run as their
+  own turns right after the message that interrupted (the server could only run them inside the next turn's execution, where their
+  output could not be told apart). Only text can be steered.
+- A task with a held (queued) message publishes the first turn's result as a non-final `working` status, so `x-usage` can appear on
+  a `working` status. Clients that read usage only from terminal metadata should read the completed status.
+- In `streamArtifactChunks` mode the stored task holds the response text twice (the chunks, then the last-chunk marker with the
+  full text, both appended). This is the behaviour of earlier releases and is kept.
+- Every extra turn of a task (a queued message) publishes its own response artifact.
+
+## Permissions and questions (`interactions`)
+
+By default the wrapper is headless: nobody is asked. New sessions are created with every tool allowed up front
+(`features.autoApprovePermissions`, default on), a permission request that still arrives is answered `always` (a saved project
+rule, as it always was; `false` rejects), and a question is answered with the first option of each question
+(`features.autoAnswerQuestions`, default on; `false` rejects it). Set `interactions.mode` to `ask` to route permission requests and
+OpenCode's `question` tool through the A2A client instead:
+
+```json
+{
+  "interactions": {
+    "mode": "ask",
+    "timeoutMs": 600000,
+    "onTimeout": "fail",
+    "autoAnswer": [
+      { "match": { "risk": "low" }, "answer": { "kind": "allow_once" } },
+      { "match": { "tool": "bash" }, "answer": { "decline": true } }
+    ]
+  }
+}
+```
+
+- **`mode: "ask"`**: sessions the wrapper creates then allow reads and **ask** for edits, shell commands, MCP tools, fetches and
+  sub-agents. A permission request parks the task as `input-required`; the status message names it ("Allow shell?", the command,
+  the risk) and lists the options (`1. Allow once`, `2. Always allow`, `3. Deny`) with a short reply code. Reply with a new message
+  on the same task: `1 K7M2` (the code is required to approve), `no`, or a structured reply `{ "interactionId": "...", "optionId":
+  "once" | "always" | "reject", "feedback": "..." }`. Only an explicit allow approves; a timeout, a cancel or any unusable reply
+  rejects, and the model is told (the `feedback` is what it sees). **"Always allow" saves the proposed patterns as project rules in
+  OpenCode** and is offered with the patterns it would save; a **deny rejects every other pending request of that session too**
+  (OpenCode's own behaviour: the other asks are withdrawn). Sessions that already exist keep the rules they were created with.
+- **Questions** (the `question` tool, 2.x forms) arrive as a `question` interaction (header, options with descriptions, `multi`,
+  free text accepted). Reply `{ "interactionId": "...", "answers": { "q0": { "optionIds": ["1"] } } }` (or free text); a declined
+  question is rejected on the server.
+- **`autoAnswer`**: rules answered without a person, first match wins, in both modes (with `mode: "auto"`, what no rule answers
+  keeps the wrapper's own answer above). `match` fields are `kind`, `risk` (`low` for reads, `medium` for fetches and MCP tools,
+  `high` for shell and edits), `tool` (OpenCode's permission name, for example `bash`, `shell`, `edit`, `webfetch`, `mcp`) and
+  `action` (`execute`, `edit`, `read`, `fetch`, `mcp`).
+- `timeoutMs` (default 10 minutes) and `onTimeout`: `fail` (default) ends the task, `deny` lets the run go on with the request
+  rejected. The prompt timeout (`timeouts.prompt`) does not run while a person decides, and starts again afterwards.
+- Also `--interactions ask` and `INTERACTIONS_MODE=ask`.
+- **Sub-agents are covered.** OpenCode's built-in `task` tool creates a sub-session whose permission requests and questions carry
+  the CHILD session id. The turn follows the session's `parentID` chain (at most 5 lookups, cached per turn, a cycle ends the walk)
+  and, when it leads to the task's session, routes the request exactly like the task's own: through `interactions`, tagged
+  ("Allow bash? (sub-agent: Explore ...)", `subject.detail.subSession`), and answered on the child's request id. A chain that cannot be
+  resolved (the lookup fails, or it is deeper than 5) is **denied** in `ask` mode and gets the wrapper's own answer in `auto` mode
+  (as before); requests of unrelated sessions are ignored. Usage of sub-sessions is not counted (see Usage and cost).
+- After a wrapper restart a task waiting for an answer fails with "server restarted" and its session is stopped by `abortOrphan`.
+
+## Usage and cost
+
+OpenCode reports one assistant message per LLM call with its own tokens and cost (`0` for free models), never a running total, so
+every call is a delta and nothing needs to be carried between turns. The completed status carries the task's summary as
+`x-usage` (calls, tokens, cost, per-call log) and core's `urn:a2a-wrapper:usage:v1` metadata, and the `agent_finished` lifecycle
+event carries the same summary (`null` when no call was observed, for example when polling was used). Usage covers the calls made
+in the task's own session; calls made by sub-sessions OpenCode spawns itself are not included.
+
+## Programmatic use and migration (breaking release)
+
+`a2a-opencode` is built on `@a2a-wrapper/core`'s provider contract and no longer depends on `@a2a-js/sdk` (only core does).
+
+**Breaking changes and migration**
+
+- `OpenCodeExecutor`, `SessionManager` and `PermissionHandler` are removed from the public API (`a2a-opencode` and
+  `a2a-opencode/opencode`), with no shim, and so are the `publishStatus`, `publishFinalArtifact`, `publishStreamingChunk` and
+  `publishLastChunkMarker` re-exports (they publish on an SDK event bus; core owns that). Use `OpenCodeProvider` (a
+  `ProviderExecutor`: `run`, `steer`, `abort`, `abortOrphan`, `release`, `probeSession`) behind core's run runtime. It is not an SDK
+  `AgentExecutor`: there is no `execute(ctx, bus)` or `cancelTask`; cancel, steering and replies go through the A2A endpoints (or
+  core's `RunRegistry`).
+- `createA2AServer(config, options?)` takes `{ runStore?, eventTransport? }` and returns `{ provider, registry, executor, server,
+  app, shutdown }`: `provider` is the `OpenCodeProvider`, `registry` core's run runtime, `executor` core's executor (it used to be
+  the `OpenCodeExecutor`). Use `handle.provider.buildContext()` where you used `executor.buildContext()`. The old return value was
+  `{ server, url }`-shaped in the README but `{ executor, ... }` in the code; the code's shape is what changed.
+- Custom event transports: pass `{ eventTransport }` (it used to be set on `executor.customTransport`).
+- `OpenCodeBackend.sessionPromptAsync` now returns the 2.x inbox item the prompt was admitted as (`{ inboxId, delivery }`, or
+  nothing on 1.x) and accepts `delivery`; the backend gained the optional `inboxList` / `inboxCancel` (2.x), and the 2.x client
+  passes more events on (`session.execution.started`, the inbox events, `permission.replied`, and `execution` / `reason` on the
+  idle event). `usageRecordFromMessage` moved to `opencode/usage`.
+- `session.ttl` keeps its meaning (an idle expiry); the new `session.maxAge` is the hard maximum age.
+- What a client sees is unchanged except: the redundant `submitted` status after the initial task snapshot is gone; the completed
+  status also carries `x-usage` and `urn:a2a-wrapper:usage:v1` (it carried no usage metadata before); a failed status carries `code`
+  (`backend`, `unavailable`, `auth`); the `agent_started` lifecycle event follows the opening of the session (it used to precede
+  it); a canceled or interrupted task closes its lifecycle with one `agent_error` ("Task canceled" / "Turn interrupted"); the context now survives a wrapper restart when a durable store is supplied; and a pending permission request or
+  question of an UNRELATED session is no longer answered by this task (the old start-up poll answered every pending request of the
+  server).
+- A canceled or interrupted task now closes its lifecycle with one `agent_error` (`"Task canceled"` / `"Turn interrupted"`), and the
+  `agent_started` lifecycle event now follows the opening of the session (it used to precede it).
 
 ## Bundled Agent Examples
 
@@ -624,6 +783,7 @@ Usage notes:
 - `usage` is `null` when no LLM call was observed, for example when the event stream was unavailable and the polling fallback was used. In `agent_error`, `usage` holds whatever was spent before the failure.
 - Usage covers the LLM calls made in the task's own OpenCode session. Calls made by sub-sessions that OpenCode spawns itself (its built-in `task` tool) are not included.
 - The terminal event is awaited so it reaches the collector before the task is reported finished, but for at most 2 seconds, so a slow or unreachable collector cannot stall tasks. HTTP delivery is best-effort: a failed POST is logged and not retried.
+- A task that is canceled or interrupted closes its lifecycle with one `agent_error` (`"Task canceled"` / `"Turn interrupted"`, with the usage so far). `agent_started` is emitted once the OpenCode session is open.
 - With `events.enabled: false` nothing is emitted on any transport.
 
 ### Custom transport (programmatic)

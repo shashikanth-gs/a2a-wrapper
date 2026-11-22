@@ -30,10 +30,12 @@ import {
   OpenCodeAuthError,
 } from "./backend.js";
 import type {
+  InboxEntry,
   OpenCodeBackend,
   EventStreamHandle,
   McpStatusMap,
   PromptBody,
+  PromptResult,
   SessionCreateOptions,
 } from "./backend.js";
 import { logger } from "../utils/logger.js";
@@ -230,6 +232,8 @@ export class OpenCodeClientV2 implements OpenCodeBackend {
         throw new OpenCodeAuthError(this.cfg.baseUrl, this.cfg.hasPassword);
       }
       if (e instanceof OpenCodeApiError) throw e;
+      // A session the server does not know is a 404 for the provider (`session-not-found`), not an error to log.
+      if (err?._tag === "SessionNotFoundError" || err?.name === "SessionNotFoundError") throw new OpenCodeApiError(`${label}: ${msg}`, 404, e);
       log.error(`${label} failed`, { status, error: msg });
       throw new OpenCodeApiError(`${label}: ${msg}`, status, e);
     }
@@ -292,12 +296,13 @@ export class OpenCodeClientV2 implements OpenCodeBackend {
 
   async sessionGet(sessionID: string, _directory?: string): Promise<Session> {
     const s = (await this.call("session.get", () => this.sdk.session.get({ sessionID }))) as Json;
-    return { id: s.id, title: s.title } as unknown as Session;
+    return { id: s.id, title: s.title, ...(s.parentID ? { parentID: s.parentID } : {}) } as unknown as Session;
   }
 
+  /** `interrupt` with `resume: false`: the running work stops and nothing parked in the inbox starts. */
   async sessionAbort(sessionID: string, _directory?: string): Promise<boolean> {
-    await this.call("session.interrupt", () => this.sdk.session.interrupt({ sessionID }));
-    log.info("Session interrupted", { sessionID });
+    const r = (await this.call("session.interrupt", () => this.sdk.session.interrupt({ sessionID, resume: false }))) as Json;
+    log.info("Session interrupted", { sessionID, interrupted: r?.interrupted });
     return true;
   }
 
@@ -350,7 +355,7 @@ export class OpenCodeClientV2 implements OpenCodeBackend {
     } as unknown as MessageWithParts];
   }
 
-  async sessionPromptAsync(sessionID: string, body: PromptBody, _directory?: string): Promise<void> {
+  async sessionPromptAsync(sessionID: string, body: PromptBody, _directory?: string): Promise<PromptResult> {
     const text: string[] = [];
     const files: Array<{ uri: string; name?: string }> = [];
     const agents: Array<{ name: string }> = [];
@@ -363,15 +368,37 @@ export class OpenCodeClientV2 implements OpenCodeBackend {
         text.push(p.prompt);
       }
     }
-    await this.call("session.prompt", () =>
+    const item = (await this.call("session.prompt", () =>
       this.sdk.session.prompt({
         sessionID,
         text: text.join("\n"),
         ...(files.length ? { files } : {}),
         ...(agents.length ? { agents } : {}),
+        ...(body.delivery ? { delivery: body.delivery } : {}),
       } as never),
-    );
-    log.debug("Prompt admitted", { sessionID });
+    )) as Json;
+    log.debug("Prompt admitted", { sessionID, inboxId: item?.id, delivery: item?.delivery });
+    return {
+      ...(typeof item?.id === "string" ? { inboxId: item.id } : {}),
+      ...(item?.delivery === "steer" || item?.delivery === "queue" ? { delivery: item.delivery } : {}),
+    };
+  }
+
+  // ── Durable inbox ───────────────────────────────────────────────────────
+
+  async inboxList(sessionID: string, _directory?: string): Promise<InboxEntry[]> {
+    const r = (await this.call("inbox.list", () => this.sdk.session.inbox.list({ sessionID }))) as Json;
+    const items: Json[] = Array.isArray(r) ? r : (r.data ?? []);
+    return items.map((i) => ({
+      id: String(i.id),
+      ...(typeof i.delivery === "string" ? { delivery: i.delivery } : {}),
+      ...(typeof i.payload?.text === "string" ? { text: i.payload.text } : {}),
+    }));
+  }
+
+  async inboxCancel(sessionID: string, inboxID: string, _directory?: string): Promise<void> {
+    await this.call("inbox.cancel", () => this.sdk.session.inbox.cancel({ sessionID, inboxID }));
+    log.info("Inbox item cancelled", { sessionID, inboxID });
   }
 
   // ── Permissions ─────────────────────────────────────────────────────────
@@ -550,7 +577,28 @@ export class OpenCodeClientV2 implements OpenCodeBackend {
       case "session.execution.succeeded":
       case "session.execution.interrupted":
       case "session.idle":
-        return [{ type: "session.idle", properties: { sessionID } }];
+        // `execution` and `reason` say how it ended; a 1.x-shaped consumer only needs the idle.
+        return [{
+          type: "session.idle",
+          properties: {
+            sessionID,
+            execution: ev.type === "session.idle" ? "idle" : ev.type.slice("session.execution.".length),
+            ...(typeof d.reason === "string" ? { reason: d.reason } : {}),
+          },
+        }];
+      case "session.execution.started":
+        return [{ type: "session.execution.started", properties: { sessionID } }];
+      // The durable inbox (2.x only): what became of a message that was sent while the session was busy.
+      case "session.inbox.enqueued":
+      case "session.inbox.delivered":
+      case "session.inbox.cancelled":
+        return [{ type: ev.type, properties: { sessionID, inboxID: d.inboxID } }];
+      case "permission.replied":
+        return [{ type: "permission.replied", properties: { sessionID, requestID: d.requestID, reply: d.reply } }];
+      case "form.replied":
+        return [{ type: "question.replied", properties: { sessionID, requestID: d.id } }];
+      case "form.cancelled":
+        return [{ type: "question.rejected", properties: { sessionID, requestID: d.id } }];
       case "session.execution.failed":
         return [{ type: "session.error", properties: { sessionID, error: d.error ?? { message: "Session execution failed" } } }];
       case "permission.asked":

@@ -52,6 +52,8 @@ Options:
   --no-auto-approve           Require manual permission approval
   --auto-answer               Auto-answer questions          (default: on)
   --no-auto-answer            Do not auto-answer questions
+  --interactions <mode>       auto | ask  (default: auto = nobody is asked, --auto-approve / --auto-answer decide;
+                              ask = permission requests and questions reach the A2A client as input-required)
   --stream-artifacts          Stream artifact chunks (spec-correct, streaming clients)
   --no-stream-artifacts       Buffer artifacts — Inspector-compatible (default)
   --log-level <level>         Log level: debug | info | warn | error  (default: info)
@@ -61,6 +63,7 @@ Options:
 Environment:
   OPENCODE_SERVER_PASSWORD    Password for an OpenCode 2.x server (HTTP Basic auth). Set it in the
                               environment rather than a flag or config file.
+  INTERACTIONS_MODE           "auto" | "ask" (same as --interactions).
   OPENCODE_URL, OPENCODE_API_VERSION, MODEL, DIRECTORY, PORT, LOG_LEVEL, ... see the README.
 
 Examples:
@@ -91,6 +94,7 @@ function parseCliArgs(): { configPath?: string; overrides: Partial<AgentConfig> 
       "no-auto-approve":  { type: "boolean" },
       "auto-answer":      { type: "boolean" },
       "no-auto-answer":   { type: "boolean" },
+      interactions:       { type: "string" },
       "stream-artifacts": { type: "boolean" },
       "no-stream-artifacts": { type: "boolean" },
       "log-level":        { type: "string" },
@@ -136,6 +140,14 @@ function parseCliArgs(): { configPath?: string; overrides: Partial<AgentConfig> 
     if (values.directory)         overrides.opencode!.projectDirectory = values.directory as string;
     if (values.model)             overrides.opencode!.model = values.model as string;
     if (values.agent)             overrides.opencode!.agent = values.agent as string;
+  }
+
+  // Interactions
+  if (values.interactions === "auto" || values.interactions === "ask") {
+    overrides.interactions = { mode: values.interactions };
+  } else if (values.interactions !== undefined) {
+    console.error(`--interactions must be "auto" or "ask", got "${String(values.interactions)}"`);
+    process.exit(2);
   }
 
   // Agent card name/description

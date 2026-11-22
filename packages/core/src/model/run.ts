@@ -360,6 +360,12 @@ export interface OrphanInfo {
   contextId: string;
   reason: AbortReason;
   session?: { ref: string };
+  /**
+   * The provider-held steer handles core still knows for this run (`SteerOutcome.queued{handle}` that were neither started nor
+   * settled), so a provider can cancel exactly those items in its native queue instead of flushing a whole queue it may share
+   * with someone else. Absent when core knows none.
+   */
+  heldHandles?: readonly string[];
 }
 
 /** Why core is stopping a turn. The provider handles its native queue accordingly. */

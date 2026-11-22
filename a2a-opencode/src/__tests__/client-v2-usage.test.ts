@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { OpenCodeClientV2 } from "../opencode/client-v2.js";
-import { usageRecordFromMessage } from "../opencode/executor.js";
+import { usageRecordFromMessage } from "../opencode/usage.js";
 
 const client = () => new OpenCodeClientV2({ baseUrl: "http://127.0.0.1:1", healthCheckInterval: 0 });
 
@@ -32,7 +32,7 @@ describe("2.x step events become completed assistant messages (usage)", () => {
     expect(e.properties.sessionID).toBe("s");
     expect(e.properties.info).toMatchObject({ id: "msg_1", role: "assistant", modelID: "big-pickle", providerID: "opencode", cost: 0 });
 
-    // The executor turns it into the same record it builds for a 1.x message.
+    // The provider turns it into the same record it builds for a 1.x message.
     expect(usageRecordFromMessage(e.properties.info)).toEqual({
       model: "opencode/big-pickle", inputTokens: 6398, outputTokens: 4, reasoningTokens: 12,
       cacheReadTokens: 1792, cacheWriteTokens: 0, durationMs: 800, timeToFirstTokenMs: null,
