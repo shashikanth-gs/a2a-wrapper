@@ -1407,6 +1407,76 @@ artifact ids from `CoreRequest.turn`, and requeues the steers the CLI still held
 `run.status` would change what a client sees: the round text would no longer be a status message), and a pending permission after
 a restart still fails as `server restarted` (no defer hook).
 
+### 3.17 OpenCode on the contract (#111)
+
+`a2a-opencode` is the third wrapper on the contract and has no `@a2a-js/sdk` dependency (the guard test lists it no more). Parity with the
+executor it replaced is proved as for Copilot and Claude: 22 scripted OpenCode sessions (buffered and chunked responses, intermediate text
+flushed as status, tool traces with sensitive and oversized data, repeated and incomplete usage messages, session errors, failing prompts,
+the transcript fallback, a prompt timeout, disabled events, the system prompt) were recorded through the old `AgentExecutor` and the real
+`DefaultRequestHandler` (`a2a-opencode/src/__tests__/golden/old-executor.golden.json`) and are replayed through `OpenCodeProvider` on a 1.x
+and on a 2.x fake server: 88 comparisons, identical except the asserted differences (the redundant `submitted` status; `x-usage` and core's usage
+key on the completed status, which the old executor never published although its `agent_finished` event carried the same summary; `code` on a
+failed status). What a real 2.3.2 server does (measured, not read from the types) is what the provider is built on. Nothing was added to core.
+
+**How the OpenCode provider uses the contract (all wrapper-side).**
+
+- **Session and binding.** `run` opens the context's server session first (`request.session.ref` checked with `GET`, else a new one with the
+  title, model, agent and permission ruleset it always had), calls `run.bind` before anything is published, and only then emits the
+  lifecycle bookend. A `GET` that answers not found (1.x a 404 `NotFoundError`, 2.x a tagged `SessionNotFoundError`, both mapped to a 404 by
+  the backend) is reported with `run.fail({code: SESSION_NOT_FOUND})` and `run` returns; any other failure is an ordinary failure and keeps
+  the binding. The bind `meta` carries what a resume needs: the API generation, the model and whether the system prompt was sent (a resumed
+  session is not given it twice; a session that never got it gets it once, with a rebind of the same ref that refreshes the meta).
+  `release` only forgets: the wrapper has never deleted server sessions (the history is the user's), so there is nothing to undo.
+  `probeSession` is the same `GET` (`gone` only for a session the server says it does not know).
+- **`session.ttl` stays an idle expiry.** The Copilot and Claude `ttl` was a maximum age and became `bindingMaxAgeMs`; OpenCode's was always idle
+  based (each message renewed the context), so it becomes `bindingTtlMs`, and the new optional `session.maxAge` is the hard maximum. Mapping
+  it like the others would have reset every context that is in use after an hour. `ttl <= 0` means no expiry, the sweep timer is the wrapper's
+  (`sweepBindings({olderThanMs: ttl})`), as in Claude.
+- **Abort and orphans.** `abort` stops the session's work (1.x `POST /session/:id/abort`, 2.x `POST /api/session/:id/interrupt?resume=false`: a
+  parked inbox item must not start by itself) and is `confirmed` only when the server says the session is idle (the stream's idle event, else the
+  server's own status, within 3 s), always `reusable`; a rejected abort makes core discard the binding. `abortOrphan` is real here, unlike
+  Copilot and Claude: the session outlives the wrapper process and keeps working, so it is `GET`, abort, empty the inbox on a cancel (all
+  pending items of the session: after a restart no handles are known), poll idle: `confirmed`, or `confirmed` / `discard` for a session the server
+  does not have, or `unconfirmed` (no reference, or the server never went idle), or the failed outcome when the server refuses. Measured
+  with a wrapper killed mid-run: the server session kept running until the restarted wrapper's start-up sweep stopped it.
+- **Steering exists only where the server has it.** A 2.x server admits every prompt to a durable per-session inbox and delivers an item at a step
+  boundary (`steer`) or when the work in hand is done (`queue`). `steer` sends the message with `delivery: "steer"` and waits
+  `timeouts.steerAck` for `session.inbox.delivered` of its inbox id: delivered is `inserted`; otherwise `queued{handle: inbox id}`. The stream then
+  settles it: delivered while the execution runs is `settleSteer(handle, "inserted")` (measured: the step that follows is part of the same
+  execution and its text is the same turn's output); delivered after the execution ended is a held turn (`beginHeldTurn`; the server announces
+  `session.execution.started` BEFORE the delivery that started it, so the turn tracks "an execution started after the idle"); never delivered is
+  cancelled in the inbox and handed back with `settleSteer(handle, "requeue")`. On an `interrupt` the held items are requeued the same way (not
+  "kept": left in the inbox they could only run inside the NEXT turn's execution, after its own prompt, where the held turn's output cannot be
+  attributed; measured), on a `cancel` they are cancelled and dropped. OpenCode `queue` delivery is not used: a core `queue` message is core's
+  (the next `run`); on a 1.x server `provider.steer` is absent (a getter that answers `undefined` once the backend is known to be 1.x, which core
+  reads at call time) and core's fallback says so.
+- **Interactions.** `permission.asked` and `question.asked` (2.x `form.created`) become `permission` and `question` interactions through `run.ask`,
+  decided by the runtime's mode (`CoreRequest.interactionMode`), not by the wrapper's own config. Under `auto` an `unavailable` with code
+  `policy-auto` / `interactions-disabled` is answered as the wrapper always did (`always`, first option of every question; the two feature flags
+  can turn them into rejects); under `ask` only an explicit allow approves. Options are allow once / always allow (OpenCode saves the proposed
+  patterns as project rules, so the label says what) / deny with feedback. The server rejects every other pending request of a session when one is
+  rejected; the ask of a request answered elsewhere is withdrawn from the `replied` event (`AskOptions.signal`). The session ruleset under `ask`
+  keeps reads allowed and asks for what the old allow-all list covered (edit, bash/shell, task, mcp, fetch). The prompt timer pauses while a person
+  decides. No `handle` is passed and there is no `reattach`: after a restart the pending request is stopped by `abortOrphan`.
+- **Usage.** OpenCode reports a completed assistant message per LLM call with its own tokens and cost (never a running total), so every call is
+  `recordCall` and no cumulative bookkeeping or baseline is needed. `agent_finished` keeps `usage: null` when no call was observed (it is the
+  `finish({usage})` override), `x-usage` is the same summary.
+
+**Spec problems found.**
+
+1. `OrphanInfo` has no provider-held handles, so an orphaned provider-held message can only be handled by flushing the whole inbox of the session. That
+   is right for a wrapper that owns its sessions, wrong for one that shares them with a person.
+2. `steer` is a handler whose presence is capability, but the capability of this provider depends on the server generation, known only after
+   `initialize`. A getter works because core reads `provider.steer` per call; the contract should say a handler may be absent until `initialize`
+   has resolved (or the registry should ask once after `initialize`).
+3. "Interrupt keeps the provider's native queue" cannot hold for a durable queue that is shared with the next turn's prompt: the held item's output
+   lands in the next turn. `settleSteer(handle, "requeue")` (3.16) is the right tool and should be the stated rule for any queue the next prompt
+   would also drain.
+4. The runtime's `ttl` family is described as a maximum age (3.13), but a provider's pre-migration `ttl` may be an idle expiry; the contract should
+   say that mapping `session.ttl` is the wrapper's decision and keep both `bindingTtlMs` and `bindingMaxAgeMs` first class.
+5. `reject` of one OpenCode permission rejects the session's other pending permissions: the contract's one-interaction-at-a-time model hides it from
+   the client; the option description says so.
+
 ## 4. A2A mapping and the run model (core internal)
 
 The SDK calls `execute()` per request and tears the bus down when it returns, except at `input-required` and

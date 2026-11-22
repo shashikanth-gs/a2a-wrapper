@@ -66,11 +66,9 @@ function subjectOf(req: PermissionRequest): InteractionSubject {
 export function permissionInteraction(req: PermissionRequest): CoreInteractionRequest {
   const name = String(req.permission ?? "a tool");
   const always = (Array.isArray(req.always) ? req.always : []).filter((p): p is string => typeof p === "string");
-  const resources = (Array.isArray(req.patterns) ? req.patterns : []).filter((p): p is string => typeof p === "string");
   const message = str((req as unknown as { message?: unknown }).message);
   const lines = [
     ...(message ? [message] : []),
-    ...(resources.length > 0 ? [`Resources: ${resources.join(", ")}`] : []),
     ...(always.length > 0 ? [`"Always allow" saves these as project rules: ${always.join(", ")}`] : []),
     "Denying rejects every other pending permission request of this session too.",
   ];

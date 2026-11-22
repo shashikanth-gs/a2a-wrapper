@@ -4,15 +4,13 @@
  * Validates the contract between {@link bootstrapSubAgents} and the
  * OpenCode wrapper's MCP map: given a minimal `AgentConfig` with one
  * sub-agent, running the bootstrap and translating its descriptor
- * through the same adapter shape used by `OpenCodeExecutor.toOpencodeMcpEntry`
- * SHALL produce a `type: "local"` entry under the reserved
+ * through the provider's `toOpencodeMcpEntry` SHALL produce a `type: "local"` entry under the reserved
  * `a2a-subagents` key, wired to `npx a2a-mcp-skillmap@<pinned>` and the
  * generated bridge config path.
  *
- * The adapter on `OpenCodeExecutor` is private. Rather than fully boot
- * the executor (which would require an OpenCode server), this test
- * exercises the same translation locally — a one-liner — and asserts
- * the merged map matches what the executor would produce.
+ * The adapter is the one `OpenCodeProvider` merges the bridge entry with, so the
+ * test exercises the real function without booting a provider (which would
+ * need an OpenCode server).
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
@@ -25,7 +23,6 @@ import {
   bootstrapSubAgents,
   SKILLMAP_PACKAGE_VERSION,
   SUBAGENTS_MCP_KEY,
-  type SynthesizedMcpDescriptor,
 } from "@a2a-wrapper/core";
 
 import type {
@@ -33,23 +30,7 @@ import type {
   McpServerConfig,
   McpLocalServerConfig,
 } from "../config/types.js";
-
-// ─── Local copy of the executor's private adapter ───────────────────────────
-//
-// Mirrors `OpenCodeExecutor.toOpencodeMcpEntry`. The body is a trivial
-// object literal so duplicating it in the test is low-risk and avoids
-// having to fully boot the executor.
-function toOpencodeMcpEntry(
-  descriptor: SynthesizedMcpDescriptor,
-): McpLocalServerConfig {
-  return {
-    type: "local",
-    command: [descriptor.command, ...descriptor.args],
-    environment: descriptor.env,
-    enabled: true,
-    timeout: 30_000,
-  };
-}
+import { toOpencodeMcpEntry } from "../opencode/provider.js";
 
 // ─── HTTP probe fixture ─────────────────────────────────────────────────────
 

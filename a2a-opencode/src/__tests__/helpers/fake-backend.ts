@@ -34,6 +34,10 @@ export interface FakeBackendOptions {
   failPrompt?: Error;
   /** Delay (ms) before the script of a prompt starts. Default 5. */
   scriptDelayMs?: number;
+  /** 2.x: announce the delivery of every prompt that finds the session idle (`session.inbox.delivered`), as the real server does. */
+  autoDeliver?: boolean;
+  /** `subscribeEvents` always fails (the event stream is unavailable). */
+  failSubscribe?: boolean;
 }
 
 /** A pending permission or question the fake holds until it is replied to. */
@@ -71,6 +75,7 @@ export class FakeBackend {
   private readonly scripts: Script[];
   private scriptIndex = 0;
   private readonly opts: FakeBackendOptions;
+  private promptsSeen = 0;
   private sessionSeq = 0;
   private inboxSeq = 0;
   private queue: unknown[] = [];
@@ -169,9 +174,24 @@ export class FakeBackend {
       const id = `msg_in${++this.inboxSeq}`;
       record.inboxId = id;
       record.delivery = body.delivery ?? "steer";
+      const text = body.parts.map((p: Json) => p.text ?? "").join("");
+      if (this.opts.autoDeliver && this.promptsSeen++ === 0) {
+        // the session was idle: the server delivers the prompt at once and starts an execution
+        this.emit({ type: "session.execution.started", properties: { sessionID } });
+        setTimeout(() => this.emit({ type: "session.inbox.delivered", properties: { sessionID, inboxID: id } }), 0);
+      } else if (this.opts.autoDeliver) {
+        this.inbox.set(id, { id, sessionId: sessionID, text, delivery: record.delivery });
+      }
       return { inboxId: id, delivery: record.delivery };
     }
     return undefined;
+  }
+
+  /** 2.x: the server delivers a parked inbox item (it is folded into the running execution). */
+  deliver(inboxID: string): void {
+    const item = this.inbox.get(inboxID);
+    this.inbox.delete(inboxID);
+    this.emit({ type: "session.inbox.delivered", properties: { sessionID: item?.sessionId ?? "ses_1", inboxID } });
   }
 
   async inboxList(sessionID: string) {
@@ -210,6 +230,7 @@ export class FakeBackend {
 
   async subscribeEvents() {
     this.subscriptions++;
+    if (this.opts.failSubscribe) throw new Error("event stream unavailable");
     this.streamClosed = false;
     const self = this;
     return {
@@ -278,3 +299,15 @@ export const toolError = (callID: string, tool: string, error: string, sessionId
 export const idle = (sessionId = "ses_1") => ({ type: "session.idle", properties: { sessionID: sessionId } });
 
 export const sessionError = (error: unknown, sessionId = "ses_1") => ({ type: "session.error", properties: { sessionID: sessionId, error } });
+
+/** A script that answers with `answer` on whichever session the prompt went to. */
+export const reply = (answer: string): Script => ({ emit, sessionId }) => {
+  emit(assistant(`m-${Math.random().toString(36).slice(2, 8)}`, {}, sessionId));
+  emit(text(answer, sessionId));
+  emit(idle(sessionId));
+};
+
+/** A script that never finishes (the turn stays running until a test acts). */
+export const hang = (partial?: string): Script => ({ emit, sessionId }) => {
+  if (partial) emit(text(partial, sessionId));
+};

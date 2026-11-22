@@ -17,8 +17,10 @@
  *   message as its own execution, the turn splits there like a held turn (`beginHeldTurn`). A message that is never delivered is
  *   cancelled in the inbox and handed back to core (`settleSteer(handle, "requeue")`).
  *
- * `interrupt` keeps parked inbox items (they run in the next turn's execution, which is where `inbox.delivered` then settles them);
- * `cancel` cancels them and drops the handles.
+ * An `interrupt` ends the execution and a steered message still parked in the inbox could only run inside the NEXT turn's
+ * execution, after the interrupting message, as part of that turn's output: not something the contract can attribute. So the
+ * message is taken out of the inbox and handed back to core (`requeue`): it runs as its own turn after the interrupting message.
+ * A `cancel` takes them out of the inbox and drops the handles (the task is going away).
  */
 
 import {
@@ -44,7 +46,7 @@ import type { AgentConfig } from "../config/types.js";
 import { createDeferred, sleep } from "../utils/deferred.js";
 import { logger } from "../utils/logger.js";
 import { OpenCodeAuthError, type OpenCodeBackend, type PromptBody } from "./backend.js";
-import { EventStreamManager } from "./event-stream.js";
+import { EventStreamManager, type ReconnectConfig } from "./event-stream.js";
 import {
   legacyPermissionReply,
   legacyQuestionAnswers,
@@ -102,6 +104,8 @@ export interface TurnOptions {
   /** The runtime asks the A2A client (`ask`), or nobody is asked and the wrapper's own auto-reply applies (`auto`). */
   interactions: "auto" | "ask";
   steerAckMs?: number;
+  /** How the event stream reconnects. */
+  reconnect?: ReconnectConfig;
   /** Was the session resumed rather than created for this turn? */
   reused: boolean;
 }
@@ -132,6 +136,8 @@ export class OpenCodeTurn {
   private promptSent = false;
   /** The server said the execution ended (`session.idle`): no message can be folded into it any more. */
   private idleSeen = false;
+  /** A new execution started after that (a held message woke the session). */
+  private restartedAfterIdle = false;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private pendingFinishes: Promise<void>[] = [];
   private readonly messageRoles = new Map<string, string>();
@@ -230,7 +236,7 @@ export class OpenCodeTurn {
     const stream = new EventStreamManager(this.backend, {
       sessionFilter: this.sessionId,
       directory: dir,
-      reconnect: { maxRetries: 5, initialDelay: 1_000 },
+      reconnect: this.opts.reconnect ?? { maxRetries: 5, initialDelay: 1_000 },
     });
     this.stream = stream;
     this.attachHandlers(stream);
@@ -277,6 +283,7 @@ export class OpenCodeTurn {
           this.done = createDeferred<void>();
           this.done.promise.catch(() => {});
           this.idleSeen = false;
+          this.restartedAfterIdle = false;
           this.startTimer();
           continue;
         }
@@ -357,7 +364,8 @@ export class OpenCodeTurn {
     stream.on("session.inbox.delivered", (event) => this.onDelivered(String(props(event).inboxID ?? "")));
     stream.on("session.inbox.cancelled", (event) => this.onInboxCancelled(String(props(event).inboxID ?? "")));
     stream.on("session.execution.started", () => {
-      this.idleSeen = false;
+      // The server announces the start of an execution BEFORE it delivers the inbox item that started it.
+      if (this.idleSeen) this.restartedAfterIdle = true;
     });
 
     stream.on("permission.asked", (event) => {
@@ -475,7 +483,7 @@ export class OpenCodeTurn {
   }
 
   private async finishAll(): Promise<void> {
-    await this.settleHeldAtEnd();
+    await this.releaseHeld("requeue");
     await Promise.all(this.pendingFinishes);
     await this.finishSegment(this.seg, true);
   }
@@ -483,6 +491,7 @@ export class OpenCodeTurn {
   /** Canceled or interrupted: core has published what it publishes; only the lifecycle bookend is ours. */
   private async finishStopped(): Promise<void> {
     log.info("Execution stopped", { taskId: this.request.taskId, reason: this.stopReason ?? "cancel" });
+    await this.releaseHeld(this.stopReason === "interrupt" ? "requeue" : "drop");
     await Promise.all(this.pendingFinishes);
     await this.seg.obs.error(this.stopReason === "interrupt" ? "Turn interrupted" : "Task canceled");
   }
@@ -709,7 +718,7 @@ export class OpenCodeTurn {
       return;
     }
     if (!this.held.has(inboxId)) return;
-    if (!this.idleSeen) {
+    if (!this.idleSeen && !this.restartedAfterIdle) {
       // The execution is still running: the server folded the message into it. No new turn.
       this.held.delete(inboxId);
       try {
@@ -773,11 +782,15 @@ export class OpenCodeTurn {
     return true;
   }
 
-  /** Steered messages that never ran: take them out of the inbox and hand them back to core (it runs them as the next turn). */
-  private async settleHeldAtEnd(): Promise<void> {
+  /**
+   * Steered messages that never ran: take them out of the inbox (so the server cannot run them unseen) and settle their handles.
+   * `requeue` hands them back to core, which runs them as the next turns; `drop` discards them (a cancel). A message the inbox no
+   * longer has was delivered after all (`inserted`).
+   */
+  private async releaseHeld(mode: "requeue" | "drop"): Promise<void> {
     for (const handle of [...this.held.keys()]) {
       this.held.delete(handle);
-      let outcome: "requeue" | "inserted" | "dropped" = "requeue";
+      let outcome: "requeue" | "inserted" | "dropped" = mode === "requeue" ? "requeue" : "dropped";
       try {
         if (this.backend.inboxCancel) await this.backend.inboxCancel(this.sessionId, handle, this.directory);
         else outcome = "dropped";
@@ -787,7 +800,8 @@ export class OpenCodeTurn {
         log.debug("Cancelling a held inbox item failed", { handle, error: (e as Error).message });
       }
       try {
-        this.seg.view.settleSteer(handle, outcome);
+        if (outcome === "dropped") this.seg.view.dropHeld(handle);
+        else this.seg.view.settleSteer(handle, outcome);
       } catch { /* the run is gone */ }
     }
   }
@@ -795,9 +809,9 @@ export class OpenCodeTurn {
   // ─── Abort ────────────────────────────────────────────────────────────────
 
   /**
-   * Stop the turn in flight. The server stops the session's work and the session stays valid for the next turn. `cancel` and
-   * `shutdown` also take the steered messages we hold out of the inbox (the task is going away); `interrupt` leaves them, they
-   * run in the next execution.
+   * Stop the turn in flight. The server stops the session's work and the session stays valid for the next turn. The steered
+   * messages we hold are taken out of the inbox: dropped on `cancel` and `shutdown` (the task is going away), handed back to core
+   * on `interrupt` (see the class comment).
    */
   async abort(reason: AbortReason): Promise<AbortOutcome> {
     if (this.ended || !this.promptSent) return { stopped: "confirmed", session: "reusable" };
@@ -814,19 +828,7 @@ export class OpenCodeTurn {
     void idle.then(() => clearTimeout(idleTimer));
     await this.backend.sessionAbort(this.sessionId, this.directory);
     log.info("Session aborted", { taskId: this.request.taskId, sessionId: this.sessionId, reason });
-    if (reason !== "interrupt") {
-      for (const handle of [...this.held.keys()]) {
-        this.held.delete(handle);
-        try {
-          await this.backend.inboxCancel?.(this.sessionId, handle, this.directory);
-        } catch (e) {
-          log.debug("Cancelling a held inbox item failed", { handle, error: (e as Error).message });
-        }
-        try {
-          this.seg.view.dropHeld(handle);
-        } catch { /* the run is gone */ }
-      }
-    }
+    await this.releaseHeld(reason === "interrupt" ? "requeue" : "drop");
     // Confirmed when the server says the session is idle: the stream's idle event, else the server's own status.
     const confirmed = await Promise.race([idle, this.pollIdle(ABORT_IDLE_WAIT_MS)]);
     return { stopped: confirmed ? "confirmed" : "unconfirmed", session: "reusable" };

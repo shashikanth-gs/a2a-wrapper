@@ -52,7 +52,7 @@ import { OpenCodeAuthError, isSessionNotFound, type OpenCodeBackend, type Prompt
 import { createBackend, type BackendOptions } from "./backend-factory.js";
 import { OpenCodeVersionError } from "./client.js";
 import { attachAutoReplies, autoReplyPending } from "./auto-replies.js";
-import { EventStreamManager } from "./event-stream.js";
+import { EventStreamManager, type ReconnectConfig } from "./event-stream.js";
 import { registerMcpServers } from "./mcp-manager.js";
 import { sessionPermissions } from "./sessions.js";
 import { ABORT_IDLE_WAIT_MS, OpenCodeTurn, describeFailure, extractResponseText } from "./turn.js";
@@ -71,6 +71,8 @@ export interface OpenCodeProviderOptions {
   backendFactory?: (options: BackendOptions) => Promise<OpenCodeBackend>;
   /** Custom sideband event transport (Kafka, Redis, ...). */
   eventTransport?: EventTransport | EventTransportFn;
+  /** How the event stream reconnects (default: 5 retries from 1 s, doubling). Tests shorten it. */
+  streamReconnect?: ReconnectConfig;
 }
 
 /** The MCP entry OpenCode's MCP manager takes for the sub-agent bridge. */
@@ -92,6 +94,7 @@ export class OpenCodeProvider implements ProviderExecutor {
   private readonly turns = new Map<string, OpenCodeTurn>();
   private initialized = false;
   private initializing: Promise<void> | null = null;
+  private readonly streamReconnect: ReconnectConfig | undefined;
 
   /** Optional custom event transport supplied via programmatic API. */
   public customTransport?: EventTransport | EventTransportFn;
@@ -99,6 +102,7 @@ export class OpenCodeProvider implements ProviderExecutor {
   constructor(config: Required<AgentConfig>, options: OpenCodeProviderOptions = {}) {
     this.config = config;
     this.backendFactory = options.backendFactory ?? createBackend;
+    this.streamReconnect = options.streamReconnect;
     if (options.eventTransport) this.customTransport = options.eventTransport;
   }
 
@@ -367,6 +371,7 @@ export class OpenCodeProvider implements ProviderExecutor {
       prompt,
       ...(this.customTransport ? { customTransport: this.customTransport } : {}),
       interactions: interactionMode,
+      ...(this.streamReconnect ? { reconnect: this.streamReconnect } : {}),
       ...(this.config.timeouts.steerAck !== undefined ? { steerAckMs: this.config.timeouts.steerAck } : {}),
       reused,
     });

@@ -39,12 +39,13 @@ export interface Served {
 export function serve(
   config: Config,
   backendOptions: FakeBackendOptions | FakeBackend = {},
-  opts: { eventTransport?: EventTransport | EventTransportFn; runStore?: RunStore; taskStore?: any } = {},
+  opts: { eventTransport?: EventTransport | EventTransportFn; runStore?: RunStore; taskStore?: any; streamReconnect?: { maxRetries?: number; initialDelay?: number } } = {},
 ): Served {
   const backend = backendOptions instanceof FakeBackend ? backendOptions : new FakeBackend(backendOptions);
   const provider = new OpenCodeProvider(config, {
     backendFactory: async () => backend as never,
     ...(opts.eventTransport ? { eventTransport: opts.eventTransport } : {}),
+    ...(opts.streamReconnect ? { streamReconnect: opts.streamReconnect } : {}),
   });
   // The same run runtime options the real server builds (interaction policy, session lifetime).
   const server = createProviderTestServer(provider, {
