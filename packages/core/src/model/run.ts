@@ -9,29 +9,70 @@
  * run handed out by `TaskRunRegistry`), which stays unchanged until the run
  * model replaces it.
  *
+ * ### Runs and turns
+ *
+ * A task has one `runId` and is a sequence of turns, each with its own
+ * `turnId`. A message queued or interrupting at a task is the next turn of the
+ * same task and run; the task goes terminal only when the last turn ends and
+ * nothing is queued for it.
+ *
+ * ### Held turns
+ *
+ * A provider may answer a steer with `queued` (it keeps the message in its own
+ * queue, for example Copilot enqueue, OpenCode inbox, Claude `later`). That
+ * message later runs as a turn of the same task. The provider says so with
+ * {@link CoreTaskRun.beginHeldTurn} (it returns the run view for that turn, with
+ * a new `turnId`) or discards it with {@link CoreTaskRun.dropHeld} (an interrupt or
+ * cancel flushed the queue). A task goes terminal only when the last turn ends AND
+ * no core-queued message AND no provider-held handle remains un-run and
+ * un-dropped. Without these calls the held message's output would arrive after the
+ * task is terminal and be dropped.
+ *
+ * ### How a run ends
+ *
+ * Exactly one of `complete`, `fail` or `reject` ends a turn (and, with nothing
+ * queued, the task); `ask` parks it in an interrupted state; `progress` is
+ * always `working`. A provider cannot name a task state, so a state core does not
+ * know can never be emitted. If `run()` resolves without any of those, core
+ * completes the turn with the text accumulated from `text` events, or fails it
+ * when there is none. Anything a provider publishes after a cancel (including a
+ * `complete`) is dropped.
+ *
  * @see docs/design/core-data-model.md sections 3.2 and 3.5
  */
 
-import type { CANCELED } from "../executor/task-runs.js";
+import type { CANCELED } from "./cancel.js";
+import type { JsonObject } from "./json.js";
 import type { AskOptions, CoreInteractionRequest, CoreInteractionResult } from "./interaction.js";
-import type { CoreMessage } from "./message.js";
-import type { CoreCaller, CorePart, CoreTaskState, CoreTraceContext, Meta, Open } from "./primitives.js";
+import type { HistoryMessage } from "./message.js";
+import type { CoreCaller, CorePart, CoreTraceContext, Meta, Open } from "./primitives.js";
 import type { CoreUsage } from "./usage.js";
 
 /** A persisted provider session reference. */
 export interface SessionRef {
   ref: string;
-  meta?: Meta;
+  /** Persisted with the binding, so JSON-safe. */
+  meta?: JsonObject;
 }
+
+/**
+ * The abort signal of a run. Its `reason` is the {@link AbortReason} core stopped
+ * it for: `cancel`, `interrupt` (an interrupt aborts the signal too, then the task
+ * continues with the next turn) or `shutdown`. Unaborted: `undefined`.
+ */
+export type CoreAbortSignal = Omit<AbortSignal, "reason"> & { readonly reason: AbortReason | undefined };
 
 /** What a provider receives for one turn. */
 export interface CoreRequest {
+  /** One per task. */
   runId: string;
+  /** One per turn of the run. */
+  turnId: string;
   taskId: string;
   contextId: string;
-  input: CorePart[];
-  /** Read-only view of earlier turns. */
-  history: readonly CoreMessage[];
+  input: readonly CorePart[];
+  /** Read-only view of earlier turns. Sender and time are unknown for stored messages. */
+  history: readonly HistoryMessage[];
   caller: CoreCaller;
   /** The persisted provider session for this context, if it has one. */
   session?: SessionRef;
@@ -51,7 +92,7 @@ export interface CoreArtifact {
   id?: string;
   name?: string;
   description?: string;
-  parts: CorePart[];
+  parts: readonly CorePart[];
   /** Append `parts` to the artifact with this id (streaming chunk). */
   append?: boolean;
   /** This is the last chunk of the artifact. */
@@ -59,41 +100,102 @@ export interface CoreArtifact {
   meta?: Meta;
 }
 
-/** Non-terminal events a provider reports while running. Open union via `unknown`. */
-export type CoreEvent =
-  | { type: "text"; text: string; meta?: Meta }
-  | { type: "thought"; text: string; meta?: Meta }
-  | {
-      type: "tool";
-      id: string;
-      name: string;
-      state: Open<"started" | "running" | "completed" | "failed">;
-      input?: unknown;
-      output?: unknown;
-      meta?: Meta;
-    }
-  | { type: "plan"; entries: { text: string; status?: Open<"pending" | "in_progress" | "completed"> }[]; meta?: Meta }
-  | { type: "todo"; items: { id?: string; text: string; done?: boolean }[]; meta?: Meta }
-  | { type: "diff"; path: string; diff: string; meta?: Meta }
-  | { type: "usage"; usage: CoreUsage }
-  | { type: "log"; level: Open<"debug" | "info" | "warn" | "error">; message: string; meta?: Meta }
-  | { type: "unknown"; raw: unknown };
+/** What a tool call does, for display and policy. */
+export type ToolKind = Open<
+  "read" | "edit" | "delete" | "move" | "search" | "execute" | "think" | "fetch" | "switch_mode" | "other"
+>;
+
+/** A place a tool call touches. */
+export interface ToolLocation {
+  path: string;
+  line?: number;
+}
+
+/** Which agent produced an event; a sub-agent names its parent. */
+export interface EventAgent {
+  id: string;
+  parentId?: string;
+}
+
+/** Fields every event may carry. */
+interface EventBase {
+  /** Set when the event comes from a sub-agent rather than the main agent. */
+  agent?: EventAgent;
+}
+
+/**
+ * Non-terminal events a provider reports while running. Open union via `unknown`.
+ * `text` and `thought` carry DELTAS: append `text` to the message `messageId`.
+ */
+export type CoreEvent = EventBase &
+  (
+    | {
+        type: "text";
+        /** The message this delta belongs to. Core assigns one per contiguous stream when absent. */
+        messageId?: string;
+        /** Delta, not the message so far. */
+        text: string;
+        meta?: Meta;
+      }
+    | { type: "thought"; messageId?: string; text: string; meta?: Meta }
+    | {
+        type: "tool";
+        id: string;
+        name: string;
+        kind?: ToolKind;
+        state: Open<"started" | "running" | "completed" | "failed">;
+        input?: unknown;
+        output?: unknown;
+        locations?: readonly ToolLocation[];
+        /** The tool call this one runs under (a sub-agent or composite tool). */
+        parentToolId?: string;
+        meta?: Meta;
+      }
+    | {
+        type: "plan";
+        entries: readonly { text: string; status?: Open<"pending" | "in_progress" | "completed"> }[];
+        meta?: Meta;
+      }
+    | { type: "todo"; items: readonly { id?: string; text: string; done?: boolean }[]; meta?: Meta }
+    | {
+        type: "diff";
+        path: string;
+        /** `null` or absent for a new file. */
+        oldText?: string | null;
+        newText: string;
+        meta?: Meta;
+      }
+    | { type: "usage"; usage: CoreUsage }
+    | { type: "log"; level: Open<"debug" | "info" | "warn" | "error">; message: string; meta?: Meta }
+    | { type: "unknown"; raw: unknown }
+  );
 
 /** Successful outcome of a run. */
 export interface CoreResult {
   /** Final answer text. */
   text?: string;
   /** Final answer parts, when more than text. */
-  parts?: CorePart[];
-  artifacts?: CoreArtifact[];
+  parts?: readonly CorePart[];
+  artifacts?: readonly CoreArtifact[];
   usage?: CoreUsage;
   meta?: Meta;
 }
 
-/** Failure outcome of a run. */
+/** Failure or refusal of a run. */
 export interface CoreError {
   message: string;
-  code?: Open<"timeout" | "backend" | "auth" | "internal">;
+  code?: Open<
+    | "timeout"
+    | "backend"
+    | "auth"
+    | "internal"
+    | "rate_limit"
+    | "context_overflow"
+    | "invalid_request"
+    | "unavailable"
+  >;
+  /** The caller may retry the same request later (a rate limit, a transient backend error). */
+  retryable?: boolean;
   detail?: unknown;
 }
 
@@ -103,30 +205,67 @@ export interface CoreError {
  */
 export interface CoreTaskRun {
   readonly runId: string;
+  readonly turnId: string;
   readonly taskId: string;
   readonly contextId: string;
-  /** Aborted on cancel. */
-  readonly signal: AbortSignal;
-  status(state: CoreTaskState, text?: string): void;
+  /** Aborted on cancel, and on interrupt (see {@link CoreAbortSignal}). */
+  readonly signal: CoreAbortSignal;
+  /** Report that the turn is working, with an optional status text. Always `working`. */
+  progress(text?: string, meta?: Meta): void;
   /** Text/thought delta, tool, plan, todo, diff, usage, log. */
   event(e: CoreEvent): void;
   artifact(a: CoreArtifact): void;
-  /** Park the run until the caller answers. Resolves with a core-produced result (D5: only `selected` allow approves). */
+  /**
+   * Park the run until the caller answers (the task becomes `input-required` or
+   * `auth-required`). Resolves with a core-produced result (D5: only `selected`
+   * allow approves). Concurrent asks queue per task (see `model/interaction`).
+   */
   ask(i: CoreInteractionRequest, opts?: AskOptions): Promise<CoreInteractionResult>;
   /** Persist contextId to provider session (survives restart). */
   bind(session: SessionRef): void;
   race<T>(work: Promise<T>): Promise<T | typeof CANCELED>;
+  /** End the turn successfully (`completed`). */
   complete(result: CoreResult): void;
+  /** End the turn with an error (`failed`). */
   fail(error: CoreError): void;
+  /** Refuse the request without doing it (`rejected`): out of scope, policy, invalid. */
+  reject(reason: CoreError): void;
+  /**
+   * The provider-held message `handle` (from `SteerOutcome.queued`) now runs.
+   * Returns the run view for that message's turn: same task and run, a new
+   * `turnId`, and the task stays non-terminal. End that turn with the returned
+   * view's `complete`, `fail` or `reject`.
+   */
+  beginHeldTurn(handle: string): CoreTaskRun;
+  /**
+   * The provider discarded the held message `handle` without running it (it
+   * flushed its queue on cancel, or the backend dropped it). The task may now go
+   * terminal if nothing else remains.
+   */
+  dropHeld(handle: string): void;
 }
 
 /** Read-only identity of a run, passed to `abort`. */
 export interface TaskRunInfo {
   readonly runId: string;
+  readonly turnId: string;
   readonly taskId: string;
   readonly contextId: string;
   readonly session?: SessionRef;
 }
+
+/** What `abortOrphan` is told: the run and turn that have no live handle, and why core is stopping them. */
+export interface OrphanInfo {
+  runId: string;
+  turnId: string;
+  taskId: string;
+  contextId: string;
+  reason: AbortReason;
+  session?: { ref: string };
+}
+
+/** Why core is stopping a turn. The provider handles its native queue accordingly. */
+export type AbortReason = Open<"cancel" | "interrupt" | "shutdown">;
 
 /** What a provider's `abort` handler returns. */
 export interface AbortOutcome {

@@ -23,6 +23,7 @@ const permission: CoreInteraction = {
   id: "i1",
   kind: "permission",
   title: "Run a command?",
+  replyCode: "K7",
   subject: { tool: "bash", command: "rm -rf build", resources: ["./build"], risk: "high" },
   options: [
     { id: "o-allow", label: "Allow once", kind: "allow_once", scope: "call" },
@@ -115,6 +116,7 @@ describe("rendering", () => {
     for (const i of [permission, question, form]) expect(interactionTaskState(i)).toBe("input-required");
     expect(interactionTaskState({ kind: "something-new" })).toBe("input-required");
     expect(interactionTaskState({ kind: "confirm" })).toBe("input-required");
+    expect(interactionTaskState({ kind: "permission" })).toBe("input-required");
   });
 
   it("renders a permission as text with numbered options and the subject", () => {
@@ -242,37 +244,37 @@ describe("parseInteractionReply: text fallback", () => {
   const text = (t: string): CorePart[] => [{ kind: "text", text: t }];
 
   it("matches option number, id and label (case-insensitive)", () => {
-    expect(parseInteractionReply(permission, text("1"), by)).toMatchObject({ outcome: "selected", optionId: "o-allow" });
+    expect(parseInteractionReply(permission, text("1 K7"), by)).toMatchObject({ outcome: "selected", optionId: "o-allow" });
     expect(parseInteractionReply(permission, text("  3 "), by)).toMatchObject({ optionId: "o-deny" });
-    expect(parseInteractionReply(permission, text("always allow"), by)).toMatchObject({ optionId: "o-always" });
+    expect(parseInteractionReply(permission, text("always allow k7"), by)).toMatchObject({ optionId: "o-always" });
     expect(parseInteractionReply(permission, text("O-NEVER"), by)).toMatchObject({ optionId: "o-never" });
   });
 
   it("approve/allow/yes select allow_once only, never allow_always", () => {
     for (const w of ["approve", "Allow", "YES", "y"]) {
-      expect(parseInteractionReply(permission, text(w), by)).toMatchObject({ optionId: "o-allow" });
+      expect(parseInteractionReply(permission, text(`${w} K7`), by)).toMatchObject({ optionId: "o-allow" });
     }
-    const onlyAlways = { ...permission, options: [permission.options![1]!, permission.options![2]!] };
-    expect(parseInteractionReply(onlyAlways, text("approve"), by)).toBeUndefined();
+    const onlyAlways = { ...permission, options: [permission.options![1]!, permission.options![2]!] } as CoreInteraction;
+    expect(parseInteractionReply(onlyAlways, text("approve K7"), by)).toBeUndefined();
   });
 
   it("deny/reject/no select reject_once, else decline", () => {
     expect(parseInteractionReply(permission, text("no"), by)).toMatchObject({ outcome: "selected", optionId: "o-deny" });
-    const noReject = { ...permission, options: [permission.options![0]!] };
+    const noReject = { ...permission, options: [permission.options![0]!] } as CoreInteraction;
     expect(parseInteractionReply(noReject, text("deny"), by)).toEqual({ outcome: "declined", by });
   });
 
   it("is undefined for out-of-range numbers, ambiguous or unrelated text", () => {
-    for (const t of ["0", "9", "-1", "sure thing", "maybe", "", "   ", "approve it please"]) {
+    for (const t of ["0", "9", "-1", "sure thing", "maybe", "", "   ", "approve it please", "9 K7", "K7"]) {
       expect(parseInteractionReply(permission, text(t), by)).toBeUndefined();
     }
     expect(parseInteractionReply(permission, [], by)).toBeUndefined();
   });
 
   it("a text reply never approves an interaction without an allow option", () => {
-    const noAllow = { ...permission, options: [permission.options![2]!, permission.options![3]!] };
-    expect(parseInteractionReply(noAllow, text("yes"), by)).toBeUndefined();
-    expect(parseInteractionReply({ ...permission, options: undefined }, text("yes"), by)).toBeUndefined();
+    const noAllow = { ...permission, options: [permission.options![2]!, permission.options![3]!] } as CoreInteraction;
+    expect(parseInteractionReply(noAllow, text("yes K7"), by)).toBeUndefined();
+    expect(parseInteractionReply({ ...permission, options: undefined } as unknown as CoreInteraction, text("yes K7"), by)).toBeUndefined();
   });
 
   it("answers a single question by number, label or free text, and multi by list", () => {
@@ -298,12 +300,12 @@ describe("parseInteractionReply: text fallback", () => {
   });
 
   it("ignores non-text parts when reading text", () => {
-    expect(parseInteractionReply(permission, [{ kind: "file", uri: "x" }, { kind: "text", text: "1" }], by)).toMatchObject({ optionId: "o-allow" });
+    expect(parseInteractionReply(permission, [{ kind: "file", uri: "x" }, { kind: "text", text: "1 K7" }], by)).toMatchObject({ optionId: "o-allow" });
   });
 
   it("unknown interaction kinds only accept explicit option selection", () => {
-    const odd: CoreInteraction = { id: "z", kind: "hologram", title: "?", options: [{ id: "a", label: "A", kind: "allow_once" }] };
-    expect(parseInteractionReply(odd, text("approve"), by)).toMatchObject({ optionId: "a" }); // has an explicit allow option
+    const odd: CoreInteraction = { id: "z", kind: "hologram", title: "?", replyCode: "Q2", options: [{ id: "a", label: "A", kind: "allow_once" }] };
+    expect(parseInteractionReply(odd, text("approve Q2"), by)).toMatchObject({ optionId: "a" }); // has an explicit allow option and the code
     expect(parseInteractionReply({ id: "z", kind: "hologram", title: "?" }, text("approve"), by)).toBeUndefined();
   });
 });
