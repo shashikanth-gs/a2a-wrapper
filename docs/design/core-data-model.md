@@ -1500,12 +1500,12 @@ failed status). What a real 2.3.2 server does (measured, not read from the types
 
 `a2a-codex` is the fourth wrapper on the contract and has no `@a2a-js/sdk` dependency (the guard test lists it no more). It stays on the
 exec SDK (`@openai/codex-sdk`; owner decision, not the experimental app-server), so the provider is small: `run`, `abort`, `abortOrphan`,
-`probeSession`, `release`. Nothing was added to core. Parity with the executor it replaced is proved as for the others: 15 scripted
+`probeSession`, `release`. Nothing was added to core. Parity with the executor it replaced is proved as for the others: 14 scripted
 fake-thread scenarios (buffered and chunked answers, two messages, trace events for reasoning, commands, file changes, todo lists, MCP and
 delegation calls, web search, sensitive and oversized data, features switched off, no usage, repeated usage, a non-fatal `error` event, a
 failed turn, a CLI that exits non-zero or cannot be spawned, events disabled, an empty answer) were recorded through the old
 `AgentExecutor` and the real `DefaultRequestHandler` (`a2a-codex/src/__tests__/golden/old-executor.golden.json`) and are replayed through
-`CodexProvider`: 30 comparisons, identical except the asserted differences (the redundant `submitted` status; core's usage key on the
+`CodexProvider`: 26 comparisons, identical except the asserted differences (the redundant `submitted` status; core's usage key on the
 completed status; `code` on a failed status; one closing `agent_error` for a thrown failure; a clean stream that reported `turn.failed`
 now FAILS the task instead of completing it with an empty answer). The response artifact id is `response-<taskId>-<turn>` (`turnArtifactId`).
 
