@@ -19,6 +19,7 @@ import type { CoreInteraction, CoreInteractionResult } from "./interaction.js";
 import type { CoreMessage } from "./message.js";
 import type { CorePart, CoreTaskState } from "./primitives.js";
 import type { AbortOutcome, SessionRef } from "./run.js";
+import type { CoreUsage } from "./usage.js";
 
 /** Current record schema version. A reader rejects a record with a higher one. */
 export const RECORD_VERSION = 1;
@@ -112,6 +113,12 @@ export interface ContextBinding extends RecordHeader {
    * binding TTL and `sweepBindings` measure. Absent on a record written before it existed: `updatedAt` stands in.
    */
   lastUsedAt?: string;
+  /**
+   * The last `cumulative` usage reading a provider reported for this session (`run.reportUsage`): what the next reading
+   * is diffed against. Kept with the binding so it survives a restart, and gone with it: a binding that is deleted or
+   * replaced by ANOTHER session ref starts over (rebinding the same ref keeps it). Holds no `contextWindow`.
+   */
+  usageBaseline?: CoreUsage;
 }
 
 /**
@@ -129,6 +136,11 @@ export interface RunRecord extends RecordHeader {
   state: CoreTaskState;
   startedAt: string;
   endedAt?: string;
+  /**
+   * How many turns the task has started (the ordinal of the current one, `CoreRequest.turn`). Kept on the record so the
+   * ordinal keeps counting after a restart. Absent on a record written before it existed (counted as 1).
+   */
+  turnCount?: number;
   /** Set when a cancel was requested for this run. */
   cancel?: { requestedAt: string; by: string; abort?: AbortOutcome };
   /**

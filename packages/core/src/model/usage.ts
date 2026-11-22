@@ -34,6 +34,14 @@ export interface CoreUsage {
    * a single anonymous series.
    */
   series?: string;
+  /**
+   * `cumulative` only. This reading is the FIRST of its series: the running total started inside the turn being reported
+   * (a brand-new provider session), so with no stored previous reading the reading itself is the delta. Without it, a
+   * `cumulative` reading that core has no previous reading for (a lost baseline: the process died between the session
+   * being bound and its first reading, the binding was replaced) cannot be told apart from a resumed total, and core
+   * reports no usage for it rather than the whole running total (see `CoreTaskRun.reportUsage`).
+   */
+  fresh?: boolean;
   tokens: UsageCounters;
   /** `null` when the provider does not report cost. */
   costUsd?: number | null;
@@ -121,5 +129,42 @@ export function usageDelta(prev: CoreUsage | undefined, next: CoreUsage): CoreUs
     }
     out.byModel = byModel;
   }
+  return out;
+}
+
+/**
+ * Add `more` to `into`, per model (a turn that spans several readings spent the sum of their deltas). Counters add; the
+ * cost adds when both are numbers, and stays `null` (not reported) only when no reading carried one.
+ */
+export function addModelUsage(into: Record<string, ModelUsage>, more: Readonly<Record<string, ModelUsage>> | undefined): void {
+  if (!more) return;
+  for (const [model, u] of Object.entries(more)) {
+    const t = Object.hasOwn(into, model) ? into[model]! : (into[model] = {});
+    for (const k of COUNTER_KEYS) {
+      if (isNum(u[k])) t[k] = (t[k] ?? 0) + (u[k] as number);
+    }
+    if (isNum(u.costUsd)) t.costUsd = roundCost((isNum(t.costUsd) ? t.costUsd : 0) + u.costUsd);
+    else if (t.costUsd === undefined) t.costUsd = null;
+  }
+}
+
+/**
+ * The reading core keeps as the baseline of a cumulative series: the counters, cost and per-model totals, nothing
+ * point-in-time (`contextWindow`). JSON-safe, so it survives a `RunStore`.
+ */
+export function usageBaselineOf(reading: CoreUsage): CoreUsage {
+  const out: CoreUsage = { scope: "cumulative", tokens: { ...reading.tokens } };
+  if (reading.series !== undefined) out.series = reading.series;
+  if (reading.costUsd !== undefined) out.costUsd = reading.costUsd;
+  if (reading.model !== undefined) out.model = reading.model;
+  if (reading.byModel) out.byModel = Object.fromEntries(Object.entries(reading.byModel).map(([k, v]) => [k, { ...v }]));
+  return out;
+}
+
+/** What core reports for a cumulative reading it has no previous reading of and cannot treat as a fresh series: nothing spent is claimed. */
+export function unknownUsageDelta(reading: CoreUsage): CoreUsage {
+  const out: CoreUsage = { scope: "delta", tokens: {} };
+  if (reading.contextWindow) out.contextWindow = { ...reading.contextWindow };
+  if (reading.model) out.model = reading.model;
   return out;
 }

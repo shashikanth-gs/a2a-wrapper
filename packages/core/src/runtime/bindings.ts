@@ -28,9 +28,14 @@
 import {
   isJson,
   newRecordHeader,
+  unknownUsageDelta,
+  usageBaselineOf,
+  usageDelta,
+  type BindResult,
   type ContextBinding,
   type CoreCaller,
   type CoreError,
+  type CoreUsage,
   type SessionProbe,
   type SessionRef,
 } from "../model/index.js";
@@ -63,6 +68,16 @@ export interface BindInput {
   session: SessionRef;
   /** The turn's start order (process-wide, increasing). A bind from an older turn than the last one that bound is dropped. */
   seq: number;
+}
+
+/** What {@link ContextBindings.reportUsage} needs to know about the reading. */
+export interface UsageReportInput {
+  contextId: string;
+  caller: CoreCaller;
+  tenant?: string;
+  /** The session the reporting turn runs on: the baseline is kept only while the binding still names it. */
+  ref?: string;
+  reading: CoreUsage;
 }
 
 /** Result of `sweepBindings`. */
@@ -280,29 +295,33 @@ export class ContextBindings {
    * it is kept while the same session ref is bound again (for example to refresh its `meta`) and reset to now when a
    * DIFFERENT ref is bound, so `bindingMaxAgeMs` measures the age of the session the binding names. Dropped, with a debug log:
    * a bind from a turn older than the last one that bound this context (a stale turn must not overwrite a newer
-   * binding) and a bind over a binding another caller owns. Never rejects.
+   * binding) and a bind over a binding another caller owns. Resolves `"stored"` or `"dropped"`; never rejects.
+   *
+   * The usage baseline ({@link ContextBinding.usageBaseline}) is kept while the same session ref is bound again and
+   * dropped when a DIFFERENT ref is bound: a new session is a new running total.
    */
-  bind(i: BindInput): Promise<void> {
-    return this.serial(i.contextId, async () => {
+  bind(i: BindInput): Promise<BindResult> {
+    return this.serial(i.contextId, async (): Promise<BindResult> => {
       if ((this.lastBindSeq.get(i.contextId) ?? -1) > i.seq) {
         this.o.log.debug?.("dropping a bind from a turn older than the one that bound last");
-        return;
+        return "dropped";
       }
       const prev = await this.o.store.getBinding(i.contextId);
       if (prev && (prev.owner.id !== i.caller.id || prev.owner.kind !== i.caller.kind || (prev.tenant ?? "") !== (i.tenant ?? ""))) {
         this.o.log.warn("not binding: the context's binding belongs to another caller");
-        return;
+        return "dropped";
       }
       const issuer = this.o.issuer();
       if (issuer === undefined) {
         this.o.log.warn("not binding: the provider's identity is unknown, so the binding could not be stamped");
-        return;
+        return "dropped";
       }
       this.lastBindSeq.set(i.contextId, i.seq);
       const at = this.o.now();
       const header = prev ?? newRecordHeader({ id: i.caller.id, kind: i.caller.kind }, at, i.tenant);
       // A different session ref is a new session: its age starts now. The same ref keeps the age it has.
       const createdAt = prev?.session && prev.session.ref !== i.session.ref ? at : header.createdAt;
+      const keepBaseline = prev?.session?.ref === i.session.ref ? prev.usageBaseline : undefined;
       const binding: ContextBinding = {
         ...header,
         createdAt,
@@ -311,8 +330,44 @@ export class ContextBindings {
         contextId: i.contextId,
         session: { ref: i.session.ref, ...(i.session.meta ? { meta: i.session.meta } : {}), issuer },
       };
+      delete binding.usageBaseline; // `header` is the previous record: the baseline belongs to the previous session unless the ref is the same
+      if (keepBaseline) binding.usageBaseline = keepBaseline;
       await this.o.store.putBinding(binding);
-    }).catch((e) => this.o.log.warn(`binding write failed: ${causeMessage(e)}`));
+      return "stored";
+    }).catch((e): BindResult => {
+      this.o.log.warn(`binding write failed: ${causeMessage(e)}`);
+      return "dropped";
+    });
+  }
+
+  /**
+   * Diff a `cumulative` usage reading against the baseline kept with the context's binding and store the reading as the
+   * new baseline (see `CoreTaskRun.reportUsage` for the rules). `delta` readings are returned as they are and touch
+   * nothing. The read-diff-write is one step in the context's queue, so two readings never interleave. Never rejects: a
+   * store failure reports nothing claimed (the empty delta), never the raw running total.
+   */
+  reportUsage(i: UsageReportInput): Promise<CoreUsage> {
+    if (i.reading.scope !== "cumulative") return Promise.resolve(i.reading);
+    const reading = i.reading;
+    return this.serial(i.contextId, async (): Promise<CoreUsage> => {
+      const b = await this.o.store.getBinding(i.contextId);
+      const mine =
+        b?.session !== undefined &&
+        (i.ref === undefined || b.session.ref === i.ref) &&
+        b.owner.id === i.caller.id &&
+        b.owner.kind === i.caller.kind &&
+        (b.tenant ?? "") === (i.tenant ?? "");
+      const baseline = b && mine ? b.usageBaseline : undefined;
+      let delta: CoreUsage;
+      if (baseline && baseline.series === reading.series) delta = usageDelta(baseline, reading);
+      else if (baseline || reading.fresh === true) delta = usageDelta(undefined, reading); // a new series is a new total, as is a fresh one
+      else delta = unknownUsageDelta(reading); // a lost baseline: claim nothing
+      if (b && mine) await this.o.store.putBinding({ ...b, updatedAt: this.o.now(), usageBaseline: usageBaselineOf(reading) });
+      return delta;
+    }).catch((e): CoreUsage => {
+      this.o.log.warn(`usage baseline write failed: ${causeMessage(e)}`);
+      return unknownUsageDelta(reading);
+    });
   }
 
   /** The last use of a binding (a turn that used it ended): keeps a long conversation from looking idle to the TTL. */

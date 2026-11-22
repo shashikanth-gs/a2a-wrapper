@@ -108,6 +108,8 @@ export const allowAll: Authorizer = () => true;
 export interface RequestIds {
   runId: string;
   turnId: string;
+  /** The ordinal of the turn within its task (1-based), see `CoreRequest.turn`. */
+  turn: number;
   /** The persisted provider session of the context, if it has one. */
   session?: SessionRef;
 }
