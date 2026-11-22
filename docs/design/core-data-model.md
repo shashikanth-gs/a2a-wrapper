@@ -365,7 +365,8 @@ the caller's `delivery`:
 
 - `queue` (default): next turn of the task, after the running turn ends.
 - `steer`: folded into the running turn.
-- `interrupt`: stop the running turn, then run the message as the next turn of the task.
+- `interrupt`: stop the running turn, then run the message as the NEXT turn of the task: it runs before provider-held steers handed
+  back with `settleSteer(handle, "requeue")` and before messages that were already core-queued (3.16 gives the full order).
 
 The task stays `working` through all three: an interrupt does **not** end the task with `canceled`. This follows the
 open A2A steering proposal (a2aproject #2125), which keeps the task working on a steer and goes `input-required` with
@@ -1348,11 +1349,26 @@ closing the lifecycle) put them in `x-usage` and in the core usage key (`urn:a2a
   saw. Decision: core reports the whole reading ONLY when the provider says `CoreUsage.fresh` (the total started inside this turn,
   a brand-new provider session); otherwise the delta is EMPTY (no tokens, no cost, `cost: null` in `x-usage`) and the reading is
   still stored, so the next turn is exact. Never negative and never over-reported; the price is that one turn's usage is not claimed.
+- **Degenerate readings never become the baseline.** A crash or a startup error may report zeroed or missing totals. Per value (a
+  counter, the cost, a model's entry): a value that is absent, `null`, not finite, or `0` while the baseline's value is greater than 0
+  is IGNORED and the baseline's value stands (a model the reading does not list keeps its entry). A reading with no value left reports
+  nothing and does not replace the baseline, so the next real reading is the plain difference. A drop to a smaller NON-ZERO value is
+  not degenerate: it is a genuine reset (`/clear`) and starts a new epoch on its first real reading (a rounding-level decrease
+  restarts the epoch too, harmless for monotonic totals); a reset that restarts from exactly zero is only seen once a reading is
+  below the old total. A degenerate reading with no baseline stores nothing either.
 - **A view that is not live** (canceled, interrupted) reports nothing and stores nothing (its spend is part of the next reading and
-  lands on the next turn); a stale reading could otherwise look like a decrease and over-report.
+  lands on the next turn); a stale reading could otherwise look like a decrease and over-report. Consequence: the session total stays
+  correct, but the spend of an interrupted, canceled or stale turn is attributed to the NEXT turn of the session, so per-task cost
+  moves between neighbouring tasks.
 - A `delta` reading is returned as it is. A provider with no binding at all (it never calls `bind`) gets no baseline from core:
   `fresh` readings are whole, anything else is not claimed, so such a provider diffs its own readings with `usageDelta` (the pure
   function) and reports `delta`.
+
+**Compatibility.** `CoreRequest.turn` is a new REQUIRED field and `run.bind` returns a promise: a hand-built `CoreRequest` or a fake
+`CoreTaskRun` in a wrapper's test harness must add `turn` (and `bind` returning `Promise<"stored" | "dropped">`, plus `reportUsage`,
+`status` and the `"requeue"` outcome). In this repository the only hand-built requests were core's test harness builders, which spread
+the ids core passes (so `turn` arrives with them); no wrapper harness needed a change. Source compatibility for `void`-style callers of
+`bind` is unchanged.
 
 **Turn ordinal.** `CoreRequest.turn` is the 1-based ordinal of the turn within its TASK (a queued message, an interrupt and a held
 message each start the next one; the `session-not-found` retry of a turn keeps its ordinal). It is persisted as
@@ -1362,9 +1378,15 @@ new run continues from the unfinished record of the earlier one). `turnArtifactI
 
 **`settleSteer(handle, "requeue")` (3.15, Claude's dropped steers).** A provider that holds a steer and learns it cannot deliver it
 (an `interrupt` ends the backend process and its native queue with it) hands it to core. The held record becomes `queued` with holder
-`core` and an ordering position AHEAD of everything queued (the caller sent it before whatever arrived with the interrupt), and the
-task runs it as its next turn through the provider's `run`, like any queued message; it survives a restart as a core-queued record.
+`core`, and the task runs it through the provider's `run` like any queued message; it survives a restart as a core-queued record.
 Idempotent by handle and message id, ignored for a handle that is not held, silent after a cancel.
+
+**Order after an interrupt.** The queue has a front block: `[the interrupting message(s), requeued steers in the order the provider
+requeued them (arrival order), then everything that was core-queued, in arrival order]`. The interrupting message runs NEXT (design
+doc 3.4: it becomes the next turn; before this change it was appended behind earlier queued messages, which is what #109 did). A steer
+the provider held was sent before the interrupt, so it follows the interrupting message and precedes messages queued earlier or later
+by `queue`. The persisted `QueuedMessageRecord.position` values are the same order (the block is renumbered just below the first
+entry outside it; positions are only an ordering key and may be zero or negative), so a restart replays the live order.
 
 **`bind` result (3.15 problem 2).** `run.bind(...)` returns `Promise<"stored" | "dropped">` (a stale or canceled view, a bind from a
 turn older than the one that bound last, a context another caller owns, a store failure; never rejects). A live view still throws a

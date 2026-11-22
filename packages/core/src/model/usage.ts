@@ -168,3 +168,56 @@ export function unknownUsageDelta(reading: CoreUsage): CoreUsage {
   if (reading.model) out.model = reading.model;
   return out;
 }
+
+/**
+ * Fold a new cumulative reading into the baseline of the same series without letting a DEGENERATE value erase what is known.
+ *
+ * A value of the reading is degenerate, and ignored (the baseline's value stands), when it is absent, `null`, not a finite number,
+ * or `0` while the baseline's value for the same counter, cost or model is greater than 0: a crash or a startup error result may
+ * carry zeroed or missing totals, and diffing the next real reading against "nothing" would report the whole session total. A
+ * model the reading does not list keeps its baseline entry. `usable` is `false` when no value of the reading survived: such a
+ * reading reports nothing and must not replace the baseline.
+ *
+ * Not degenerate, and therefore an epoch (`usageDelta`): a drop to a smaller NON-ZERO value (a genuine reset such as `/clear`
+ * lands as a new epoch on its first real reading; a rounding-level decrease restarts the epoch too, which is harmless for
+ * monotonic totals because the reading is the new total anyway). A reset that restarts from exactly zero is only seen once a
+ * reading is below the old total.
+ */
+export function mergeUsageReading(baseline: CoreUsage | undefined, reading: CoreUsage): { merged: CoreUsage; usable: boolean } {
+  let usable = false;
+  const pick = (next: unknown, prev: unknown): number | undefined => {
+    if (isNum(next) && !(next === 0 && isNum(prev) && prev > 0)) {
+      usable = true;
+      return next;
+    }
+    return isNum(prev) ? prev : undefined;
+  };
+  const group = (next: ModelUsage | undefined, prev: ModelUsage | undefined): ModelUsage => {
+    const out: ModelUsage = {};
+    for (const k of COUNTER_KEYS) {
+      const v = pick(next?.[k], prev?.[k]);
+      if (v !== undefined) out[k] = v;
+    }
+    const c = pick(next?.costUsd, prev?.costUsd);
+    if (c !== undefined) out.costUsd = c;
+    return out;
+  };
+  const top = group({ ...reading.tokens, costUsd: reading.costUsd }, baseline ? { ...baseline.tokens, costUsd: baseline.costUsd } : undefined);
+  const { costUsd, ...tokens } = top;
+  const merged: CoreUsage = { scope: "cumulative", tokens };
+  if (reading.series !== undefined) merged.series = reading.series;
+  if (costUsd !== undefined) merged.costUsd = costUsd;
+  else if (reading.costUsd === null && baseline?.costUsd === undefined) merged.costUsd = null;
+  if (reading.model !== undefined) merged.model = reading.model;
+  const models = new Set([...Object.keys(reading.byModel ?? {}), ...Object.keys(baseline?.byModel ?? {})]);
+  if (models.size > 0) {
+    const byModel: Record<string, ModelUsage> = {};
+    for (const m of models) {
+      const next = reading.byModel && Object.hasOwn(reading.byModel, m) ? reading.byModel[m] : undefined;
+      const prev = baseline?.byModel && Object.hasOwn(baseline.byModel, m) ? baseline.byModel[m] : undefined;
+      byModel[m] = group(next, prev);
+    }
+    merged.byModel = byModel;
+  }
+  return { merged, usable };
+}

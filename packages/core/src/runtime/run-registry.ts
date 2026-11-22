@@ -870,9 +870,17 @@ export class RunRegistry {
   }
 
   /** Queue a message as the next turn of the run and write its record. */
-  private enqueue(handle: RunHandle, message: CoreMessage, init: ExecuteInit): void {
-    handle.queueSeq = (handle.queueSeq ?? 0) + 1;
-    const written = this.track(
+  private enqueue(handle: RunHandle, message: CoreMessage, init: ExecuteInit, lane?: "interrupt"): void {
+    const entry: QueuedTurn = { messageId: message.id, message, init };
+    if (lane) {
+      this.placeFront(handle, entry, lane);
+    } else {
+      handle.queueSeq = (handle.queueSeq ?? 0) + 1;
+      // An ordering key, monotonic per run: the position a caller is told is its live index, which shrinks as turns start.
+      entry.position = handle.queueSeq;
+      handle.queue.push(entry);
+    }
+    entry.written = this.track(
       this.store
         .putQueued({
           ...newRecordHeader({ id: init.caller.id, kind: init.caller.kind }, this.now()),
@@ -880,13 +888,49 @@ export class RunRegistry {
           contextId: handle.contextId,
           message,
           holder: "core",
-          // An ordering key, monotonic per run: the position a caller is told is its live index, which shrinks as turns start.
-          position: handle.queueSeq,
+          position: entry.position!,
           state: "queued",
         })
         .catch((e) => this.log.warn("queued record write failed", causeMessage(e))),
     );
-    handle.queue.push({ messageId: message.id, message, init, written, position: handle.queueSeq });
+  }
+
+  /**
+   * Put `entry` into the front block of the run's queue: `[interrupts (newest first), requeued steers (arrival order), the rest]`.
+   * An interrupt goes to the very front (it runs NEXT); a requeued steer goes after the last entry of the block, so steers handed
+   * back one after the other keep their arrival order. The block's positions are reassigned just below the first entry outside it
+   * (increasing, so the persisted order, which a restart replays, is the live order); the records of the block's other entries
+   * are rewritten when their position changed. Positions are only an ordering key and may be zero or negative.
+   */
+  private placeFront(handle: RunHandle, entry: QueuedTurn, lane: "interrupt" | "requeued"): void {
+    entry.lane = lane;
+    let idx = 0;
+    if (lane === "requeued") while (idx < handle.queue.length && handle.queue[idx]!.lane) idx++;
+    handle.queue.splice(idx, 0, entry);
+    let front = 0;
+    while (front < handle.queue.length && handle.queue[front]!.lane) front++;
+    const rest = handle.queue[front];
+    const base = (rest?.position ?? (handle.queueSeq ?? 0) + 1) - front;
+    for (let j = 0; j < front; j++) {
+      const q = handle.queue[j]!;
+      const position = base + j;
+      if (q === entry) {
+        q.position = position;
+        continue;
+      }
+      if (q.position === position) continue;
+      q.position = position;
+      const prev = q.written ?? Promise.resolve();
+      q.written = this.track(
+        prev
+          .then(() => this.store.listQueued(handle.taskId))
+          .then((records) => {
+            const rec = records.find((r) => r.message.id === q.messageId && r.state === "queued");
+            return rec ? this.store.putQueued({ ...rec, position, updatedAt: this.now() }) : undefined;
+          })
+          .catch((e) => this.log.warn("queued record reorder failed", causeMessage(e))),
+      );
+    }
   }
 
   /** Register a provider-held message (the provider returned `queued` with `handle`). The steering runtime (#109) calls this. */
@@ -1379,10 +1423,11 @@ export class RunRegistry {
       this.advance(handle);
       return;
     }
-    const first = handle.queue[0];
-    const position = first?.position !== undefined ? first.position - 1 : (handle.queueSeq = (handle.queueSeq ?? 0) + 1);
     const taskId = handle.taskId;
-    const written = this.track(
+    const queued: QueuedTurn = { messageId, message, init };
+    this.placeFront(handle, queued, "requeued");
+    const position = queued.position!;
+    queued.written = this.track(
       this.store
         .listQueued(taskId)
         .then((records) => {
@@ -1401,7 +1446,6 @@ export class RunRegistry {
         })
         .catch((e) => this.log.warn("requeued record write failed", causeMessage(e))),
     );
-    handle.queue.unshift({ messageId, message, init, written, position });
     this.advance(handle);
   }
 
@@ -1671,7 +1715,7 @@ export class RunRegistry {
     for (const t of running) t.stop("interrupt");
     if (next) {
       if (next.takeStream) handle.setPublisher(next.init.publisher);
-      this.enqueue(handle, next.message, next.init);
+      this.enqueue(handle, next.message, next.init, "interrupt");
     }
     if (target) {
       handle.stopping = true;

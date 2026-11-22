@@ -198,3 +198,57 @@ describe("RunObservability.usageNow", () => {
     expect(done.usage?.byModel?.m).toMatchObject({ costUsd: 0.5, input: 5 });
   });
 });
+
+describe("a degenerate reading never becomes the baseline", () => {
+  const nul: CoreUsage = { scope: "cumulative", series: "S1", tokens: {}, costUsd: null };
+  const empty: CoreUsage = { scope: "cumulative", series: "S1", tokens: {} };
+
+  it("a reading with no cost between two real ones reports nothing and the next turn is the difference, not the whole total", async () => {
+    const server = createProviderTestServer(scripted([{ reading: reading(1, { fresh: true }) }, { reading: nul }, { reading: reading(2) }]));
+    expect((await turn(server, "t1")).cost).toBe(1);
+    expect((await turn(server, "t2")).cost).toBeNull(); // nothing claimed
+    expect((await turn(server, "t3")).cost).toBe(1);
+    // and an absent cost behaves the same
+    const server2 = createProviderTestServer(scripted([{ reading: reading(1, { fresh: true }) }, { reading: empty }, { reading: reading(2) }]));
+    await turn(server2, "t1");
+    await turn(server2, "t2");
+    expect((await turn(server2, "t3")).cost).toBe(1);
+  });
+
+  it("a zeroed reading (a crash or startup-error result) does not replace a non-zero baseline", async () => {
+    const server = createProviderTestServer(scripted([{ reading: reading(1, { fresh: true, byModel: { m: { costUsd: 1, input: 5 } } }) }, { reading: reading(0, { byModel: { m: { costUsd: 0, input: 0 } } }) }, { reading: reading(2) }]));
+    await turn(server, "t1");
+    expect((await turn(server, "t2")).cost).toBeNull();
+    expect((await turn(server, "t3")).cost).toBe(1);
+  });
+
+  it("a model the reading leaves out keeps its baseline entry, and a missing field keeps the old value", async () => {
+    const server = createProviderTestServer(
+      scripted([
+        { reading: reading(1, { fresh: true, byModel: { a: { costUsd: 0.6, input: 6 }, b: { costUsd: 0.4, input: 4 } } }) },
+        { reading: reading(1.5, { byModel: { a: { costUsd: 0.9, input: 9 } } }) }, // b not listed
+        { reading: reading(2, { byModel: { a: { costUsd: 1, input: 10 }, b: { costUsd: 0.5, input: 5 } } }) },
+      ]),
+    );
+    await turn(server, "t1");
+    await turn(server, "t2");
+    const t3 = await turn(server, "t3");
+    expect(t3.core?.byModel?.b).toMatchObject({ costUsd: 0.1, input: 1 }); // not reported in full
+  });
+
+  it("a genuine reset (/clear) is not degenerate: a smaller non-zero total is a new epoch on its first real reading", async () => {
+    const server = createProviderTestServer(scripted([{ reading: reading(2, { fresh: true }) }, { reading: reading(0.4) }, { reading: reading(0.9) }]));
+    await turn(server, "t1");
+    expect((await turn(server, "t2")).cost).toBe(0.4);
+    expect((await turn(server, "t3")).cost).toBe(0.5);
+  });
+
+  it("a degenerate reading with a lost baseline stores nothing: the next real reading is not reported in full either", async () => {
+    const store = new InMemoryRunStore();
+    const server = createProviderTestServer(scripted([{ reading: nul }, { reading: reading(5) }, { reading: reading(5.5) }]), { registry: { store } });
+    await turn(server, "t1");
+    expect((await store.getBinding("ctx"))?.usageBaseline).toBeUndefined();
+    expect((await turn(server, "t2")).cost).toBeNull(); // still a lost baseline: nothing claimed, stored now
+    expect((await turn(server, "t3")).cost).toBe(0.5);
+  });
+});

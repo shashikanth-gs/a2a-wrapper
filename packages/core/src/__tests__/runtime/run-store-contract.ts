@@ -139,6 +139,49 @@ export function runStoreContractTests(name: string, factory: () => RunStore | Pr
       });
     });
 
+    describe("new record fields (#124)", () => {
+      it("a run record round-trips turnCount and keeps it when the record is replaced", async () => {
+        await store.putRun(run({ turnCount: 3 }));
+        expect((await store.getRun("t1"))?.turnCount).toBe(3);
+        await store.putRun({ ...(await store.getRun("t1"))!, state: "input-required" });
+        expect((await store.getRun("t1"))?.turnCount).toBe(3);
+        expect((await store.listNonTerminalRuns())[0]?.turnCount).toBe(3);
+      });
+
+      it("a binding round-trips usageBaseline (series, tokens, a null cost, per-model entries) and touchBinding leaves it alone", async () => {
+        const baseline = {
+          scope: "cumulative" as const,
+          series: "S1",
+          tokens: { input: 10, output: 2 },
+          costUsd: null,
+          byModel: { "m-a": { input: 7, costUsd: 0.25 }, "m-b": { costUsd: null } },
+        };
+        await store.putBinding({ ...binding("c1", "ref-1"), usageBaseline: baseline });
+        expect((await store.getBinding("c1"))?.usageBaseline).toEqual(baseline);
+        expect((await store.listBindings())[0]?.usageBaseline).toEqual(baseline);
+        await store.touchBinding("c1", "2026-02-02T00:00:00.000Z");
+        expect((await store.getBinding("c1"))?.usageBaseline).toEqual(baseline);
+        // replacing the binding without a baseline removes it (a new session starts a new total)
+        await store.putBinding(binding("c1", "ref-2"));
+        expect((await store.getBinding("c1"))?.usageBaseline).toBeUndefined();
+      });
+
+      it("queued records order by position including zero and negative positions (a requeued steer and an interrupt sit below the queue)", async () => {
+        await store.putQueued(queued("q", { position: 3 }));
+        await store.putQueued(queued("s2", { position: -1 }));
+        await store.putQueued(queued("i", { position: -3 }));
+        await store.putQueued(queued("s1", { position: -2 }));
+        await store.putQueued(queued("z", { position: 0 }));
+        expect((await store.listQueued("t1")).map((r) => [r.message.id, r.position])).toEqual([["i", -3], ["s1", -2], ["s2", -1], ["z", 0], ["q", 3]]);
+        // a requeued record is a core-held record with no provider handle
+        await store.putQueued(queued("s3", { holder: "provider", handle: "h", position: undefined }));
+        await store.putQueued({ ...queued("s3", { position: -4 }), holder: "core" });
+        const s3 = (await store.listQueued("t1")).find((r) => r.message.id === "s3")!;
+        expect(s3).toMatchObject({ holder: "core", position: -4 });
+        expect(s3.handle).toBeUndefined();
+      });
+    });
+
     describe("context bindings", () => {
       it("returns undefined for an unknown context", async () => {
         expect(await store.getBinding("nope")).toBeUndefined();

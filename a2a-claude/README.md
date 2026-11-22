@@ -531,7 +531,8 @@ Known limitations:
   wrapper keeps that turn going (no split).
 - The CLI's own queue lives in its process, so an `interrupt` (which replaces the process) would lose a steered message the
   CLI still held. The wrapper hands such a message to core (`settleSteer(handle, "requeue")`): it runs as the next turn of the
-  task, ahead of the message that interrupted (it was sent first). Earlier releases dropped it. A cancel still drops it (the
+  task, right after the message that interrupted (which runs next) and ahead of messages queued with `queue`, in the order they were
+  steered. Earlier releases dropped it. A cancel still drops it (the
   task is going away). Only text can be steered.
 - A task with a held (queued) message publishes the first turn's result as a non-final `working` status, so `x-usage` can
   appear on a `working` status. Clients that read usage only from terminal metadata should read the completed status.

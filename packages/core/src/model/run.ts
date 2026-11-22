@@ -331,9 +331,9 @@ export interface CoreTaskRun {
    *
    * `"requeue"`: the provider can no longer deliver it but the message must not be lost (an `interrupt` that ends the
    * backend process takes its native queue with it). Core takes it over: the record becomes `queued` with holder `core`
-   * (so it survives a restart like any core-queued message) and the message runs as the NEXT turn of the task, ahead of
-   * what was queued after it (a message the caller sent while the turn was running is older than anything that arrived
-   * with the interrupt), through the provider's `run` like any queued message. Idempotent by message id.
+   * (so it survives a restart like any core-queued message) and the message runs through the provider's `run` like any
+   * queued message: after the message that interrupted (which runs next), in the order the provider requeued its steers, and ahead
+   * of messages that were core-queued. Idempotent by message id.
    *
    * Idempotent: a handle that is not (or no longer) held is ignored. Silently dropped after the task was canceled.
    */

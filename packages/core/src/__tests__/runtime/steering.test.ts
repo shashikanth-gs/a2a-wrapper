@@ -451,17 +451,24 @@ describe("interrupt x provider capability", () => {
     expect(await deliver(s, makeMessage("interrupt", "x"))).toMatchObject({ state: "queued", reason: "no-active-turn" });
   });
 
-  it("an interrupt keeps messages that were already queued, in front of nothing: the interrupting message goes last", async () => {
+  it("an interrupt runs NEXT: the interrupting message goes ahead of messages that were already queued, which keep their order behind it (design doc 3.4: the message becomes the next turn)", async () => {
     const s = setup();
     const first = await startRun(s);
     await deliver(s, makeMessage("queue", "earlier"));
+    await deliver(s, makeMessage("queue", "earlier 2"));
     await deliver(s, makeMessage("interrupt", "now"));
     await until(() => s.provider.runs.length === 2);
     first.call.view.complete({ text: "ignored" });
-    expect(inputText(s.provider.runs[1])).toBe("earlier");
-    s.provider.runs[1].view.complete({ text: "e" });
+    expect(inputText(s.provider.runs[1])).toBe("now");
+    s.provider.runs[1].view.complete({ text: "n" });
     await until(() => s.provider.runs.length === 3);
-    expect(inputText(s.provider.runs[2])).toBe("now");
+    expect(inputText(s.provider.runs[2])).toBe("earlier");
+    s.provider.runs[2].view.complete({ text: "e" });
+    await until(() => s.provider.runs.length === 4);
+    expect(inputText(s.provider.runs[3])).toBe("earlier 2");
+    // the persisted order is the live order (a restart replays by position)
+    const positions = (await s.store.listQueued("t1")).map((r) => r.message.parts.map((p: any) => p.text).join(""));
+    expect(positions).toEqual(["now", "earlier", "earlier 2"]);
   });
 });
 

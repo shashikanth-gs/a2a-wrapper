@@ -27,6 +27,7 @@
 
 import {
   isJson,
+  mergeUsageReading,
   newRecordHeader,
   unknownUsageDelta,
   usageBaselineOf,
@@ -359,10 +360,20 @@ export class ContextBindings {
         (b.tenant ?? "") === (i.tenant ?? "");
       const baseline = b && mine ? b.usageBaseline : undefined;
       let delta: CoreUsage;
-      if (baseline && baseline.series === reading.series) delta = usageDelta(baseline, reading);
-      else if (baseline || reading.fresh === true) delta = usageDelta(undefined, reading); // a new series is a new total, as is a fresh one
-      else delta = unknownUsageDelta(reading); // a lost baseline: claim nothing
-      if (b && mine) await this.o.store.putBinding({ ...b, updatedAt: this.o.now(), usageBaseline: usageBaselineOf(reading) });
+      let next: CoreUsage | undefined;
+      if (baseline && baseline.series === reading.series) {
+        const { merged, usable } = mergeUsageReading(baseline, reading);
+        if (usable) {
+          delta = usageDelta(baseline, merged);
+          next = merged;
+        } else delta = unknownUsageDelta(reading); // degenerate (missing, null or zeroed): claim nothing, keep the baseline
+      } else {
+        // a new series is a new total, as is a fresh one; otherwise the baseline is lost: claim nothing
+        delta = baseline || reading.fresh === true ? usageDelta(undefined, reading) : unknownUsageDelta(reading);
+        // a reading with no usable value is no baseline (the next real reading would be reported in full)
+        if (mergeUsageReading(undefined, reading).usable) next = usageBaselineOf(reading);
+      }
+      if (b && mine && next) await this.o.store.putBinding({ ...b, updatedAt: this.o.now(), usageBaseline: usageBaselineOf(next) });
       return delta;
     }).catch((e): CoreUsage => {
       this.o.log.warn(`usage baseline write failed: ${causeMessage(e)}`);

@@ -40,6 +40,23 @@ describe("usage of a result that ends in an error", () => {
     expect(cost(c.summary)).toBeCloseTo(0.2, 9); // not 0.6: the error result's cost is not charged to the next task
   });
 
+  it("an error result with a zeroed or missing cost (a crash or startup error) leaves the baseline alone: the next task is not reported in full", async () => {
+    const zero = turn("s", 0, "error_during_execution");
+    const none = { messages: [init("s"), { type: "result", subtype: "error_during_execution", errors: [], num_turns: 0, session_id: "s", usage: { input_tokens: 3, output_tokens: 1 } }] as never };
+    const { server } = serve(ctx.config, [turn("s", 0.1), zero, none, turn("s", 0.3)]);
+
+    await streamText(server, "1", "ctx-z");
+    const b = await streamText(server, "2", "ctx-z");
+    const c = await streamText(server, "3", "ctx-z");
+    const d = await streamText(server, "4", "ctx-z");
+
+    expect(final(b.summary)).toMatchObject({ state: "failed" });
+    expect(final(b.summary).usage.inputTokens).toBe(4); // its own tokens still count
+    expect(cost(b.summary)).toBeNull(); // no cost claimed
+    expect(cost(c.summary)).toBeNull();
+    expect(cost(d.summary)).toBeCloseTo(0.2, 9); // 0.3 - 0.1, not 0.3
+  });
+
   it("a failure before any result carries no usage", async () => {
     const { server } = serve(ctx.config, [{ messages: [init("s")] as never, throwAfter: "boom" }]);
     const a = await streamText(server, "1", "ctx-e");

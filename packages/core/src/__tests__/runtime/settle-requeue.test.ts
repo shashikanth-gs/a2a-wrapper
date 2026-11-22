@@ -130,3 +130,74 @@ describe("settleSteer(handle, 'requeue')", () => {
     expect(report.entries[0]!.queued.replayed).toEqual([m.id]);
   });
 });
+
+describe("order of requeued steers", () => {
+  it("steers requeued one after the other run in arrival order (S1 before S2), ahead of core-queued messages", async () => {
+    const s = await setup();
+    const s1 = await s.steer("S1");
+    const s2 = await s.steer("S2");
+    const q = makeMessage("queue", "Q");
+    await s.registry.deliver("t1", q, by, requestFor("t1", q));
+    const view = s.provider.runs[0]!.view;
+    view.settleSteer(`held-${s1.id}`, "requeue");
+    view.settleSteer(`held-${s2.id}`, "requeue");
+    await s.registry.drain();
+    expect((await s.store.listQueued("t1")).filter((r) => r.state === "queued").map((r) => textOf({ input: r.message.parts as never }))).toEqual(["S1", "S2", "Q"]);
+    view.complete({ text: "one" });
+    for (const [n, want] of ["S1", "S2", "Q"].entries()) {
+      await until(() => s.provider.runs.length === n + 2);
+      expect(textOf(s.provider.runs[n + 1]!.req)).toBe(want);
+      s.provider.runs[n + 1]!.view.complete({ text: want });
+    }
+    await s.done;
+  });
+
+  it("the persisted order is the live order: a restart replays S1, S2, Q", async () => {
+    const s = await setup();
+    const s1 = await s.steer("S1");
+    const s2 = await s.steer("S2");
+    const q = makeMessage("queue", "Q");
+    await s.registry.deliver("t1", q, by, requestFor("t1", q));
+    s.provider.runs[0]!.view.settleSteer(`held-${s1.id}`, "requeue");
+    s.provider.runs[0]!.view.settleSteer(`held-${s2.id}`, "requeue");
+    await s.registry.drain();
+    const replayed: string[] = [];
+    const next = new RunRegistry({ provider: makeProvider(), store: s.store });
+    await next.sweep({ replay: async (rec) => void replayed.push(textOf({ input: rec.message.parts as never })) });
+    expect(replayed).toEqual(["S1", "S2", "Q"]);
+  });
+
+  it("an interrupt with two held steers and a queued message runs I, S1, S2, Q (persisted in that order too)", async () => {
+    let view: any;
+    const held: string[] = [];
+    const provider = makeProvider({
+      steer: (_v, m) => ({ state: "queued", handle: `held-${m.id}` }),
+      abort: async () => {
+        for (const h of held) view.settleSteer(`held-${h}`, "requeue");
+        return { stopped: "confirmed", session: "reusable" } as never;
+      },
+    });
+    const store = new InMemoryRunStore();
+    const registry = new RunRegistry({ provider, store });
+    const done = registry.execute(makeInit("t1", "ctx", makePublisher()));
+    await until(() => provider.runs.length === 1);
+    view = provider.runs[0]!.view;
+    for (const t of ["S1", "S2"]) {
+      const m = makeMessage("steer", t);
+      await registry.deliver("t1", m, by, requestFor("t1", m));
+      held.push(m.id);
+    }
+    const q = makeMessage("queue", "Q");
+    await registry.deliver("t1", q, by, requestFor("t1", q));
+    const i = makeMessage("interrupt", "I");
+    await registry.deliver("t1", i, by, requestFor("t1", i));
+    for (const [n, want] of ["I", "S1", "S2", "Q"].entries()) {
+      await until(() => provider.runs.length === n + 2);
+      expect(textOf(provider.runs[n + 1]!.req)).toBe(want);
+      provider.runs[n + 1]!.view.complete({ text: want });
+    }
+    await done;
+    const stored = (await store.listQueued("t1")).map((r) => textOf({ input: r.message.parts as never }));
+    expect(stored).toEqual(["I", "S1", "S2", "Q"]);
+  });
+});

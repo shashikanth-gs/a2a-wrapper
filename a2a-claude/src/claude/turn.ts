@@ -459,8 +459,14 @@ export class ClaudeTurn {
     const sid = typeof msg.session_id === "string" ? msg.session_id : this.sessionId;
     const series = sid ?? "session";
     const fresh = this.request.session === undefined && !this.readSeries.has(series);
-    this.readSeries.add(series);
     const ru = resultUsage(msg, this.cfg.claude.model, series, fresh);
+    if (msg.subtype !== "success" && !(typeof msg.total_cost_usd === "number" && msg.total_cost_usd > 0)) {
+      // A crash or startup-error result "may carry zeroed values" (the SDK says so): its totals are no reading of the session. Its
+      // own tokens still count, but the cost stays out of core's baseline (a zero would make the next task report the whole total).
+      seg.obs.recordCall({ ...ru.call, cost: null });
+      return;
+    }
+    this.readSeries.add(series);
     let reading = ru.reading;
     if (!this.opts.reuse) {
       // No binding, so no baseline in core: a held-open turn's later rounds are diffed here (the session is new every turn).

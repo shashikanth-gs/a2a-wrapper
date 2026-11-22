@@ -124,6 +124,11 @@ export interface QueuedTurn {
   init: ExecuteInit;
   /** The ordering key of its record (`QueuedMessageRecord.position`). */
   position?: number;
+  /**
+   * Where it sits at the FRONT of the queue: `interrupt` (the message that interrupted, which runs next) or `requeued` (a
+   * provider-held steer handed back to core). The front is `[interrupts..., requeued in arrival order..., everything else]`.
+   */
+  lane?: "interrupt" | "requeued";
   /** Settles when the queue record is written, so a turn never claims a record that is not there yet. */
   written?: Promise<unknown>;
 }
