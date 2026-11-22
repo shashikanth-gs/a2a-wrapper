@@ -268,8 +268,11 @@ export interface ResponseStream {
   finish(fullText: string, structured?: unknown): void;
 }
 
-export function createResponseStream(run: Pick<CoreTaskRun, "artifact">, options: { chunks: boolean }): ResponseStream {
-  const id = `response-${uuidv4()}`;
+export function createResponseStream(
+  run: Pick<CoreTaskRun, "artifact">,
+  options: { chunks: boolean; /** The artifact id. Default `response-<uuid>`. A wrapper whose artifact ids are part of its contract names them. */ id?: string },
+): ResponseStream {
+  const id = options.id ?? `response-${uuidv4()}`;
   const parts = (text: string, structured?: unknown): CoreArtifact["parts"] => {
     const out: CoreArtifact["parts"][number][] = [{ kind: "text", text }];
     if (typeof structured === "object" && structured !== null && !Array.isArray(structured)) {

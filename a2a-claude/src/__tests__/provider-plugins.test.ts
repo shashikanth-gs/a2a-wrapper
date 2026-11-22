@@ -2,10 +2,10 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ClaudeExecutor } from "../executor.js";
-import { FakeClaudeClient, type FakeTurnScript } from "./fake-client.js";
-import { DEFAULTS } from "../../config/defaults.js";
-import type { AgentConfig } from "../../config/types.js";
+import { ClaudeProvider } from "../claude/provider.js";
+import { FakeClaudeClient, type FakeTurnScript } from "./helpers/fake-client.js";
+import { DEFAULTS } from "../config/defaults.js";
+import type { AgentConfig } from "../config/types.js";
 
 let ws: string;
 let config: Required<AgentConfig>;
@@ -42,7 +42,7 @@ function initWith(plugins: Array<Record<string, unknown>>): FakeTurnScript {
 describe("plugin preflight", () => {
   it("issues no probe when no marketplaces are configured", async () => {
     const client = new FakeClaudeClient([initWith([])]);
-    await new ClaudeExecutor(config, () => client).initialize();
+    await new ClaudeProvider(config, { clientFactory: () => client }).initialize();
     expect(client.calls).toHaveLength(0);
   });
 
@@ -53,14 +53,14 @@ describe("plugin preflight", () => {
         { name: "superpowers", path: "/cache/superpowers", source: "superpowers@superpowers-marketplace" },
       ]),
     ]);
-    await new ClaudeExecutor(config, () => client).initialize();
+    await new ClaudeProvider(config, { clientFactory: () => client }).initialize();
     expect(client.calls).toHaveLength(1);
   });
 
   it("falls back to the bare plugin name when init omits source", async () => {
     withSuperpowers();
     const client = new FakeClaudeClient([initWith([{ name: "superpowers", path: "/cache/superpowers" }])]);
-    await expect(new ClaudeExecutor(config, () => client).initialize()).resolves.toBeUndefined();
+    await expect(new ClaudeProvider(config, { clientFactory: () => client }).initialize()).resolves.toBeUndefined();
   });
 
   it("sends the marketplaces as flag-tier settings and forces a synchronous install", async () => {
@@ -68,7 +68,7 @@ describe("plugin preflight", () => {
     const client = new FakeClaudeClient([
       initWith([{ name: "superpowers", source: "superpowers@superpowers-marketplace" }]),
     ]);
-    await new ClaudeExecutor(config, () => client).initialize();
+    await new ClaudeProvider(config, { clientFactory: () => client }).initialize();
 
     const settings = client.calls[0]!.options.settings as Record<string, unknown>;
     expect(settings.extraKnownMarketplaces).toEqual(config.claude.marketplaces);
@@ -92,7 +92,7 @@ describe("plugin preflight", () => {
       },
     ]);
 
-    await expect(new ClaudeExecutor(config, () => client).initialize()).rejects.toThrow(
+    await expect(new ClaudeProvider(config, { clientFactory: () => client }).initialize()).rejects.toThrow(
       /did not load: superpowers@superpowers-marketplace/,
     );
   });
@@ -103,14 +103,14 @@ describe("plugin preflight", () => {
     const client = new FakeClaudeClient([
       initWith([{ name: "superpowers", source: "superpowers@superpowers-marketplace" }]),
     ]);
-    await expect(new ClaudeExecutor(config, () => client).initialize()).resolves.toBeUndefined();
+    await expect(new ClaudeProvider(config, { clientFactory: () => client }).initialize()).resolves.toBeUndefined();
   });
 
   it("fails when the probe ends without an init message", async () => {
     withSuperpowers();
     const client = new FakeClaudeClient([{ messages: [] }]);
 
-    await expect(new ClaudeExecutor(config, () => client).initialize()).rejects.toThrow(
+    await expect(new ClaudeProvider(config, { clientFactory: () => client }).initialize()).rejects.toThrow(
       /without a session init message/,
     );
   });

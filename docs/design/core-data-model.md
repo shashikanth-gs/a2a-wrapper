@@ -1037,7 +1037,7 @@ session reaches the provider through the existing `RequestIds.session` / `coreRe
 **Bind (`run.bind`).** Persists a `ContextBinding` through the `RunStore`: `owner` and `tenant` = the caller (and tenant) of the
 turn that bound, `createdAt`, `updatedAt` and `lastUsedAt` = now, `session = {ref, meta, issuer}` with `issuer =
 "<ProviderInfo.id>@<ProviderInfo.sessionFormat ?? '1'>"` (or `RunRegistryOptions.issuer`). A rebind replaces the session and keeps the owner
-and `createdAt`. A bind after a cancel (or from a stopped or retried-away turn) is a silent drop (the `live()` gate). A bind
+(`createdAt` restarts only when the ref differs, see `bindingMaxAgeMs`). A bind after a cancel (or from a stopped or retried-away turn) is a silent drop (the `live()` gate). A bind
 from a stale turn cannot overwrite a newer one: every turn has a process-wide start order, writes of one context are applied
 through one promise chain in call order (a slow store cannot reorder them), and a bind from a turn older than the last turn
 that bound is dropped (the real case: a provider-held message started a newer turn through `beginHeldTurn` while the older
@@ -1086,8 +1086,9 @@ context has a run). The orphan sweep runs first, so the sessions of orphaned run
 **Hard maximum age: `bindingMaxAgeMs`.** A binding older than this (measured from `createdAt`, the start of the bound session, and never
 extended by use) is deleted and released when its context next resumes, exactly like an idle-TTL expiry, and removed by
 `sweepBindings`; the turn starts fresh and its `bind` creates a new binding with a new age. It is independent of `bindingTtlMs` and
-both may be set. A rebind of the same context keeps `createdAt`, so a provider that starts a new session for a context deletes
-the old binding first (every abort-discard and `session-not-found` path does).
+both may be set. A rebind that names a DIFFERENT session ref resets `createdAt` (the owner is kept), so the age is always the age
+of the session the binding names, also when a provider replaces a context's session without deleting the binding first (the
+Claude provider does: it binds the new session id of a fresh `query`); binding the same ref again (to refresh `meta`) keeps it.
 
 **Binding GC: `sweepBindings({olderThanMs?})`.** Removes bindings whose `lastUsedAt` is older than `olderThanMs` (default
 `bindingTtlMs`; with neither nothing is removed) and whose context has no non-terminal run: no run in this process (live,
@@ -1248,6 +1249,80 @@ Still open: 1 (stated plainly below), 3, 5, 6 and 7 as known limitations.
 7. (Known limitation.) In chunk mode the stored task holds the response twice (the chunks, then the last-chunk marker with the full text, both
    appended). That is today's behaviour and is kept for parity; fixing it is an A2A-visible change.
 
+### 3.15 Claude on the contract (#111)
+
+`a2a-claude` is the second wrapper on the contract and has no `@a2a-js/sdk` dependency (the guard test lists it no more). Parity
+with the executor it replaced is proved the same way as for Copilot: 24 scripted Claude sessions (the messages a `query()` yields:
+buffered and chunked responses, every trace event kind, structured output, error results, a refusal, held-open background rounds
+and the three ways a held task ends, rate limits, prompt timeout, a failing iterator) were recorded through the old
+`AgentExecutor` and the real `DefaultRequestHandler` (`a2a-claude/src/__tests__/golden/old-executor.golden.json`) and are replayed
+through `ClaudeProvider`: 46 streams and tasks, identical except the asserted differences (the redundant `submitted` status; the
+core usage key on the completed status; `code` / `retryable` on a failed status; `x-usage` cost, below). What the live CLI does
+(measured with the real binary, not read from the types) is what the provider is built on.
+
+**What core gained for this** (all additive, listed in the changeset): a rebind to a DIFFERENT session ref resets
+`ContextBinding.createdAt` (3.13; the one behaviour change, with its test updated), `CoreError.meta` (rendered on the failed status;
+Claude keeps the rate limit's reset details with it), `createResponseStream({ id })` (the `response-<taskId>-<round>` ids of held-open
+rounds are part of the wrapper's contract).
+
+**How the Claude provider uses the contract (all wrapper-side).**
+
+- **One streaming-input `query()` per turn** (not per context): the prompt is the first message of an input queue the turn owns. The
+  query is created per `run` and resumed with `options.resume = request.session.ref`; the process ends with the turn. The `init`
+  message gives the session id: `run.bind({ ref })` happens there, before any output (the lifecycle event, which is output, follows).
+  The CLI re-emits `init` on every SDK turn of a query; a repeat of the bound id binds nothing. `session.ttl` is `bindingMaxAgeMs`
+  (`<= 0`, the default, means no limit, as before), `session.idleTtl` is `bindingTtlMs`, `reuseByContext: false` never binds, and the
+  old idle sweep (`cleanupInterval`) is a timer in `createA2AServer` calling `sweepBindings({ olderThanMs: ttl })`.
+- **Session not found.** Resuming an unknown id ends with an `error_during_execution` result carrying "No conversation found with session
+  ID" and no `init` (and the iterator then throws the same text). Both become `run.fail({ code: SESSION_NOT_FOUND })` before anything
+  was published, so core's single retry runs the turn fresh. A retry publishes `Processing request...` again (progress is not output).
+- **Steering.** `steer` pushes `{ uuid, priority: "next" }` into the input queue. Measured: `now` interrupts the running turn (it ends
+  with a result and `terminal_reason: aborted_tools`) and runs the message as the next turn, so it is an interrupt, which core's
+  `interrupt` delivery already is; `next` (and no priority) folds the message into the running turn at the next tool boundary;
+  `later` runs it as its own turn after the current one. The CLI says what became of a message with `command_lifecycle` frames
+  (`queued`, `started`, `completed`, `cancelled`, carrying the uuid) and lists folded messages in the result's `user_message_uuids`.
+  `started` before the running turn's result, or the uuid in that result, is `inserted`. No word within `timeouts.steerAck` (or the
+  turn ended first) is `queued{handle}`: the message then starts its own turn (`started` after the result, `beginHeldTurn`; the first
+  turn is completed non-terminally where it ends) or is folded late (`settleSteer("inserted")`). A queued message that never starts is
+  dropped when the CLI reports nothing queued (`queued_turn_count: 0`) after `steerAck`.
+- **Abort.** `cancel`/`shutdown`: `abortController.abort()` and `query.interrupt()` (the process dies, the transcript stays; the next
+  message resumes it). `interrupt`: `query.interrupt()` first (a clean transcript), then the process is ended; the interrupting message
+  resumes the session in a new query. The CLI's queue lives in the process, so a steered message it still held is `dropped` (documented
+  limitation, the Copilot problem 3 in another shape). The outcome is always `reusable`, `confirmed` when the iterator ended within 3 s.
+- **Interactions.** `canUseTool` is installed only when something can answer (`interactions.mode: "ask"` or `autoAnswer` rules), so the
+  default changes nothing (the CLI's headless handling decides, `permissionMode: "default"` stays rejected). `AskUserQuestion` is the
+  same callback: it becomes a `question` interaction (one core question per SDK question) and is answered with
+  `updatedInput.answers` by question text. The SDK's per-request `signal` is `AskOptions.signal` (measured: `interrupt()` aborts it), so
+  a stuck request is withdrawn, not leaked. Only an explicit allow approves; every `unavailable` code denies (in `auto` with rules
+  the unmatched request is denied, as the headless CLI would). "Always allow" is not offered (it writes the project's settings files).
+  The prompt timer pauses while a person decides.
+- **Usage.** Measured: `usage` is per turn (main loop only); `total_cost_usd` and `modelUsage` are cumulative for the session across
+  turns of a query and across resumes. The old executor stored the running total as the cost of every result, so `x-usage` overstated
+  later tasks and double counted held-open rounds. The provider reports the cost of the turn: `usageDelta` over two cumulative readings
+  of the same `series` (the Claude session id), with the last reading kept in the binding's `meta` (`usageTotals`), so it is exact after
+  a restart; a total that drops (`/clear`) starts a new epoch. Core's usage key carries the per-model breakdown of the turn.
+
+**Spec problems found.**
+
+1. `CoreTaskRun.bind` writes the binding's `meta` only at the call, but a provider often learns what belongs in it later (the usage
+   total after the turn). Rebinding the SAME ref to refresh `meta` works and keeps `createdAt`, which is what made the "different ref
+   resets the age" rule (3.13) possible without breaking it; it should be written down as the contract for updating `meta`.
+2. A provider cannot tell that a bind was dropped (stale or canceled view), so it cannot know its usage total was not stored. Harmless
+   here (the next turn computes a larger difference for one turn), but a `bind` that reports whether it was stored would make it exact.
+3. Provider-owned usage that spans several results of one turn (held-open rounds) is summed by the accumulator; there is no way to
+   hand core a `cumulative` reading and let it apply `usageDelta` against the previous turn's reading of the same series. The wrapper
+   computes the delta itself and sends `delta` scope, so core's `usageDelta` is exercised only by the wrapper. If more wrappers need it,
+   `complete({ usage })` with `scope: "cumulative"` plus a stored previous reading should be core's.
+4. `run.progress(text, meta)` is the only way to publish a non-terminal status with metadata, and a held-open task needs exactly that
+   (`backgroundTasks`); it works, but the text and the metadata are one status, so a round's response text appears in the status
+   message and as the artifact (today's behaviour, kept).
+5. `CoreError` had no field for machine-readable details; `meta` was added (a rate limit's reset time and type are what orchestrators
+   schedule retries from).
+6. A turn of a task that is not its first (a queued message, an interrupt) starts a new `run()` for the same `taskId` and `runId`: a
+   wrapper that names artifacts after the task (Claude's `response-<taskId>-<round>`) collides with the earlier turn's ids and the later
+   answer REPLACES the earlier one in the stored task. `CoreRequest` has no turn ordinal; the provider counts them per task. A
+   `turnIndex` on the request would remove the counter.
+
 ## 4. A2A mapping and the run model (core internal)
 
 The SDK calls `execute()` per request and tears the bus down when it returns, except at `input-required` and
@@ -1313,7 +1388,7 @@ assumption: a message metadata entry under that URI whose value is the string, o
 
 | Provider | Native fit | Provider-local work |
 |---|---|---|
-| Claude | `canUseTool` to `ask`; `AskUserQuestion` to `questions`; streaming input to `steer`; `interrupt()` to `abort` (`session: reusable`) | stream user messages instead of one-shot; return `null` when answered out of band; map `feedback` to deny `message`; spike `defer` hook for restart durability |
+| Claude (done, 3.15) | `canUseTool` to `ask`; `AskUserQuestion` to `questions`; streaming input with `priority: next` to `steer`; `interrupt()` to `abort` (`session: reusable`) | input queue instead of one-shot; deny `message` from `feedback`; session resume via `bind` and `resume`; usage as differences of the cumulative total; `defer` hook for restart durability is not done |
 | Copilot | `onPermissionRequest` or pending-RPC to `ask`; `mode: immediate` to `steer` (read the `delivery` event for the outcome); `session.abort()` to `abort` | stop using `approveAll`; wire `ask_user`/elicitation; pass `handle` (requestId) and implement `reattach` via `continuePendingWork` |
 | Codex | exec SDK: abort + `resumeThread` only | to get permissions and steering the provider must move to `codex app-server` (experimental): `requestApproval` to `ask`, `turn/steer` to `steer`; call `resumeThread`; fix `cancelTask` using `contextId` as the task id |
 | OpenCode | `permission.asked` / `question.asked` / `form.created` to `ask`; v2 `delivery` to `steer`; `interrupt` to `abort` | stop auto-replying `always`; v1/v2 split behind one handler; `handle` plus re-list for `reattach`; note a reject cancels every pending permission in that session |

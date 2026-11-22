@@ -142,6 +142,10 @@
         "features": {
           "$ref": "#/definitions/FeatureFlags"
         },
+        "interactions": {
+          "$ref": "#/definitions/InteractionsConfig",
+          "description": "Whether a person is asked when Claude wants to run a tool that needs permission, or asks a question (`AskUserQuestion`), and for how long. The default (`mode: \"auto\"`, no rules) is the headless behaviour this wrapper has always had: nobody is asked and the configured `claude.permissionMode` decides. With `mode: \"ask\"`, what no `autoAnswer` rule answers reaches the A2A client as `input-required` and the task resumes on the reply (`claude.permissionMode: \"default\"` is then allowed). `autoAnswer` rules also work in `auto` mode."
+        },
         "logging": {
           "$ref": "#/definitions/LoggingConfig"
         },
@@ -264,7 +268,7 @@
         "permissionMode": {
           "$ref": "#/definitions/ClaudePermissionMode",
           "default": "acceptEdits",
-          "description": "Permission mode. \"default\" and \"auto\" are rejected — they require an interactive approver / classifier, incompatible with headless A2A."
+          "description": "Permission mode. \"auto\" is rejected (a model classifier, incompatible with headless A2A). \"default\" prompts for edits and shell commands, so it needs somebody to answer: it is accepted only with `interactions.mode: \"ask\"` (or `interactions.autoAnswer` rules), and rejected otherwise."
         },
         "sandbox": {
           "additionalProperties": {},
@@ -359,7 +363,8 @@
         "acceptEdits",
         "dontAsk",
         "plan",
-        "bypassPermissions"
+        "bypassPermissions",
+        "default"
       ],
       "type": "string"
     },
@@ -496,6 +501,154 @@
         "streamArtifactChunks": {
           "description": "Stream artifact chunks (A2A spec-correct) vs single buffered artifact. Default: false.",
           "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "InteractionsConfig": {
+      "additionalProperties": false,
+      "description": "Whether a person is asked when the backend wants to do something that needs a decision (a permission, a question) and what happens when nobody answers. Read by a wrapper that implements the provider contract and handed to the run runtime (`RunRegistryOptions.interactionPolicy`).\n\nThe default (`mode: \"auto\"`, no rules) keeps each wrapper's native behaviour and asks nobody.",
+      "properties": {
+        "authTimeoutMs": {
+          "default": "1_800_000",
+          "description": "Ask mode: expiry of a sign-in (`auth`) interaction, in ms.",
+          "type": "number"
+        },
+        "autoAnswer": {
+          "description": "Rules that answer without a person, first match wins, in both modes. A rule is `{ match: { kind?, risk?, tool?, action? }, answer: { kind } | { optionId } | { decline: true } }`; an empty `match` matches everything. Only option-based interactions (permission, confirm) can be answered by a rule.",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "answer": {
+                "anyOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "kind": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "optionId": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "optionId"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "decline": {
+                        "const": true,
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "decline"
+                    ],
+                    "type": "object"
+                  }
+                ]
+              },
+              "match": {
+                "additionalProperties": false,
+                "properties": {
+                  "action": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    ]
+                  },
+                  "kind": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    ]
+                  },
+                  "risk": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    ]
+                  },
+                  "tool": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    ]
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "match",
+              "answer"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "mode": {
+          "default": "auto",
+          "description": "`\"auto\"`: nobody is asked; a rule in  {@link  autoAnswer }  answers what it matches and the wrapper's native handling applies to the rest. `\"ask\"`: what no rule answers goes to the A2A client as `input-required` and the task waits for its reply.",
+          "enum": [
+            "auto",
+            "ask"
+          ],
+          "type": "string"
+        },
+        "onTimeout": {
+          "default": "fail",
+          "description": "What an expiry does: `\"fail\"` fails the task; `\"deny\"` lets the run go on with the request denied (never approved).",
+          "enum": [
+            "fail",
+            "deny"
+          ],
+          "type": "string"
+        },
+        "timeoutMs": {
+          "default": "600_000",
+          "description": "Ask mode: how long an unanswered interaction waits before it expires, in ms (30 minutes for sign-in).",
+          "type": "number"
         }
       },
       "type": "object"
@@ -865,7 +1018,11 @@
       "properties": {
         "cleanupInterval": {
           "default": 0,
-          "description": "How often the background sweep reclaims expired sessions, in ms. The sweep only ever runs when `ttl > 0`; 0 or less disables it, leaving expiry to the lazy check in `getOrCreate`. Defaults to 0 to match `ttl` — set both if you want expired sessions reclaimed without waiting for the context to be looked up again.",
+          "description": "How often the background sweep reclaims stale context bindings, in ms. The sweep only ever runs when `ttl > 0` (it removes contexts unused for longer than `ttl`); 0 or less disables it, leaving expiry to the check made when the context is next used. Defaults to 0 to match `ttl`.",
+          "type": "number"
+        },
+        "idleTtl": {
+          "description": "Optional idle expiry in ms, measured from the last use of a context (unset by default: a context that keeps being used is only limited by `ttl`). A context unused for this long starts a new Claude session on its next message.",
           "type": "number"
         },
         "reuseByContext": {
@@ -877,7 +1034,7 @@
         },
         "ttl": {
           "default": 0,
-          "description": "Session TTL in ms, measured from when the session was created — not from last use. 0 or less disables session expiry entirely, so a contextId keeps resuming the same Claude session indefinitely.",
+          "description": "Maximum age of a context's Claude session in ms, measured from when the session was created — not from last use. A context is resumed only while its session is younger than this; after that its next message starts a new Claude session. 0 or less disables session expiry entirely, so a contextId keeps resuming the same Claude session indefinitely.",
           "type": "number"
         }
       },
@@ -1054,6 +1211,10 @@
       "properties": {
         "prompt": {
           "description": "Timeout for a single prompt in ms (default: 600_000 = 10 min). Set to `0` (or any value <= 0) to disable the timeout entirely, letting a turn run until it completes. See the README for the caveat about turns being serialized per context.",
+          "type": "number"
+        },
+        "steerAck": {
+          "description": "How long a `steer` waits for Claude to say it folded the message into the running turn, in ms (default: 5_000). Claude folds a message in at the next tool boundary, which can be long after the send; without the signal the message is answered as queued and joins the task as its own turn when Claude starts it.",
           "type": "number"
         }
       },

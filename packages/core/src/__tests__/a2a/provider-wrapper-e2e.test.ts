@@ -139,6 +139,23 @@ describe("provider wrapper output equals bus wrapper output", () => {
     }
   }
 
+  it("CoreError.meta is rendered as metadata of the failed status; code and retryable win over it", async () => {
+    const failing: ProviderExecutor = {
+      info: () => ({ id: "fake", displayName: "Fake", inputModes: ["text/plain"], outputModes: ["text/plain"] }),
+      initialize: async () => {},
+      shutdown: async () => {},
+      async run(_req, run) {
+        run.fail({ message: "Rate limit reached", code: "rate_limit", retryable: true, meta: { reason: "rate_limit", resetsAtIso: "2100-01-01T00:00:00.000Z", code: "shadowed" } });
+      },
+    };
+    const server = createProviderTestServer(failing);
+    const { events } = await server.stream({ text: "hi" });
+    const failed = events.map(summarizeEvent).find((e) => e.k === "status" && e.state === "failed") as { metaKeys: string[] };
+    expect(failed.metaKeys).toEqual(["code", "reason", "resetsAtIso", "retryable"]);
+    const raw = events.find((e: any) => e.payload?.value?.status?.state === 7 || e.payload?.value?.metadata?.reason);
+    expect(raw.payload.value.metadata).toMatchObject({ code: "rate_limit", retryable: true, reason: "rate_limit" });
+  });
+
   it("a blocking send returns the completed task with the response artifact", async () => {
     const server = createProviderTestServer(provider({ chunks: false, trackUsage: false }));
     const task = summarizeTask(await server.send({ text: "hi" }));

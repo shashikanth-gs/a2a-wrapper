@@ -235,6 +235,15 @@ describe("createResponseStream", () => {
     expect(run.artifacts[0].id).toMatch(/^response-/);
   });
 
+  it("a wrapper may name the artifact id", () => {
+    const run = fakeRun();
+    const s = createResponseStream(run, { chunks: true, id: "response-t1-2" });
+    s.delta("x");
+    s.finish("x");
+    expect(s.id).toBe("response-t1-2");
+    expect(run.artifacts.map((a) => a.id)).toEqual(["response-t1-2", "response-t1-2"]);
+  });
+
   it("no chunks: nothing until finish, then one buffered artifact", () => {
     const run = fakeRun();
     const s = createResponseStream(run, { chunks: false });

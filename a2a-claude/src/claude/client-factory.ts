@@ -6,7 +6,7 @@
  * insulate the rest of the wrapper from SDK surface changes.
  */
 
-import { query } from "@anthropic-ai/claude-agent-sdk";
+import { query, getSessionInfo } from "@anthropic-ai/claude-agent-sdk";
 import type { Options } from "@anthropic-ai/claude-agent-sdk";
 import { buildClaudeOtelEnv } from "@a2a-wrapper/core";
 import type { AgentConfig, ClaudeThinkingConfig } from "../config/types.js";
@@ -28,11 +28,43 @@ export interface SDKUserMessageLike {
   type: "user";
   parent_tool_use_id: string | null;
   message: { role: "user"; content: string };
+  /** Client id of the message: the CLI echoes it in `command_lifecycle` and `user_message_uuids`, which is how a steer learns what became of it. */
+  uuid?: string;
+  /**
+   * When the CLI reads a message pushed while a turn runs: `now` interrupts the running turn and runs the message at once,
+   * `next` (the default) folds it into the running turn at the next tool boundary, `later` queues it as its own turn.
+   */
+  priority?: "now" | "next" | "later";
 }
 
 export interface QueryLike extends AsyncIterable<SDKMessageLike> {
-  interrupt(): Promise<void>;
+  interrupt(): Promise<unknown>;
 }
+
+/** What the SDK passes next to a tool call it wants permission for (the fields this wrapper reads). */
+export interface CanUseToolOptionsLike {
+  /** Aborts when the SDK no longer needs the answer (the turn was interrupted or aborted). */
+  signal: AbortSignal;
+  title?: string;
+  displayName?: string;
+  description?: string;
+  decisionReason?: string;
+  blockedPath?: string;
+  toolUseID?: string;
+  agentID?: string;
+  [extra: string]: unknown;
+}
+
+/** What `canUseTool` answers: allow (optionally with an edited input) or deny with a message the model sees. */
+export type PermissionResultLike =
+  | { behavior: "allow"; updatedInput?: Record<string, unknown> }
+  | { behavior: "deny"; message: string; interrupt?: boolean };
+
+export type CanUseToolLike = (
+  toolName: string,
+  input: Record<string, unknown>,
+  options: CanUseToolOptionsLike,
+) => Promise<PermissionResultLike>;
 
 export interface QueryOptionsLike {
   cwd?: string;
@@ -61,6 +93,8 @@ export interface QueryOptionsLike {
   mcpServersDelivery?: "argv" | "initialize";
   resume?: string;
   abortController?: AbortController;
+  /** Set only when a person (or a rule) can answer: see `interactions` in the config. */
+  canUseTool?: CanUseToolLike;
 }
 
 export interface ClaudeClientLike {
@@ -68,6 +102,8 @@ export interface ClaudeClientLike {
     prompt: string | AsyncIterable<SDKUserMessageLike>,
     options: QueryOptionsLike,
   ): QueryLike;
+  /** Does the CLI have a transcript for this session? Optional: a client that cannot tell leaves it out. */
+  sessionExists?(sessionId: string, dir?: string): Promise<boolean>;
 }
 
 // ─── Option Mapping ──────────────────────────────────────────────────────────
@@ -117,7 +153,7 @@ function resolveThinking(
 
 export function buildQueryOptions(
   config: Required<AgentConfig>,
-  turn: { resume?: string; abortController?: AbortController },
+  turn: { resume?: string; abortController?: AbortController; canUseTool?: CanUseToolLike },
 ): QueryOptionsLike {
   const claude = config.claude;
 
@@ -180,6 +216,7 @@ export function buildQueryOptions(
         : undefined,
     resume: turn.resume,
     abortController: turn.abortController,
+    ...(turn.canUseTool ? { canUseTool: turn.canUseTool } : {}),
   };
 
   return opts;
@@ -204,6 +241,9 @@ export function createClaudeClient(_config: Required<AgentConfig>): ClaudeClient
         prompt: prompt as Parameters<typeof query>[0]["prompt"],
         options: options as unknown as Options,
       }) as unknown as QueryLike;
+    },
+    async sessionExists(sessionId: string, dir?: string): Promise<boolean> {
+      return (await getSessionInfo(sessionId, dir ? { dir } : undefined)) !== undefined;
     },
   };
 }

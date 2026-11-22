@@ -27,12 +27,6 @@ import {
 const ALLOWED_SOURCE_FILES: readonly string[] = [
   "a2a-antigravity/src/antigravity/executor.ts",
 
-  "a2a-claude/src/claude/executor.ts",
-  "a2a-claude/src/claude/__tests__/executor-background-tasks.test.ts",
-  "a2a-claude/src/claude/__tests__/executor-rate-limit.test.ts",
-  "a2a-claude/src/claude/__tests__/executor-subagents.test.ts",
-  "a2a-claude/src/claude/__tests__/executor.test.ts",
-
   "a2a-codex/src/codex/executor.ts",
   "a2a-codex/src/__tests__/cancel-task.test.ts",
 
@@ -43,7 +37,6 @@ const ALLOWED_SOURCE_FILES: readonly string[] = [
 /** Repo-relative package.json files allowed to declare the SDK as a dependency. */
 const ALLOWED_PACKAGE_JSON: readonly string[] = [
   "a2a-antigravity/package.json",
-  "a2a-claude/package.json",
   "a2a-codex/package.json",
   "a2a-opencode/package.json",
 ];

@@ -1158,6 +1158,7 @@ export class RunRegistry {
         state: outcome.kind,
         text: outcome.error.message,
         metadata: {
+          ...(outcome.error.meta ?? {}),
           ...(outcome.error.code ? { code: outcome.error.code } : {}),
           ...(outcome.error.retryable !== undefined ? { retryable: outcome.error.retryable } : {}),
         },

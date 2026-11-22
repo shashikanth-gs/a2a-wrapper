@@ -147,7 +147,7 @@ describe("bind: persists a ContextBinding through the RunStore", () => {
     await r.done;
   });
 
-  it("a rebind replaces the session and keeps owner and createdAt", async () => {
+  it("a rebind to a different session replaces it, keeps the owner and restarts createdAt (the session is new)", async () => {
     const s = setup();
     await bindAndFinish(s, "t1", "ctx", "thread-1", alice);
     s.clock.at = "2026-01-02T00:00:00.000Z";
@@ -160,8 +160,40 @@ describe("bind: persists a ContextBinding through the RunStore", () => {
     const b = await s.store.getBinding("ctx");
     expect(b?.session).toEqual({ ref: "thread-3", issuer: "fake@1" });
     expect(b?.owner).toEqual({ id: "alice", kind: "user" });
+    expect(b?.createdAt).toBe("2026-01-02T00:00:00.000Z");
+    expect(b?.updatedAt).toBe("2026-01-02T00:00:00.000Z");
+  });
+
+  it("binding the same session again (for example to refresh its meta) keeps createdAt", async () => {
+    const s = setup();
+    await bindAndFinish(s, "t1", "ctx", "thread-1", alice, { v: 1 } as never);
+    s.clock.at = "2026-01-02T00:00:00.000Z";
+    const r = await startRun(s, "t2", "ctx", alice);
+    r.call.view.bind({ ref: "thread-1", meta: { v: 2 } });
+    r.call.view.complete({});
+    await r.done;
+    await s.registry.drain();
+    const b = await s.store.getBinding("ctx");
+    expect(b?.session).toEqual({ ref: "thread-1", meta: { v: 2 }, issuer: "fake@1" });
     expect(b?.createdAt).toBe("2026-01-01T00:00:00.000Z");
     expect(b?.updatedAt).toBe("2026-01-02T00:00:00.000Z");
+  });
+
+  it("a new session bound over an old one starts a new age for bindingMaxAgeMs", async () => {
+    const s = setup({}, { bindingMaxAgeMs: 1000 });
+    s.clock.at = "2026-01-01T00:00:00.000Z";
+    await bindAndFinish(s, "t1", "ctx", "first");
+    s.clock.at = "2026-01-01T00:00:00.600Z";
+    const r2 = await startRun(s, "t2", "ctx");
+    r2.call.view.bind({ ref: "second" }); // the provider started another session without deleting the binding first
+    r2.call.view.complete({});
+    await r2.done;
+    await s.registry.drain();
+    s.clock.at = "2026-01-01T00:00:01.400Z"; // 1.4 s after the first, 0.8 s after the second
+    const r3 = await startRun(s, "t3", "ctx");
+    expect(r3.call.req.session?.ref).toBe("second");
+    r3.call.view.complete({});
+    await r3.done;
   });
 
   it("a bind after a cancel is a silent drop: no throw, nothing written", async () => {

@@ -276,8 +276,9 @@ export class ContextBindings {
   }
 
   /**
-   * Persist `run.bind`. Replaces the previous binding (keeping its owner and `createdAt`; a provider that starts a new
-   * session for a context deletes the old binding first, which is what resets the age measured by `bindingMaxAgeMs`). Dropped, with a debug log:
+   * Persist `run.bind`. Replaces the previous binding and keeps its owner. `createdAt` is the start of the bound session:
+   * it is kept while the same session ref is bound again (for example to refresh its `meta`) and reset to now when a
+   * DIFFERENT ref is bound, so `bindingMaxAgeMs` measures the age of the session the binding names. Dropped, with a debug log:
    * a bind from a turn older than the last one that bound this context (a stale turn must not overwrite a newer
    * binding) and a bind over a binding another caller owns. Never rejects.
    */
@@ -300,8 +301,11 @@ export class ContextBindings {
       this.lastBindSeq.set(i.contextId, i.seq);
       const at = this.o.now();
       const header = prev ?? newRecordHeader({ id: i.caller.id, kind: i.caller.kind }, at, i.tenant);
+      // A different session ref is a new session: its age starts now. The same ref keeps the age it has.
+      const createdAt = prev?.session && prev.session.ref !== i.session.ref ? at : header.createdAt;
       const binding: ContextBinding = {
         ...header,
+        createdAt,
         updatedAt: at,
         lastUsedAt: at,
         contextId: i.contextId,
