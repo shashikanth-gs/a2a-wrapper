@@ -1051,7 +1051,11 @@ and its bind was written (it reads through the same per-context chain): load the
    bumps `ProviderInfo.version` keeps every conversation (Claude, Copilot, Codex and OpenCode sessions survive SDK upgrades).
    A binding with a different issuer (another provider, another session format, another configured issuer) is never replayed:
    it is deleted and the turn starts fresh, and `provider.release` is NEVER called for it (the new format may not understand
-   the ref, and releasing could kill a session the old format still owns). A provider changes `sessionFormat` only when a stored
+   the ref, and releasing could kill a session the old format still owns). `RunRegistryOptions.issuer`, when given, replaces the
+   derived string as the issuer (equality only, same rules). In the derived string `%` and `@` in the id and the format are
+   escaped (`%25`, `%40`), so `(id "a@b", format "1")` and `(id "a", format "b@1")` can never produce the same issuer. If
+   `info()` throws or the id is empty the issuer is UNKNOWN and matches nothing: no binding is handed over, written or
+   released (a stale one may be deleted), so two broken providers never share a binding. A provider changes `sessionFormat` only when a stored
    ref or meta of the old shape cannot be resumed by the new code. `release` is called only for a binding whose issuer EQUALS
    the current one: TTL expiry, `discard` and `sweepBindings`;
 4. **TTL** (`RunRegistryOptions.bindingTtlMs`, default none): `now - (lastUsedAt ?? updatedAt) > ttl` deletes and releases it,
@@ -1087,7 +1091,8 @@ binding, never creates one) and `deleteBinding(contextId, ifRef?)` now returns `
 **The retry never overlaps the first call.** The first call's view is dead from the moment it reports `session-not-found`, but its
 `provider.run` may still be running. Core waits for it to settle (bounded by `abortTimeoutMs`) before starting the second call, so
 one provider session never sees overlapping prompts. If it does not settle in time the turn ends `failed` with the
-`session-not-found` code (the binding is still forgotten) and no retry is made. A stale or dead view's `bind` is dropped
+`session-not-found` code (the binding is still forgotten), no retry is made, and core makes a best-effort bounded
+`provider.abort(info, "cancel")` on the abandoned call so the backend stops (a failure is logged, never thrown). A stale or dead view's `bind` is dropped
 silently, even with bad arguments (only a live view gets the `TypeError`).
 
 **Process-local versus stored state.** Stored: the binding (session, issuer, owner, tenant, `lastUsedAt`). Process-local on

@@ -92,9 +92,11 @@ export interface ContextBindingsOptions {
   now(): string;
   /**
    * The issuer core stamps on a binding it writes now: `<provider id>@<ProviderInfo.sessionFormat ?? "1">` by default.
-   * `provider.release` is only ever called for a binding whose issuer EQUALS this one.
+   * `provider.release` is only ever called for a binding whose issuer EQUALS this one. `undefined` (the provider's
+   * `info()` failed, or its id or format is unusable) is an issuer that matches nothing: no binding is handed over, written
+   * or released, and a stale one may be deleted.
    */
-  issuer(): string;
+  issuer(): string | undefined;
   /** Drop provider state for a discarded session. Bounded, never rejects. */
   release(ref: string): Promise<void>;
   /** `provider.probeSession`, bounded: `"unknown"` on failure or timeout. Absent when the provider cannot probe. */
@@ -209,7 +211,8 @@ export class ContextBindings {
         };
       }
 
-      if (session.issuer !== this.o.issuer()) {
+      const issuer = this.o.issuer();
+      if (issuer === undefined || session.issuer !== issuer) {
         // Another provider, or the same provider with another session FORMAT: never replayed, never released (the old format
         // may still own that session, and the new one may not understand the ref).
         this.o.log.warn(`task ${i.taskId}: discarding a context binding written by another provider or session format`);
@@ -274,6 +277,11 @@ export class ContextBindings {
         this.o.log.warn("not binding: the context's binding belongs to another caller");
         return;
       }
+      const issuer = this.o.issuer();
+      if (issuer === undefined) {
+        this.o.log.warn("not binding: the provider's identity is unknown, so the binding could not be stamped");
+        return;
+      }
       this.lastBindSeq.set(i.contextId, i.seq);
       const at = this.o.now();
       const header = prev ?? newRecordHeader({ id: i.caller.id, kind: i.caller.kind }, at, i.tenant);
@@ -282,7 +290,7 @@ export class ContextBindings {
         updatedAt: at,
         lastUsedAt: at,
         contextId: i.contextId,
-        session: { ref: i.session.ref, ...(i.session.meta ? { meta: i.session.meta } : {}), issuer: this.o.issuer() },
+        session: { ref: i.session.ref, ...(i.session.meta ? { meta: i.session.meta } : {}), issuer },
       };
       await this.o.store.putBinding(binding);
     }).catch((e) => this.o.log.warn(`binding write failed: ${causeMessage(e)}`));
@@ -318,7 +326,8 @@ export class ContextBindings {
         const b = await this.o.store.getBinding(contextId);
         if (b?.session && (!ref || b.session.ref === ref)) {
           releaseRef = b.session.ref;
-          releasable = b.session.issuer === this.o.issuer();
+          const cur = this.o.issuer();
+          releasable = cur !== undefined && b.session.issuer === cur;
           await this.o.store.deleteBinding(contextId, b.session.ref);
         }
       });
@@ -358,7 +367,8 @@ export class ContextBindings {
         const cur = await this.o.store.getBinding(b.contextId);
         if (!cur || !this.expired(cur, ttl) || this.o.busy(b.contextId)) return false;
         const ok = cur.session ? await this.o.store.deleteBinding(b.contextId, cur.session.ref) : await this.o.store.deleteBinding(b.contextId);
-        if (ok && cur.session && cur.session.issuer === this.o.issuer()) releaseRef = cur.session.ref;
+        const now = this.o.issuer();
+        if (ok && cur.session && now !== undefined && cur.session.issuer === now) releaseRef = cur.session.ref;
         return ok;
       }).catch((e) => {
         this.o.log.warn(`removing an expired context binding failed: ${causeMessage(e)}`);
@@ -383,7 +393,7 @@ export class ContextBindings {
     const all = await this.o.store.listBindings();
     const todo: ContextBinding[] = [];
     for (const b of all) {
-      if (!b.session || b.session.issuer !== this.o.issuer() || this.o.busy(b.contextId)) report.skipped.push(b.contextId);
+      if (!b.session || this.o.issuer() === undefined || b.session.issuer !== this.o.issuer() || this.o.busy(b.contextId)) report.skipped.push(b.contextId);
       else todo.push(b);
     }
     if (!this.o.probe) {

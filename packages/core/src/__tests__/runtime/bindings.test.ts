@@ -996,3 +996,91 @@ describe("logs never carry a session ref", () => {
     expect(logs.join("\n")).toContain("release exploded");
   });
 });
+
+describe("round 3: issuer override, unknown identity, '@' collisions, abandoned first call", () => {
+  const setInfo = (s: S, over: Record<string, unknown>) => {
+    (s.provider as any).info = () => ({ id: "fake", displayName: "Fake", version: "1", inputModes: [], outputModes: [], ...over });
+  };
+
+  it("RunRegistryOptions.issuer is honoured: a binding stamped with it is handed over, new binds carry it, a mismatch is dropped without release", async () => {
+    const s = setup({}, { issuer: "custom" });
+    await putBinding(s, "ctx", "s1", { issuer: "custom" });
+    const r = await startRun(s, "t1", "ctx");
+    expect(r.call.req.session?.ref).toBe("s1");
+    r.call.view.bind({ ref: "s2" });
+    r.call.view.complete({});
+    await r.done;
+    await s.registry.drain();
+    expect((await s.store.getBinding("ctx"))?.session).toEqual({ ref: "s2", issuer: "custom" });
+    await putBinding(s, "ctx", "s3", { issuer: "fake@1" }); // the derived issuer is NOT the configured one
+    const r2 = await startRun(s, "t2", "ctx");
+    expect(r2.call.req.session).toBeUndefined();
+    expect(s.provider.release).not.toHaveBeenCalled();
+    r2.call.view.complete({});
+    await r2.done;
+  });
+
+  it("an unknown identity (info() throws) matches nothing: no hand-over, no bind, no release, and two broken providers never share a binding", async () => {
+    const s = setup({ abort: async () => ({ stopped: "confirmed", session: "discard" }) });
+    (s.provider as any).info = () => {
+      throw new Error("no info");
+    };
+    await putBinding(s, "ctx", "stale", { issuer: "unknown" }); // what the old fallback stamped
+    const r = await startRun(s, "t1", "ctx");
+    expect(r.call.req.session).toBeUndefined();
+    expect(await s.store.getBinding("ctx")).toBeUndefined();
+    r.call.view.bind({ ref: "mine" });
+    await s.registry.drain();
+    expect(await s.store.getBinding("ctx")).toBeUndefined(); // could not be stamped, so not written
+    await putBinding(s, "ctx2", "x", { issuer: "unknown" });
+    await s.registry.cancel("t1", ANONYMOUS_CALLER);
+    await s.registry.drain();
+    expect(s.provider.release.mock.calls.map((c: any[]) => c[0].ref)).not.toContain("stale"); // only this run's own ref may be released
+    s.clock.at = "2026-01-02T00:00:00.000Z";
+    expect((await s.registry.sweepBindings({ olderThanMs: 0 })).removed).toEqual(["ctx2"]);
+    expect(s.provider.release.mock.calls.map((c: any[]) => c[0].ref)).not.toContain("x"); // a stored binding of unknown issuer is never released
+  });
+
+  it("'@' in a provider id or sessionFormat is escaped: (id 'a@b', format '1') and (id 'a', format 'b@1') never collide", async () => {
+    const s = setup();
+    setInfo(s, { id: "a@b", sessionFormat: "1" });
+    await bindAndFinish(s, "t0", "ctx", "owned-by-first");
+    expect((await s.store.getBinding("ctx"))?.session?.issuer).toBe("a%40b@1");
+    setInfo(s, { id: "a", sessionFormat: "b@1" });
+    const r = await startRun(s, "t1", "ctx");
+    expect(r.call.req.session).toBeUndefined();
+    expect(s.provider.release).not.toHaveBeenCalled();
+    r.call.view.bind({ ref: "second" });
+    r.call.view.complete({});
+    await r.done;
+    await s.registry.drain();
+    expect((await s.store.getBinding("ctx"))?.session?.issuer).toBe("a@b%401");
+    setInfo(s, { id: "a%b", sessionFormat: "1" }); // '%' itself is escaped, so escapes cannot be forged
+    expect((await startRun(s, "t2", "ctx")).call.req.session).toBeUndefined();
+  });
+
+  it("a first call that never settles after session-not-found is told to stop (abort cancel, with the lost session), best effort", async () => {
+    const s = setup({}, { abortTimeoutMs: 30 });
+    const first = await (async () => {
+      await putBinding(s, "ctx", SECRET);
+      return startRun(s, "t1", "ctx");
+    })();
+    first.call.view.fail({ code: SESSION_NOT_FOUND, message: "gone" });
+    await first.done;
+    await s.registry.drain();
+    expect(s.provider.abort).toHaveBeenCalledTimes(1);
+    expect(s.provider.abort).toHaveBeenCalledWith(expect.objectContaining({ taskId: "t1", turnId: first.call.req.turnId, session: { ref: SECRET } }), "cancel");
+    expect(terminalOf(first.publisher)).toEqual(["failed"]);
+  });
+
+  it("... and a throwing abort there is swallowed", async () => {
+    const s = setup({ abort: async () => { throw new Error("abort blew up"); } }, { abortTimeoutMs: 30 });
+    await putBinding(s, "ctx", SECRET);
+    const first = await startRun(s, "t1", "ctx");
+    first.call.view.fail({ code: SESSION_NOT_FOUND, message: "gone" });
+    await first.done;
+    await s.registry.drain();
+    expect(terminalOf(first.publisher)).toEqual(["failed"]);
+    expect(s.logs.join("\n")).toContain("abort blew up");
+  });
+});

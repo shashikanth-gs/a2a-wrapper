@@ -192,7 +192,10 @@ export interface RunRegistryOptions {
   /** Id source. Default `crypto.randomUUID`. */
   newId?: () => string;
   logger?: RuntimeLogger;
-  /** Opaque issuer stored with a bound session. Default `provider.info().id` + version. */
+  /**
+   * Issuer stored with a bound session and compared for equality when it is read back. Default
+   * `<provider id>@<ProviderInfo.sessionFormat ?? "1">`. A binding with another issuer is dropped, never replayed and never released.
+   */
   issuer?: string;
   /**
    * How long a context binding may sit unused before it expires (milliseconds, measured from its last bind or resume).
@@ -1020,6 +1023,13 @@ export class RunRegistry {
         if (gone()) return;
         if (!settled) {
           this.log.warn(`task ${handle.taskId}: the first provider.run did not settle after session-not-found; not retrying`);
+          // Do not abandon the backend: best-effort stop of the call that never settled (bounded, never throws).
+          if (this.provider.abort) {
+            const info: TaskRunInfo = { runId: handle.runId, turnId: turn.turnId, taskId: handle.taskId, contextId: handle.contextId, session: { ref: lost } };
+            this.track(this.bounded(() => this.provider.abort!(info, "cancel")).then((r) => {
+              if (!r.ok) this.log.warn(`provider.abort failed (cancel): ${r.error.message}`);
+            }));
+          }
           this.turnEnded(handle, turn, { kind: "failed", error: turn.lostError ?? { message: "the backend does not know this session", code: SESSION_NOT_FOUND } });
           return;
         }
@@ -1371,12 +1381,20 @@ export class RunRegistry {
     return this.track(this.bindings.validate());
   }
 
-  private issuerOf(): string {
+  /**
+   * The issuer stamped on bindings: `RunRegistryOptions.issuer` when given, else `<id>@<sessionFormat ?? "1">` with `%` and `@`
+   * escaped in both parts (`%25`, `%40`), so two different (id, format) pairs can never produce the same string. `undefined`
+   * when `info()` throws or the id is empty: it matches nothing (see `ContextBindingsOptions.issuer`).
+   */
+  private issuerOf(): string | undefined {
+    if (this.issuerOverride !== undefined) return this.issuerOverride;
     try {
       const i = this.provider.info();
-      return `${i.id}@${i.sessionFormat ?? "1"}`;
+      if (typeof i.id !== "string" || i.id === "") return undefined;
+      const esc = (s: string) => s.replace(/%/g, "%25").replace(/@/g, "%40");
+      return `${esc(i.id)}@${esc(String(i.sessionFormat ?? "1"))}`;
     } catch {
-      return "unknown";
+      return undefined;
     }
   }
 
