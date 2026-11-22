@@ -11,7 +11,7 @@
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { substituteEnvTokensInString, substituteEnvTokensInRecord } from "@a2a-wrapper/core";
+import { substituteEnvTokensInString, substituteEnvTokensInRecord, normalizeModel } from "@a2a-wrapper/core";
 import { DEFAULTS } from "./defaults.js";
 import type { AgentConfig, ClaudeEffortLevel, McpServerConfig } from "./types.js";
 
@@ -198,7 +198,7 @@ function substituteEnvTokensInClaude(config: Record<string, unknown>): void {
   if (typeof claude.model === "string") {
     const resolved = substituteEnvTokensInString(claude.model);
     // Clear the field if the token wasn't resolved (env var not set) or if empty.
-    claude.model = resolved.includes("${") ? undefined : resolved || undefined;
+    claude.model = resolved.includes("${") ? undefined : normalizeModel(resolved);
   }
   // Marketplace sources carry refs, URLs and (for private repos) credentials —
   // substitute every string field rather than an allowlist, since the SDK's

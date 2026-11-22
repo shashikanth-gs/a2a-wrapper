@@ -42,7 +42,8 @@ Options:
   --advertise-host <host>      Hostname for agent card URLs    (default: localhost)
   --workspace <path>           Workspace directory (Git repo)  (alias: --working-dir)
   --working-dir <path>         Workspace directory (Git repo)  (alias: --workspace)
-  --model <model>              Codex model                     (e.g. o4-mini, gpt-4o)
+  --model <model>              Codex model                     (default: auto = first model your account lists;
+                                                                list them with: codex debug models)
   --sandbox <mode>             Sandbox mode                    (read-only | workspace-write | danger-full-access)
   --agent-name <name>          Agent display name
   --agent-description <desc>   Agent description

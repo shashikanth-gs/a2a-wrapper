@@ -101,7 +101,7 @@ The agent card is available at
 
 | Component | Version |
 |---|---|
-| Google Antigravity Python SDK | **0.1.5** |
+| Google Antigravity Python SDK | **0.1.24** |
 | Gemini model | **gemini-3.1-flash-lite** |
 | `@a2a-js/sdk` | **1.0.0** |
 | A2A protocol | **v1.0 (native) + v0.3.x (backward compatible)** |
@@ -177,7 +177,7 @@ npx a2a-antigravity setup
 
 `setup` creates a managed Python virtual environment in the user's cache
 directory and installs the bundled `requirements.txt`
-(`google-antigravity==0.1.5`). Later server starts automatically use this
+(`google-antigravity==0.1.24`). Later server starts automatically use this
 managed environment when `ANTIGRAVITY_PYTHON`, `--python`, and
 `antigravity.pythonPath` are not set.
 
@@ -310,7 +310,7 @@ The wrapper supports the auth surfaces exposed by the current Python SDK:
 - `adc`: Vertex / Gemini Enterprise Agent Platform with Application Default Credentials.
 
 Google AI Pro/Ultra product-login OAuth is not exposed by `google-antigravity`
-0.1.5 as a public Python SDK config surface, so this wrapper does not implement
+0.1.24 as a public Python SDK config surface, so this wrapper does not implement
 an unofficial subscription-login path.
 
 ## Local Development

@@ -91,7 +91,6 @@ def _build_capabilities(types: Any, cfg: dict[str, Any] | None) -> Any | None:
       "enable_subagents": cfg.get("enableSubagents"),
       "enabled_tools": cfg.get("enabledTools"),
       "disabled_tools": cfg.get("disabledTools"),
-      "compaction_threshold": cfg.get("compactionThreshold"),
   })
   return types.CapabilitiesConfig(**payload) if payload else None
 
@@ -164,6 +163,13 @@ def _build_local_config(bridge_config: dict[str, Any]) -> Any:
   if not workspaces and ag.get("workingDirectory"):
     workspaces = [ag.get("workingDirectory")]
 
+  # CapabilitiesConfig.compaction_threshold is deprecated since google-antigravity 0.1.2x;
+  # the threshold now lives on CompactionConfig at the agent-config level.
+  compaction = None
+  threshold = (ag.get("capabilities") or {}).get("compactionThreshold")
+  if threshold:
+    compaction = types.CompactionConfig(token_threshold=threshold)
+
   payload = _omit_none({
       "system_instructions": ag.get("systemInstructions"),
       "capabilities": _build_capabilities(types, ag.get("capabilities")),
@@ -175,6 +181,7 @@ def _build_local_config(bridge_config: dict[str, Any]) -> Any:
       "app_data_dir": ag.get("appDataDir"),
       "response_schema": ag.get("responseSchema"),
       "skills_paths": ag.get("skillsPaths"),
+      "compaction_config": compaction,
       "model": ag.get("model"),
   })
 

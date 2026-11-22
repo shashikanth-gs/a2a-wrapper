@@ -13,7 +13,7 @@ OpenAI Codex is a production-grade software engineering agent. It handles reposi
 
 **Features:**
 - Native [A2A v1.0](https://a2a-protocol.org) protocol, backward compatible with v0.3.x clients — Agent Card, JSON-RPC, REST, streaming
-- Powered by `@openai/codex-sdk` — `o4-mini`, `o3`, `gpt-4o`, and any Codex-compatible model
+- Powered by `@openai/codex-sdk` — any model your account lists (`codex debug models`); default `auto`
 - Repository sandboxing — `read-only`, `workspace-write`, `danger-full-access` modes
 - MCP tool support — stdio and Streamable HTTP transports
 - Multi-turn context continuity — each A2A `contextId` maps to a persistent Codex thread
@@ -38,11 +38,11 @@ a2a-codex --config agents/example/config.json
 
 **Option B — ChatGPT subscription (no API key needed):**
 
-If you have a ChatGPT Plus or Pro subscription and have already run `codex login` locally, the Codex CLI reads credentials from `~/.codex/auth.json` automatically — no `OPENAI_API_KEY` required. Specify a model that your subscription supports:
+If you have a ChatGPT Plus or Pro subscription and have already run `codex login` locally, the Codex CLI reads credentials from `~/.codex/auth.json` automatically — no `OPENAI_API_KEY` required. The model defaults to `auto`: the wrapper picks the first model Codex lists for your account (the same list as `codex debug models`), so a stale model pinned by the desktop app in `~/.codex/config.toml` is never used. To pin one yourself:
 
 ```bash
 export WORKSPACE_DIR=/path/to/your/repo
-export CODEX_MODEL=gpt-5.5
+export CODEX_MODEL=<a model from `codex debug models`>   # optional
 a2a-codex --config agents/example/config.json
 ```
 
@@ -85,7 +85,7 @@ CodexExecutor
 |---|---|---|
 | `OPENAI_API_KEY` | No* | OpenAI API key; omit after authenticating with `codex login` |
 | `WORKSPACE_DIR` | Yes* | Absolute path to the Git repository Codex will operate in |
-| `CODEX_MODEL` | No** | Override model; required in practice when using ChatGPT subscription auth |
+| `CODEX_MODEL` | No** | Pin a model; default `auto` = first model your account lists (`codex debug models`) |
 | `LOG_LEVEL` | No | `debug` \| `info` \| `warn` \| `error` (default: `info`) |
 | `PORT` | No | A2A server port (default: from config, fallback `3020`) |
 | `ADVERTISE_HOST` | No | Hostname embedded in agent card URLs (default: `localhost`) |
@@ -93,7 +93,7 @@ CodexExecutor
 
 \* Authentication requires either `OPENAI_API_KEY` or credentials from `codex login`. `WORKSPACE_DIR` can instead be set via `codex.workingDirectory` or `--workspace`.
 
-\** Subscription users should select a supported model explicitly so the SDK does not inherit an incompatible desktop-app default.
+\** `auto` (also unset, empty or `default`) resolves at startup from `codex debug models`, falling back to Codex's model cache (`<CODEX_HOME>/models_cache.json`), then to Codex's own default if neither is available. The first listed model is the account's top-priority one, which may be the most capable and most expensive; pin a cheaper one if needed.
 
 ## Configuration Reference
 
@@ -329,7 +329,8 @@ Options:
   --advertise-host <host>      Hostname for agent card URLs    (default: localhost)
   --workspace <path>           Workspace directory (Git repo)  (alias: --working-dir)
   --working-dir <path>         Workspace directory (Git repo)  (alias: --workspace)
-  --model <model>              Codex model                     (e.g. o4-mini, gpt-4o)
+  --model <model>              Codex model                     (default: auto = first model your account lists;
+                                                                list them with: codex debug models)
   --sandbox <mode>             Sandbox mode                    (read-only | workspace-write | danger-full-access)
   --agent-name <name>          Agent display name
   --agent-description <desc>   Agent description
@@ -462,7 +463,7 @@ Set `RUN_CODEX_INTEGRATION_TESTS=true` to include the live integration test in `
 - **One thread per A2A context.** Each A2A `contextId` maps to exactly one Codex thread. Turns within a context are serialized. Concurrent turns on the same context are queued, not parallelized.
 - **Docker: shell sandboxing requires elevated privileges.** Codex wraps every shell command in `bwrap` (Bubblewrap), which creates Linux user namespaces. Standard Docker containers block unprivileged namespace creation, so shell tool calls fail inside a container unless you run with `--privileged` or `--security-opt=seccomp:unconfined`. For local development, running with `server.sh` directly (no Docker) is recommended.
 - **ChatGPT subscription: OAuth tokens expire.** When using ChatGPT Plus/Pro authentication (via `codex login`), the tokens in `~/.codex/auth.json` are short-lived. When they expire the agent returns auth errors; re-run `codex login` on the host to refresh. For long-running or unattended deployments, `OPENAI_API_KEY` is more reliable.
-- **ChatGPT subscription: model name is required.** The default model in `~/.codex/config.toml` (set by the desktop app) may differ from models available through the API. Always set `CODEX_MODEL` explicitly (e.g. `gpt-5.5`) when using subscription auth — leaving it unset causes the agent to fall back to the local default, which may be unsupported via the API endpoint.
+- **ChatGPT subscription: model.** The default `auto` picks a model your account lists, so the desktop app's default in `~/.codex/config.toml` is ignored. A model you pin yourself must be in `codex debug models`; Codex rejects others with "model not supported when using Codex with a ChatGPT account".
 
 ## License
 

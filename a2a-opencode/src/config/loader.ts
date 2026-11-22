@@ -11,7 +11,7 @@
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { substituteEnvTokensInString, substituteEnvTokensInRecord } from "@a2a-wrapper/core";
+import { substituteEnvTokensInString, substituteEnvTokensInRecord, normalizeModel } from "@a2a-wrapper/core";
 import { DEFAULTS } from "./defaults.js";
 import type { AgentConfig, McpServerConfig } from "./types.js";
 
@@ -173,6 +173,10 @@ export function resolveConfig(
 
   // Layer 4: Substitute env-var tokens in MCP command, environment, and headers
   substituteEnvTokensInMcp(merged);
+
+  // Layer 5: model — "auto"/"default" mean the OpenCode server chooses (empty string)
+  const opencode = merged.opencode as Record<string, unknown> | undefined;
+  if (opencode) opencode.model = normalizeModel(opencode.model) ?? "";
 
   return merged as unknown as Required<AgentConfig>;
 }

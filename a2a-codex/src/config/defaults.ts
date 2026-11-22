@@ -27,6 +27,7 @@ export const DEFAULTS: Required<AgentConfig> = {
   },
   codex: {
     workingDirectory: "",            // required; validated on startup
+    model: "auto",                   // "auto": first model Codex lists for the account; or a model name
     sandboxMode: "workspace-write",  // secure default: scoped writes only
     approvalPolicy: "never",         // headless A2A: no interactive approvals
     networkAccessEnabled: false,     // secure default: no outbound network
