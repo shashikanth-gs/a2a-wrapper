@@ -2,9 +2,10 @@
  * Copilot permission requests and `ask_user` questions as core interactions, and core's answers back as Copilot results.
  *
  * Only an explicit `selected` outcome on an `allow_*` option approves (design decision D5); everything else, including
- * `unavailable`, `expired`, `declined` and a malformed answer, denies. The one exception is a deployment on the default
- * interaction policy (`interactions.mode: "auto"`), where core never asks anybody: `unavailable` then means "no rule
- * answered", and the wrapper keeps today's behaviour of approving (the headless default every deployment relies on).
+ * `unavailable`, `expired`, `declined` and a malformed answer, denies. The one exception is `unavailable` with the code
+ * `policy-auto` (core does not ask anybody and no rule answered) while this wrapper itself is configured `auto`: it keeps
+ * today's behaviour of approving (the headless default every deployment relies on). Every other `unavailable` (an invalid
+ * request, an internal failure, an unknown code) denies, whatever the mode.
  */
 
 import type {
@@ -101,19 +102,27 @@ export function permissionInteraction(request: CopilotPermissionRequest): CoreIn
   } as CoreInteractionRequest;
 }
 
+/** What the model is told when a request could not be put to a person. Fixed: core's own reason text is internal. */
+export const UNAVAILABLE_FEEDBACK = "The permission request could not be put to a person, so it was denied.";
+
+/** Is this `unavailable` the "nobody is asked" case (the policy is `auto`, or the runtime has no interactions)? */
+export function nobodyWasAsked(result: CoreInteractionResult): boolean {
+  return result.outcome === "unavailable" && (result.code === "policy-auto" || result.code === "interactions-disabled");
+}
+
 /**
  * The Copilot answer to core's answer.
  *
- * @param nobodyAsked `true` when the interaction policy is `auto`: `unavailable` then means no rule answered, and the
- *   headless default (approve) applies. Under `ask` it denies.
+ * @param providerAuto `true` when this wrapper is configured `interactions.mode: "auto"` (the headless default): an
+ *   `unavailable` that says nobody is asked (`policy-auto`) then approves. Under `ask`, or for any other reason, it denies.
  */
-export function permissionResult(result: CoreInteractionResult, nobodyAsked: boolean): CopilotPermissionResult {
+export function permissionResult(result: CoreInteractionResult, providerAuto: boolean): CopilotPermissionResult {
   switch (result.outcome) {
     case "selected":
       if (result.optionId === ALLOW_ONCE.id) return { kind: "approve-once" };
       return { kind: "reject", ...(result.feedback ? { feedback: result.feedback } : {}) };
     case "unavailable":
-      return nobodyAsked ? { kind: "approve-once" } : { kind: "reject", feedback: result.reason };
+      return providerAuto && nobodyWasAsked(result) ? { kind: "approve-once" } : { kind: "reject", feedback: UNAVAILABLE_FEEDBACK };
     case "declined":
       return { kind: "reject", ...(result.feedback ? { feedback: result.feedback } : {}) };
     case "canceled":

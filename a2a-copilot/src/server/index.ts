@@ -49,24 +49,34 @@ export function interactionPolicyOf(config: Required<AgentConfig>): Partial<Inte
   };
 }
 
+/** The run runtime's options for a config: interaction policy, session lifetime (hard maximum age, optional idle expiry), store. */
+export function registryOptionsOf(config: Required<AgentConfig>, runStore?: RunStore): RunRegistryOptionsOf {
+  const ttl = config.session.ttl ?? 3_600_000;
+  const idle = config.session.idleTtl;
+  return {
+    interactionPolicy: interactionPolicyOf(config),
+    // `session.ttl` is a hard maximum age, as it always was: a context's session is reused only while it is younger than
+    // the TTL, however recently it was used. Idle expiry is a separate, optional setting (`session.idleTtl`).
+    ...(config.session.reuseByContext !== false && ttl > 0 ? { bindingMaxAgeMs: ttl } : {}),
+    ...(idle !== undefined && idle > 0 ? { bindingTtlMs: idle } : {}),
+    ...(runStore ? { store: runStore } : {}),
+  };
+}
+
+type RunRegistryOptionsOf = NonNullable<NonNullable<Parameters<typeof createProviderServer>[2]>["registry"]>;
+
 /**
  * Create, wire, and start the A2A server.
  * Returns a handle that can be used to shut down.
  */
 export async function createA2AServer(config: Required<AgentConfig>, options: CopilotServerOptions = {}): Promise<ServerHandle> {
   const provider = new CopilotProvider(config, { ...(options.eventTransport ? { eventTransport: options.eventTransport } : {}) });
-  const ttl = config.session.ttl ?? 3_600_000;
   const handle = await createProviderServer<Required<AgentConfig>>(config, provider, {
     protocolVersion: "1.0",
     wrapperName: WRAPPER_SDK,
     wrapperVersion: WRAPPER_SDK_VERSION,
     ...(options.eventTransport ? { eventTransport: options.eventTransport } : {}),
-    registry: {
-      interactionPolicy: interactionPolicyOf(config),
-      // A context binding unused for `session.ttl` is forgotten, as a session older than the TTL always was.
-      ...(config.session.reuseByContext !== false && ttl > 0 ? { bindingTtlMs: ttl } : {}),
-      ...(options.runStore ? { store: options.runStore } : {}),
-    },
+    registry: registryOptionsOf(config, options.runStore),
     registerRoutes: (app) => {
       const copilotExecutor = provider;
 

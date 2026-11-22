@@ -241,7 +241,18 @@ export type CoreInteractionResult =
   | { outcome: "expired" }
   /** The provider withdrew the ask through `AskOptions.signal`. */
   | { outcome: "withdrawn" }
-  | { outcome: "unavailable"; reason: string };
+  | { outcome: "unavailable"; reason: string; code?: UnavailableCode };
+
+/**
+ * Why `ask` answered `unavailable`, for a provider to act on without parsing `reason` (which is for people) and without
+ * reading its own configuration. Open: a code this version does not know is treated as an ordinary denial.
+ *
+ * - `policy-auto`: nobody is asked (`interactions.mode: "auto"`) and no rule answered. The provider's native handling applies.
+ * - `interactions-disabled`: the runtime has no interactions runtime.
+ * - `invalid-request`: the request was malformed; never approve.
+ * - `internal`: core failed internally; never approve.
+ */
+export type UnavailableCode = "policy-auto" | "interactions-disabled" | "invalid-request" | "internal" | (string & {});
 
 /** Option kinds that approve. Anything else, including unknown kinds, does not (D5). */
 export const APPROVING_OPTION_KINDS: readonly string[] = Object.freeze(["allow_once", "allow_always"]);

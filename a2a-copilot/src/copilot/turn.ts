@@ -447,7 +447,7 @@ export class CopilotTurn {
     for (const handle of [...this.held]) {
       this.held.delete(handle);
       try {
-        this.seg.view.dropHeld(handle);
+        this.seg.view.settleSteer(handle, "dropped");
       } catch {
         /* the run is gone */
       }
@@ -549,7 +549,19 @@ export class CopilotTurn {
       waiter(typeof delivery === "string" ? delivery : undefined);
       return;
     }
-    if (this.held.has(clientTurnId)) this.beginHeld(clientTurnId);
+    if (!this.held.has(clientTurnId)) return;
+    if (delivery === "steering") {
+      // Copilot folded the message into the turn that is running NOW (the echo only came after the ack window): there is no
+      // new turn. Tell core the message was delivered and stay in this segment.
+      this.held.delete(clientTurnId);
+      try {
+        this.seg.view.settleSteer(clientTurnId, "inserted");
+      } catch (e) {
+        log.warn("settleSteer failed", { handle: clientTurnId, error: (e as Error).message });
+      }
+      return;
+    }
+    this.beginHeld(clientTurnId);
   }
 
   /** A held message starts: the segment so far is complete, the held message's own turn takes over the output. */

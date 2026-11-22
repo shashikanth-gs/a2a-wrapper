@@ -201,8 +201,17 @@ export interface SessionConfig {
   titlePrefix?: string;
   /** Reuse sessions by A2A contextId (default: true) */
   reuseByContext?: boolean;
-  /** Session TTL in ms (default: 3_600_000 = 1 hour) */
+  /**
+   * Maximum age of a context's Copilot session in ms (default: 3_600_000 = 1 hour). A context is resumed only while its
+   * session is younger than this, however recently it was used; after that the next message starts a new session. `0`
+   * means never reuse.
+   */
   ttl?: number;
+  /**
+   * Optional idle expiry in ms, measured from the last use of a context (unset by default: a context that keeps being used
+   * is only limited by `ttl`). A context unused for this long starts a new session on its next message.
+   */
+  idleTtl?: number;
   /** Session cleanup interval in ms (default: 300_000 = 5 min) */
   cleanupInterval?: number;
 }

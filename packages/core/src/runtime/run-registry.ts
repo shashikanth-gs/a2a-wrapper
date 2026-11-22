@@ -204,6 +204,13 @@ export interface RunRegistryOptions {
    */
   bindingTtlMs?: number;
   /**
+   * Hard maximum age of a context binding in milliseconds, measured from when the bound session was bound (`createdAt`) and
+   * NOT extended by use: a conversation used all the time is still reset when its session reaches this age. An over-age
+   * binding is deleted and released when its context next resumes (the turn starts fresh) and removed by
+   * {@link RunRegistry.sweepBindings}. Independent of `bindingTtlMs` (idle expiry); both may be set. Default: none.
+   */
+  bindingMaxAgeMs?: number;
+  /**
    * At the end of {@link RunRegistry.sweep}, ask the provider (`probeSession`, when it has one) whether each stored
    * binding still resolves and delete the ones it reports `gone`. Default `false`: the first resume attempt decides
    * (`SESSION_NOT_FOUND`).
@@ -324,6 +331,7 @@ export class RunRegistry {
     this.issuerOverride = options.issuer;
     this.validateBindingsOnStart = options.validateBindingsOnStart === true;
     if (options.bindingTtlMs !== undefined && !(options.bindingTtlMs >= 0)) throw new RangeError("bindingTtlMs must be a number >= 0");
+    if (options.bindingMaxAgeMs !== undefined && !(options.bindingMaxAgeMs >= 0)) throw new RangeError("bindingMaxAgeMs must be a number >= 0");
     this.bindings = new ContextBindings({
       store: this.store,
       log: this.log,
@@ -341,6 +349,7 @@ export class RunRegistry {
       authorize: (by, action, target) => this.authorize(by, action, target),
       busy: (contextId) => this.contextBusy(contextId),
       ...(options.bindingTtlMs !== undefined ? { ttlMs: options.bindingTtlMs } : {}),
+      ...(options.bindingMaxAgeMs !== undefined ? { maxAgeMs: options.bindingMaxAgeMs } : {}),
     });
     this.interactions.bind?.({
       store: this.store,
@@ -1241,7 +1250,7 @@ export class RunRegistry {
         if (!live()) return Promise.resolve({ outcome: "canceled" });
         turn.observable = true;
         if (!self.interactions) {
-          return Promise.resolve({ outcome: "unavailable", reason: "interactions are not enabled" });
+          return Promise.resolve({ outcome: "unavailable", reason: "interactions are not enabled", code: "interactions-disabled" });
         }
         return self.interactions.ask(handle, request, options).then((r) => (live() ? r : { outcome: "canceled" as const }));
       },
@@ -1296,6 +1305,10 @@ export class RunRegistry {
         if (handle.phase !== "active") return;
         self.dropHeld(handle, heldHandle, "dropped by the provider");
       },
+      settleSteer(heldHandle: string, outcome: "inserted" | "dropped") {
+        if (handle.phase !== "active") return; // after a cancel the held records are already dropped
+        self.settleSteer(handle, heldHandle, outcome);
+      },
     };
     return view;
   }
@@ -1306,6 +1319,25 @@ export class RunRegistry {
     dead.stop("cancel");
     const gone = this.makeView(handle, dead);
     return gone;
+  }
+
+  /**
+   * The real delivery of a provider-held steer, learned after the fact. `inserted`: the message was folded into a turn that
+   * was running (its record is `done`). `dropped`: it was never delivered (record `dropped`). Either way the handle is no
+   * longer held, so the task may go terminal. Idempotent (a handle that is not held is ignored).
+   */
+  private settleSteer(handle: RunHandle, heldHandle: string, outcome: "inserted" | "dropped"): void {
+    const entry = handle.held.get(heldHandle);
+    if (!entry) return;
+    handle.held.delete(heldHandle);
+    if (entry.messageId) {
+      this.track(
+        this.store
+          .claimQueued(handle.taskId, entry.messageId, "queued", outcome === "inserted" ? "done" : "dropped", outcome === "inserted" ? undefined : "settled as dropped by the provider")
+          .catch((e) => this.log.warn("held record update failed", causeMessage(e))),
+      );
+    }
+    this.advance(handle);
   }
 
   private dropHeld(handle: RunHandle, heldHandle: string, why: string): void {

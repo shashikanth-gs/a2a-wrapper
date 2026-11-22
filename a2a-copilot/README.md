@@ -235,7 +235,17 @@ await handle.shutdown();
 ```
 
 `CopilotProvider` implements `@a2a-wrapper/core`'s `ProviderExecutor`; it does not depend on `@a2a-js/sdk`
-(only core does). The previous `CopilotExecutor` and `SessionManager` classes are gone.
+(only core does).
+
+#### Breaking changes (major release) and migration
+
+- **`CopilotExecutor` and `SessionManager` are removed**, with no shim. Use `CopilotProvider` (a `ProviderExecutor`: `run`,
+  `steer`, `abort`, `release`, `probeSession`) behind core's run runtime. It is not an SDK `AgentExecutor`: there is no
+  `execute(ctx, bus)` or `cancelTask`; cancel, steering and replies go through the A2A endpoints (or core's `RunRegistry`).
+- **`createA2AServer(config, options?)`** takes `{ runStore?, eventTransport? }` and returns `{ provider, registry, executor,
+  server, app, shutdown }`: `provider` is the `CopilotProvider`, `registry` core's run runtime, `executor` core's executor
+  (it used to be the `CopilotExecutor`). Use `handle.provider.buildContext()` where you used `executor.buildContext()`.
+- Custom event transports: pass `{ eventTransport }` (it used to be set on `executor.customTransport`).
 
 ## Configuration
 
@@ -326,14 +336,23 @@ Messages that carry the same `contextId` continue the same Copilot session. The 
 the model remembers earlier turns. A session the Copilot runtime no longer has is not an error: core forgets the binding
 and runs the same turn on a fresh session.
 
+> **Resume after a restart needs a durable `RunStore`.** The default store is in memory, so with the defaults **nothing
+> survives a restart**: the `contextId` to session binding is gone and the next message starts a new Copilot session (the
+> old one stays on disk, unused). Core ships only the in-memory store today; a durable one is tracked in #69. To keep
+> conversations across restarts supply your own `RunStore` (see core's `RunStore` interface and its contract test suite):
+>
+> ```typescript
+> import { createA2AServer, resolveConfig } from 'a2a-copilot';
+> const handle = await createA2AServer(resolveConfig('agent.json'), { runStore: new MyDurableRunStore() });
+> ```
+>
+> Tasks themselves are in memory either way (an in-flight task does not survive a restart; its Copilot session does).
+
 - `session.reuseByContext: false` (or `session.ttl <= 0`) gives every turn its own session and binds nothing.
-- `session.ttl` is how long a context may sit unused before its binding is forgotten (it used to be the age of the
-  session). `session.cleanupInterval` only releases the idle in-process handle; the session stays on disk and resumes.
-- **What survives a restart.** The default run store is in memory, so after a restart the `contextId` to session binding is
-  gone and the next message starts a new Copilot session (the old one stays on disk, unused). To keep a conversation across
-  restarts pass a persistent `RunStore` when starting the server programmatically: `createA2AServer(config, { runStore })`.
-  Core ships only the in-memory store today; a durable store is tracked in #69. Tasks themselves are in memory in either
-  case (an in-flight task does not survive a restart; its Copilot session does).
+- `session.ttl` (default 1 hour) is the **maximum age** of a context's session, as it always was: a context is resumed only
+  while its session is younger than `ttl`, however recently it was used; after that the next message starts a new session.
+- `session.idleTtl` (unset by default) is an optional **idle** expiry, measured from the last use of the context.
+- `session.cleanupInterval` only releases the idle in-process handle; the session stays on disk and resumes.
 
 ## Steering a running task
 
@@ -348,6 +367,16 @@ Send a second message to a task that is still running and choose what it means w
 
 The caller gets one `Message` carrying the result under `urn:a2a-wrapper:delivery-result:v1`. A cancel (`tasks/cancel`)
 calls `session.abort()` and also clears Copilot's queue. `mode: "immediate"` is an experimental Copilot SDK surface.
+
+Known limitations:
+
+- A `steer` answered `queued` splits the task into turns. If Copilot later reports that it folded the message into the turn
+  in flight, the wrapper keeps that turn going (no split). Output that Copilot produces for a held message while an
+  `interrupt` is running is attributed to the held message's turn.
+- A task with a held (queued) message publishes the first turn's result as a non-final `working` status, so `x-usage` can
+  appear on a `working` status. Clients that read usage only from terminal metadata should read the completed status.
+- In `streamArtifactChunks` mode the stored task holds the response text twice (the chunks, then the last-chunk marker with
+  the full text, both appended). This is the behaviour of earlier releases and is kept.
 
 ## Permissions and questions (`interactions`)
 

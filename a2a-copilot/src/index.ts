@@ -4,7 +4,7 @@
  * Re-exports everything consumers need for programmatic use.
  */
 
-export { createA2AServer, buildAgentCard, interactionPolicyOf } from "./server/index.js";
+export { createA2AServer, buildAgentCard, interactionPolicyOf, registryOptionsOf } from "./server/index.js";
 export type { ServerHandle, CopilotServerOptions } from "./server/index.js";
 
 export { CopilotProvider } from "./copilot/provider.js";

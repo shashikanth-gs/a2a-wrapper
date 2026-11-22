@@ -48,6 +48,7 @@ import {
 import type { AgentConfig, McpStdioServerConfig } from "../config/types.js";
 import { logger } from "../utils/logger.js";
 import {
+  nobodyWasAsked,
   permissionInteraction,
   permissionResult,
   questionAnswer,
@@ -321,8 +322,9 @@ export class CopilotProvider implements ProviderExecutor {
     if (!turn) return this.askMode ? { kind: "user-not-available" } : approve();
     try {
       const result = await turn.ask(permissionInteraction(request));
-      // Default policy and no rule answered: nobody is asked, so every permission is approved, exactly as before.
-      if (!this.askMode && result.outcome === "unavailable") return approve();
+      // Core says nobody is asked (policy `auto`, no rule answered) and this wrapper is headless too: approve, exactly as
+      // before. An invalid request or an internal failure denies, and so does everything under `ask`.
+      if (!this.askMode && nobodyWasAsked(result)) return approve();
       return permissionResult(result, !this.askMode);
     } catch (e) {
       log.warn("Permission request failed", { error: (e as Error).message });

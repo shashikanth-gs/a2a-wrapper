@@ -1084,3 +1084,92 @@ describe("round 3: issuer override, unknown identity, '@' collisions, abandoned 
     expect(s.logs.join("\n")).toContain("abort blew up");
   });
 });
+
+describe("hard maximum age (bindingMaxAgeMs)", () => {
+  const T0 = "2026-01-01T00:00:00.000Z";
+
+  it("an over-age binding is deleted and released and the turn starts fresh, however recently it was used", async () => {
+    const s = setup({}, { bindingMaxAgeMs: 1000 });
+    await putBinding(s, "ctx", SECRET, { createdAt: T0, updatedAt: "2026-01-01T00:00:01.000Z", lastUsedAt: "2026-01-01T00:00:01.000Z" });
+    s.clock.at = "2026-01-01T00:00:01.001Z"; // used a millisecond ago, but born 1001 ms ago
+    const r = await startRun(s, "t1", "ctx");
+    expect(r.call.req.session).toBeUndefined();
+    expect(await s.store.getBinding("ctx")).toBeUndefined();
+    expect(s.provider.release).toHaveBeenCalledWith({ ref: SECRET });
+    r.call.view.complete({});
+    await r.done;
+  });
+
+  it("a younger binding is resumed, and use does not extend its life", async () => {
+    const s = setup({}, { bindingMaxAgeMs: 1000 });
+    await putBinding(s, "ctx", "s1", { createdAt: T0, updatedAt: T0, lastUsedAt: T0 });
+    s.clock.at = "2026-01-01T00:00:00.900Z";
+    const r = await startRun(s, "t1", "ctx");
+    expect(r.call.req.session?.ref).toBe("s1");
+    r.call.view.complete({});
+    await r.done;
+    await s.registry.drain(); // the turn touched lastUsedAt
+
+    s.clock.at = "2026-01-01T00:00:01.100Z"; // used 200 ms ago, but older than 1000 ms
+    const r2 = await startRun(s, "t2", "ctx");
+    expect(r2.call.req.session).toBeUndefined();
+    r2.call.view.complete({});
+    await r2.done;
+  });
+
+  it("a conversation used repeatedly past the max age is reset once and the new session gets its own age", async () => {
+    const s = setup({}, { bindingMaxAgeMs: 1000 });
+    s.clock.at = T0;
+    await bindAndFinish(s, "t1", "ctx", "first");
+    s.clock.at = "2026-01-01T00:00:00.600Z";
+    const r2 = await startRun(s, "t2", "ctx");
+    expect(r2.call.req.session?.ref).toBe("first");
+    r2.call.view.complete({});
+    await r2.done;
+    s.clock.at = "2026-01-01T00:00:01.200Z";
+    const r3 = await startRun(s, "t3", "ctx");
+    expect(r3.call.req.session).toBeUndefined(); // over age: fresh
+    r3.call.view.bind({ ref: "second" });
+    r3.call.view.complete({});
+    await r3.done;
+    await s.registry.drain();
+    expect((await s.store.getBinding("ctx"))?.createdAt).toBe("2026-01-01T00:00:01.200Z");
+    s.clock.at = "2026-01-01T00:00:02.000Z"; // 800 ms after the new session started
+    const r4 = await startRun(s, "t4", "ctx");
+    expect(r4.call.req.session?.ref).toBe("second");
+    r4.call.view.complete({});
+    await r4.done;
+  });
+
+  it("is independent of the idle TTL: either one expires the binding", async () => {
+    const s = setup({}, { bindingMaxAgeMs: 10_000, bindingTtlMs: 1000 });
+    await putBinding(s, "ctx", "idle", { createdAt: T0, updatedAt: T0, lastUsedAt: T0 });
+    s.clock.at = "2026-01-01T00:00:02.000Z"; // young, but idle for 2 s
+    const r = await startRun(s, "t1", "ctx");
+    expect(r.call.req.session).toBeUndefined();
+    r.call.view.complete({});
+    await r.done;
+  });
+
+  it("sweepBindings removes over-age bindings with no run, even with no idle TTL", async () => {
+    const s = setup({}, { bindingMaxAgeMs: 1000 });
+    await putBinding(s, "old", "o", { createdAt: T0, updatedAt: "2026-01-01T00:00:09.000Z", lastUsedAt: "2026-01-01T00:00:09.000Z" });
+    await putBinding(s, "new", "n", { createdAt: "2026-01-01T00:00:09.500Z", updatedAt: "2026-01-01T00:00:09.500Z" });
+    s.clock.at = "2026-01-01T00:00:10.000Z";
+    const report = await s.registry.sweepBindings();
+    expect(report.removed).toEqual(["old"]);
+    expect(report.kept).toBe(1);
+    expect(s.provider.release).toHaveBeenCalledWith({ ref: "o" });
+    expect(await s.store.getBinding("new")).toBeDefined();
+  });
+
+  it("without bindingMaxAgeMs nothing ages out; a negative value is refused", async () => {
+    const s = setup();
+    await putBinding(s, "ctx", "s1", { createdAt: "2000-01-01T00:00:00.000Z" });
+    const r = await startRun(s, "t1", "ctx");
+    expect(r.call.req.session?.ref).toBe("s1");
+    r.call.view.complete({});
+    await r.done;
+    expect(() => new RunRegistry({ provider: makeProvider(), bindingMaxAgeMs: -1 })).toThrow(RangeError);
+  });
+});

@@ -251,7 +251,7 @@ describe("the mapping", () => {
     expect(permissionInteraction({ kind: "memory" })).toMatchObject({ title: "Permission requested (memory)" });
   });
 
-  it("only an explicit allow approves under ask; everything else denies; under auto unavailable approves", () => {
+  it("only an explicit allow approves under ask; everything else denies; under auto only policy-auto approves", () => {
     const by = { id: "u", kind: "user" };
     expect(permissionResult({ outcome: "selected", optionId: "allow", by }, false)).toEqual({ kind: "approve-once" });
     expect(permissionResult({ outcome: "selected", optionId: "reject", feedback: "no", by }, false)).toEqual({ kind: "reject", feedback: "no" });
@@ -259,8 +259,8 @@ describe("the mapping", () => {
     expect(permissionResult({ outcome: "declined", by }, false)).toEqual({ kind: "reject" });
     expect(permissionResult({ outcome: "dismissed" }, false)).toEqual({ kind: "reject" });
     for (const outcome of ["canceled", "expired", "withdrawn"] as const) expect(permissionResult({ outcome }, false)).toEqual({ kind: "user-not-available" });
-    expect(permissionResult({ outcome: "unavailable", reason: "x" }, false)).toMatchObject({ kind: "reject" });
-    expect(permissionResult({ outcome: "unavailable", reason: "x" }, true)).toEqual({ kind: "approve-once" });
+    expect(permissionResult({ outcome: "unavailable", reason: "x", code: "policy-auto" }, false)).toMatchObject({ kind: "reject" });
+    expect(permissionResult({ outcome: "unavailable", reason: "x", code: "policy-auto" }, true)).toEqual({ kind: "approve-once" });
   });
 
   it("questions: one question with the choices as options; the answer maps back", () => {
