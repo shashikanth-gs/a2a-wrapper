@@ -218,10 +218,11 @@ describe("queue and interrupt", () => {
     expect(responses(await h.server.getTask(taskId))).toEqual(["new answer"]);
   });
 
-  it("interrupt drops a steered message the CLI still held (its queue ends with the process)", async () => {
+  it("interrupt hands a steered message the CLI still held to core: it runs as the next turn, ahead of the interrupting message (the CLI's queue ends with the process)", async () => {
     const h = boot(20);
     h.client.onQuery = (q, n) => {
-      if (n === 1) q.emit(init("sess-1"), text("next"), result("next"));
+      if (n === 1) q.emit(init("sess-1"), text("held answer"), result("held answer"));
+      if (n === 2) q.emit(init("sess-1"), text("go answer"), result("go answer"));
     };
     const { live, taskId, q } = await startRunning(h);
     q.onInterrupt = () => q.emit(interruptedResult());
@@ -229,10 +230,34 @@ describe("queue and interrupt", () => {
 
     expect(await steerWith(h, taskId, "interrupt", "go")).toMatchObject({ state: "interrupted" });
     await live.done;
-    // the held message was not carried over to the new query: only the interrupting message is its prompt
-    await until(() => h.client.queries.length === 2);
-    expect(h.client.queries[1].inputs.map((i) => i.message.content)).toEqual(["go"]);
+    // not carried over to the new query by the CLI: core runs it as its own turn, then the interrupting message
+    await until(() => h.client.queries.length === 3);
+    expect(h.client.queries[1].inputs.map((i) => i.message.content)).toEqual(["held one"]);
+    expect(h.client.queries[2].inputs.map((i) => i.message.content)).toEqual(["go"]);
     await vi.waitFor(async () => expect(stateName((await h.server.getTask(taskId)).status.state)).toBe("completed"));
+    // each turn of the task has its own response artifact (the second and third turns by core's turn ordinal)
+    expect(responses(await h.server.getTask(taskId))).toEqual(["held answer", "go answer"]);
+    // ... named by core's turn ordinal (no process-local counter): the first turn's id is unchanged, later turns get `-t<n>`
+    const ids = ((await h.server.getTask(taskId)).artifacts as any[]).filter((a) => a.name === "response").map((a) => a.artifactId);
+    expect(ids).toEqual([`response-${taskId}-t1-1`, `response-${taskId}-t2-1`]);
+  });
+
+  it("interrupt while the steer is still waiting for the CLI's word: the message is answered queued and handed to core the same way", async () => {
+    const h = boot(60_000);
+    h.client.onQuery = (q, n) => {
+      if (n === 1) q.emit(init("sess-1"), text("held answer"), result("held answer"));
+      if (n === 2) q.emit(init("sess-1"), text("go answer"), result("go answer"));
+    };
+    const { live, taskId, q } = await startRunning(h);
+    q.onInterrupt = () => q.emit(interruptedResult());
+    const pending = steerWith(h, taskId, "steer", "pending one"); // no word from the CLI yet
+    await until(() => q.inputs.length === 2);
+    expect(await steerWith(h, taskId, "interrupt", "go")).toMatchObject({ state: "interrupted" });
+    expect(await pending).toMatchObject({ state: "queued" });
+    await live.done;
+    await until(() => h.client.queries.length === 3);
+    expect(h.client.queries[1].inputs.map((i) => i.message.content)).toEqual(["pending one"]);
+    expect(h.client.queries[2].inputs.map((i) => i.message.content)).toEqual(["go"]);
   });
 
   it("cancel: aborts and ends the query, drops the held message; the task is canceled", async () => {
