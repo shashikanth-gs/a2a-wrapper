@@ -15,8 +15,8 @@ import {
   RunEventBusManager,
   RunRegistry,
   createStorePublisher,
+  createStorePublisherFactory,
   endTaskInStore,
-  settleStoreWrites,
   type CoreInteractionRequest,
   type InteractionPolicy,
 } from "../../index.js";
@@ -45,15 +45,20 @@ function dataMessage(taskId: string, data: Record<string, unknown>) {
   return m;
 }
 
-function build(policy: Partial<InteractionPolicy> = { mode: "ask" }, providerOpts: Parameters<typeof makeProvider>[0] = {}) {
+function build(
+  policy: Partial<InteractionPolicy> = { mode: "ask" },
+  providerOpts: Parameters<typeof makeProvider>[0] = {},
+  registryOpts: Partial<ConstructorParameters<typeof RunRegistry>[0]> = {},
+) {
   const provider = makeProvider(providerOpts);
   const runStore = new InMemoryRunStore();
-  const registry = new RunRegistry({ provider, store: runStore, interactionPolicy: policy, logger: { warn: vi.fn() } });
+  const registry = new RunRegistry({ provider, store: runStore, interactionPolicy: policy, logger: { warn: vi.fn() }, ...registryOpts });
   const taskStore = new InMemoryTaskStore();
-  registry.setDetachedPublisher((info) => createStorePublisher(taskStore, info));
+  const detached = createStorePublisherFactory(taskStore);
+  registry.setDetachedPublisher(detached);
   const busManager = new RunEventBusManager(registry);
   const handler = new DefaultRequestHandler(agentCard, new OrphanGuardTaskStore(taskStore, registry), new CoreExecutor(registry) as any, busManager);
-  return { provider, runStore, registry, taskStore, busManager, handler };
+  return { provider, runStore, registry, taskStore, busManager, handler, detached };
 }
 type H = ReturnType<typeof build>;
 
@@ -214,6 +219,90 @@ describe("streaming message/stream", () => {
   });
 });
 
+describe("two replies at once (R1)", () => {
+  it("only the reply that is applied gets the Task snapshot; the other one starts nothing and cannot break the winner's stream", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const h = build({ mode: "ask" }, {}, { authorize: async () => (await gate, true) });
+    const s1 = stream(h, textMessage());
+    await vi.waitFor(() => expect(h.provider.runs).toHaveLength(1));
+    const call = h.provider.runs[0];
+    const asked = call.view.ask(permission);
+    const r1 = await s1;
+    const payload = eventInteraction(r1.events)!;
+    const taskId = call.req.taskId;
+
+    // both replies are in flight while the authorizer is pending: the whole window in which the second used to publish
+    // its own snapshot onto the shared bus, inside the first reply's lifecycle stream
+    const a = stream(h, dataMessage(taskId, { interactionId: payload.interactionId, optionId: "once" }));
+    await vi.waitFor(() => expect(h.registry.isParked(taskId)).toBe(true));
+    await new Promise((r) => setTimeout(r, 20));
+    const b = stream(h, dataMessage(taskId, { interactionId: payload.interactionId, optionId: "no" }));
+    await new Promise((r) => setTimeout(r, 20));
+    release();
+    expect(await asked).toMatchObject({ outcome: "selected", optionId: "once" }); // A applied, B never was
+    call.view.complete({ text: "done" });
+    const [ra, rb] = await Promise.all([a, b]);
+    expect(ra.error).toBeUndefined();
+    const kinds = states(ra.events);
+    expect(kinds[0]).toBe("task");
+    expect(kinds.filter((k) => k === "task")).toHaveLength(1);
+    expect(kinds.at(-1)).toBe("status:TASK_STATE_COMPLETED");
+    expect(h.provider.run).toHaveBeenCalledTimes(1); // and the loser did not queue a turn
+    expect(rb.events.some((e) => e.payload.$case === "task")).toBe(false); // the loser never got a snapshot
+    expect((await stored(h, taskId))?.status.state).toBe(TaskState.TASK_STATE_COMPLETED);
+  });
+});
+
+describe("secret answers in the A2A history (R2)", () => {
+  const secretQuestion: CoreInteractionRequest = {
+    kind: "question",
+    title: "Credentials",
+    questions: [
+      { id: "user", prompt: "User?" },
+      { id: "token", prompt: "Token?", secret: true },
+    ],
+  };
+  const historyText = (t: any) => JSON.stringify(t?.history);
+
+  it("a structured answer: the provider gets the secret, tasks/get history and the record do not", async () => {
+    const h = build();
+    const s1 = stream(h, textMessage(undefined as any, "deploy please"));
+    await vi.waitFor(() => expect(h.provider.runs).toHaveLength(1));
+    const call = h.provider.runs[0];
+    const asked = call.view.ask(secretQuestion);
+    const payload = eventInteraction((await s1).events)!;
+    const secret = "tok-s3cr3t-9f2";
+    const replied = send(h, dataMessage(call.req.taskId, { interactionId: payload.interactionId, answers: { user: { text: "ada" }, token: { text: secret } } }));
+    expect(await asked).toMatchObject({ outcome: "answered", answers: { token: { text: secret } } });
+    call.view.complete({ text: "ok" });
+    const done: any = await replied;
+    for (const t of [done, await stored(h, call.req.taskId), await h.handler.getTask({ tenant: "", id: call.req.taskId, historyLength: undefined } as any, ctx())]) {
+      expect(historyText(t)).not.toContain(secret);
+      expect(historyText(t)).toContain("ada"); // the non-secret answer stays
+      expect(historyText(t)).toContain("deploy please"); // and the original prompt is untouched
+    }
+    await h.registry.drain();
+    expect(JSON.stringify(await h.runStore.listPending(call.req.taskId))).not.toContain(secret);
+  });
+
+  it("a text answer to a single secret question: provider gets it, stored history does not (streaming reply, snapshot path)", async () => {
+    const h = build();
+    const s1 = stream(h, textMessage());
+    await vi.waitFor(() => expect(h.provider.runs).toHaveLength(1));
+    const call = h.provider.runs[0];
+    const asked = call.view.ask({ kind: "question", title: "Token", questions: [{ id: "token", prompt: "Token?", secret: true }] });
+    await s1;
+    const secret = "hunter2-hunter2";
+    const r2 = stream(h, textMessage(call.req.taskId, secret));
+    expect(await asked).toMatchObject({ outcome: "answered", answers: { token: { text: secret } } });
+    call.view.complete({ text: "ok" });
+    await r2;
+    const t = await h.handler.getTask({ tenant: "", id: call.req.taskId, historyLength: undefined } as any, ctx());
+    expect(historyText(t)).not.toContain(secret);
+  });
+});
+
 describe("core acts on a parked run nobody is consuming (the detached publisher writes the task store)", () => {
   it("expiry: the stored task goes failed with the reason, the provider is aborted, the run is gone", async () => {
     const h = build({ mode: "ask", timeoutMs: 60, onTimeout: "fail" });
@@ -224,7 +313,7 @@ describe("core acts on a parked run nobody is consuming (the detached publisher 
     await s1;
     expect((await stored(h, call.req.taskId))?.status.state).toBe(TaskState.TASK_STATE_INPUT_REQUIRED);
     await vi.waitFor(async () => expect((await stored(h, call.req.taskId))?.status.state).toBe(TaskState.TASK_STATE_FAILED), { timeout: 2000 });
-    await settleStoreWrites(call.req.taskId);
+    await h.detached.settle(call.req.taskId);
     const t = await stored(h, call.req.taskId);
     expect((t?.status.message?.parts[0] as any).content.value).toMatch(/not answered in time/);
     expect((await asked).outcome === "selected").toBe(false);
@@ -249,7 +338,7 @@ describe("core acts on a parked run nobody is consuming (the detached publisher 
     call.view.event({ type: "text", text: "went on without approval" });
     call.view.complete({});
     await vi.waitFor(async () => expect((await stored(h, call.req.taskId))?.status.state).toBe(TaskState.TASK_STATE_COMPLETED), { timeout: 2000 });
-    await settleStoreWrites(call.req.taskId);
+    await h.detached.settle(call.req.taskId);
     const t = await stored(h, call.req.taskId);
     expect(t?.artifacts.flatMap((a) => a.parts).map((p: any) => p.content.value).join("")).toBe("went on without approval");
   });

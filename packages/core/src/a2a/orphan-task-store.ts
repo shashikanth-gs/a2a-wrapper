@@ -15,6 +15,8 @@ import type { TaskStore } from "@a2a-js/sdk/server";
 import { v4 as uuidv4 } from "uuid";
 import { Role } from "@a2a-js/sdk";
 import type { RunRegistry, SweepOptions } from "../runtime/run-registry.js";
+import type { CorePart } from "../model/index.js";
+import { fromA2APart, toA2APart } from "./adapter.js";
 
 type SdkTask = Parameters<TaskStore["save"]>[0];
 
@@ -25,11 +27,36 @@ export class OrphanGuardTaskStore implements TaskStore {
   ) {}
 
   async save(task: SdkTask, context: ServerCallContext): Promise<void> {
-    await this.inner.save(task, context);
+    await this.inner.save(await this.hideSecrets(task), context);
     if (task.status?.state === TaskState.TASK_STATE_CANCELED) {
       // Not awaited: the store must not block on the provider. Failures are the registry's to log.
       void this.registry.handleStoreCancel(task.id).catch(() => {});
     }
+  }
+
+  /**
+   * The SDK appends a reply to `task.history` and saves it before `execute()` runs, so an answer to a SECRET question would
+   * sit in the stored task in clear. Ask the registry about each user message and store a copy with the answers removed.
+   * The input is never mutated: the provider's request shares those very part objects.
+   */
+  private async hideSecrets(task: SdkTask): Promise<SdkTask> {
+    const history = task.history;
+    if (!history || history.length === 0) return task;
+    let copy: SdkTask | undefined;
+    for (let n = 0; n < history.length; n++) {
+      const m = history[n]!;
+      if (m.role !== Role.ROLE_USER) continue;
+      let redacted: readonly CorePart[] | undefined;
+      try {
+        redacted = await this.registry.redactReply(task.id, m.messageId, m.parts.map(fromA2APart), n === history.length - 1);
+      } catch {
+        redacted = undefined;
+      }
+      if (!redacted) continue;
+      copy ??= { ...task, history: [...history] };
+      copy.history![n] = { ...m, parts: redacted.map(toA2APart) };
+    }
+    return copy ?? task;
   }
 
   load(taskId: string, context: ServerCallContext): ReturnType<TaskStore["load"]> {

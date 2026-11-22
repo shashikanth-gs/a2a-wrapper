@@ -312,7 +312,12 @@ export { CoreExecutor } from "./a2a/core-executor.js";
 export { RunEventBusManager } from "./a2a/bus-manager.js";
 export { OrphanGuardTaskStore, contextForOwner, endTaskInStore } from "./a2a/orphan-task-store.js";
 export { createBusPublisher } from "./a2a/bus-publisher.js";
-export { createStorePublisher, settleStoreWrites, type StorePublisherIds } from "./a2a/store-publisher.js";
+export {
+  createStorePublisher,
+  createStorePublisherFactory,
+  type StorePublisherFactory,
+  type StorePublisherIds,
+} from "./a2a/store-publisher.js";
 
 // ─── A2A v1 adapter (core <-> SDK translation; the only SDK-aware module) ───
 

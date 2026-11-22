@@ -136,6 +136,11 @@ export class RunHandle {
   private readonly detachedFactory?: () => RunPublisher | undefined;
   /** The run is parked on a presented interaction (see {@link signalParked}). */
   parked = false;
+  /**
+   * A reply has claimed the right to open its stream with the Task snapshot for this park. One claim per park: a second
+   * snapshot on the shared bus lands inside the first reply's stream and breaks it (see `RunRegistry.beginReply`).
+   */
+  replyAttaching = false;
   /** The turn in progress, or the last one. */
   turn?: RunTurn;
   /** Every turn of the run, in order. */
@@ -249,12 +254,14 @@ export class RunHandle {
    */
   signalParked(): void {
     this.parked = true;
+    this.replyAttaching = false;
     this.notify("parked");
   }
 
   /** The parked interaction was resolved; the run continues. */
   signalResumed(): void {
     this.parked = false;
+    this.replyAttaching = false;
   }
 
   /** Resolve at the next boundary: the run ended, or it is parked on an interaction. */

@@ -52,6 +52,7 @@ import {
   type CoreCaller,
   type CoreError,
   type CoreEvent,
+  type CorePart,
   type CoreInteractionRequest,
   type CoreInteractionResult,
   type CoreMessage,
@@ -104,6 +105,8 @@ export type DetachedPublisherFactory = (info: {
   taskId: string;
   contextId: string;
   owner: { id: string; kind: string };
+  /** The registry's per-task publisher bookkeeping, so every publisher of a run agrees on which artifacts were started. */
+  publisherState: Map<string, Set<string>>;
 }) => RunPublisher | undefined;
 
 export interface RunRegistryOptions {
@@ -210,6 +213,11 @@ export class RunRegistry {
   private readonly orphanClaims = new Set<string>();
   private readonly chains = new Map<string, Promise<void>>();
   private readonly background = new Set<Promise<unknown>>();
+  /**
+   * Per-task bookkeeping the A2A publishers share (which streamed artifacts already have their first chunk, so a reply's new
+   * publisher appends instead of replacing). Scoped to this registry, dropped when the run ends and at shutdown.
+   */
+  readonly publisherState = new Map<string, Set<string>>();
   private readonly settledListeners: Array<(info: { taskId: string; contextId: string }) => void> = [];
 
   private readonly authorize: Authorizer;
@@ -276,6 +284,7 @@ export class RunRegistry {
   async shutdown(): Promise<void> {
     for (const h of this.handles.values()) for (const t of h.turns) if (t.live) t.stop("shutdown");
     await this.drain();
+    this.publisherState.clear();
   }
 
   // ─── execute ──────────────────────────────────────────────────────────────
@@ -315,6 +324,7 @@ export class RunRegistry {
    * the event bus any more: from here core writes the task store itself (`handle.sink`).
    */
   private leave(handle: RunHandle, outcome: "ended" | "parked"): ExecuteOutcome {
+    handle.replyAttaching = false;
     if (outcome === "parked" && handle.attachments === 0 && handle.phase === "active") handle.consumerGone = true;
     return outcome;
   }
@@ -324,6 +334,7 @@ export class RunRegistry {
       taskId: handle.taskId,
       contextId: handle.contextId,
       owner: { id: handle.owner.id, kind: handle.owner.kind },
+      publisherState: this.publisherState,
     });
   }
 
@@ -333,6 +344,33 @@ export class RunRegistry {
    */
   setDetachedPublisher(factory: DetachedPublisherFactory | undefined): void {
     this.detachedFactory = factory;
+  }
+
+  /**
+   * Claim, synchronously, the right to open a reply's stream with the Task snapshot for the current park. Exactly one
+   * reply wins per park (until it leaves or the run parks again); every other concurrent reply must NOT publish a
+   * snapshot (it would land inside the winner's lifecycle stream and break it) and must not start anything. Returns
+   * `false` when the run is not parked or the claim is taken.
+   */
+  beginReply(taskId: string): boolean {
+    const h = this.handles.get(taskId);
+    if (!h || h.phase !== "active" || !h.parked || h.replyAttaching) return false;
+    h.replyAttaching = true;
+    return true;
+  }
+
+  /** Release the {@link beginReply} claim (the winner's `execute()` is over). */
+  endReply(taskId: string): void {
+    const h = this.handles.get(taskId);
+    if (h) h.replyAttaching = false;
+  }
+
+  /**
+   * A message the A2A task store is about to persist in a task's history: when it answers a SECRET question of the
+   * task's presented interaction, the parts to store instead (answers removed). `undefined` when nothing needs hiding.
+   */
+  async redactReply(taskId: string, messageId: string, parts: readonly CorePart[], isNew: boolean): Promise<readonly CorePart[] | undefined> {
+    return this.interactions.redactReply?.({ taskId, handle: this.handles.get(taskId) }, messageId, parts, isNew);
   }
 
   /** Is the run parked on a presented interaction (so the next message for it is a reply)? */
@@ -596,6 +634,7 @@ export class RunRegistry {
   private closeRun(handle: RunHandle, state: string): void {
     handle.end(state);
     if (this.handles.get(handle.taskId) === handle) this.handles.delete(handle.taskId);
+    this.publisherState.delete(handle.taskId);
     this.settling.add(handle.taskId);
     // In-memory memory of the terminal state, trusted over the store until the terminal write lands:
     // a failed write must not make a finished run look active (a second cancel, an "orphan").

@@ -873,3 +873,119 @@ describe("restart sweep of interrupted records", () => {
     expect(endTask).toHaveBeenCalled();
   });
 });
+
+describe("round 2: policy, timers, restart edge cases", () => {
+  const owner = { id: "anonymous", kind: "anonymous" };
+  const runRecord = (): RunRecord => ({
+    ...newRecordHeader(owner, "t"),
+    runId: "run-1",
+    taskId: "t1",
+    contextId: "ctx",
+    turnId: "turn-1",
+    state: "input-required",
+    startedAt: "t",
+  });
+  const pendingRec = (patch: Record<string, unknown> = {}) =>
+    ({
+      ...newRecordHeader(owner, "t"),
+      interaction: { kind: "permission", id: "i1", title: "Run?", replyCode: "AB23", options: [{ id: "once", label: "Yes", kind: "allow_once" }, { id: "no", label: "No", kind: "reject_once" }] },
+      taskId: "t1",
+      contextId: "ctx",
+      runId: "run-1",
+      seq: 1,
+      state: "presented",
+      expiresAt: new Date(Date.now() + 600_000).toISOString(),
+      ...patch,
+    }) as any;
+
+  it("N1: auto mode applies configured autoAnswer rules (a catch-all allow_once reproduces today's approve-everything); unmatched is unavailable", async () => {
+    const s = setup({ mode: "auto", autoAnswer: [{ match: { kind: "permission" }, answer: { kind: "allow_once" } }] });
+    const pub = makePublisher();
+    void s.registry.execute(makeInit("t1", "ctx", pub));
+    await until(() => s.provider.runs.length === 1);
+    const view = s.provider.runs[0].view;
+    expect(await view.ask(permission())).toMatchObject({ outcome: "selected", optionId: "once", by: { id: "policy" } });
+    expect(await view.ask({ kind: "question", title: "q", questions: [{ id: "q", prompt: "?" }] })).toMatchObject({ outcome: "unavailable" });
+    expect(pub.calls.some((c) => c.k === "interaction")).toBe(false); // auto never asks a person
+  });
+
+  it("N2: a timeout beyond the 2^31-1 ms timer limit does not expire early, and does expire at its deadline", async () => {
+    vi.useFakeTimers();
+    const total = 2 ** 31 + 5_000;
+    const s = setup({ mode: "ask", onTimeout: "deny", timeoutMs: total });
+    void s.registry.execute(makeInit("t1", "ctx", makePublisher()));
+    await flush();
+    const a = s.provider.runs[0].view.ask(permission());
+    let settled = false;
+    void a.then(() => (settled = true));
+    await flush();
+    await vi.advanceTimersByTimeAsync(2 ** 31 - 1); // the capped timer fires here: far too early
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(5_000); // the deadline is 5001 ms after that first (capped) timer
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await a).toEqual({ outcome: "expired" });
+  });
+
+  it("N5: a restored interaction answered before the provider re-asks hands the answer to the re-ask", async () => {
+    const provider = makeProvider();
+    let view: any;
+    (provider as any).reattach = vi.fn(async (_p: any[], runs: any) => {
+      view = runs.view("t1"); // the provider has the view but has not re-asked yet
+    });
+    const store = new InMemoryRunStore();
+    await store.putRun(runRecord());
+    await store.putPending(pendingRec({ handle: "h-1" }));
+    const registry = new RunRegistry({ provider, store, interactionPolicy: { mode: "ask" } });
+    await registry.sweep();
+    const pub = makePublisher();
+    const replied = registry.execute(makeReply("t1", [{ kind: "data", data: { interactionId: "i1", optionId: "once" } }], pub));
+    await tick();
+    expect(pub.statuses().map((x) => x.state)).toEqual(["working"]); // the answer was applied
+    const late = await view.ask({ kind: "permission", title: "x", options: [{ id: "once", label: "x", kind: "allow_once" }] }, { handle: "h-1" });
+    expect(late).toMatchObject({ outcome: "selected", optionId: "once" }); // not lost
+    view.complete({ text: "done" });
+    expect(await replied).toBe("ended");
+  });
+
+  it("N4: a duplicate structured reply is recognised from the STORE (an interaction answered before this process started)", async () => {
+    const provider = makeProvider();
+    let view: any;
+    (provider as any).reattach = vi.fn(async (_p: any[], runs: any) => {
+      view = runs.view("t1");
+    });
+    const store = new InMemoryRunStore();
+    await store.putRun(runRecord());
+    await store.putPending(pendingRec({ handle: "h-1" }));
+    // answered in an earlier life of the process: only the store knows
+    await store.putPending(pendingRec({ seq: 0, state: "answered", interaction: { ...pendingRec().interaction, id: "i0" }, result: { outcome: "selected", optionId: "once", by: owner } }));
+    const registry = new RunRegistry({ provider, store, interactionPolicy: { mode: "ask" } });
+    await registry.sweep();
+    const first = registry.execute(makeReply("t1", [{ kind: "data", data: { interactionId: "i1", optionId: "once" } }], makePublisher()));
+    await tick();
+    const dupPub = makePublisher();
+    const dup = registry.execute(makeReply("t1", [{ kind: "data", data: { interactionId: "i0", optionId: "once" } }], dupPub));
+    await tick();
+    expect(dupPub.calls).toHaveLength(0); // no side effect: nothing re-published, nothing resolved
+    view.complete({ text: "done" });
+    expect(await dup).toBe("ended"); // consumed as a duplicate (not queued as a turn: that would be "queued")
+    await first;
+    expect(provider.run).not.toHaveBeenCalled();
+  });
+
+  it("settle-once: a second settle of the same interaction (late timer, late abort) is refused and cannot rewrite the stored outcome", async () => {
+    const s = setup();
+    const { done, answer } = await parkOn(s, permission());
+    await done;
+    const runtime = (s.registry as any).interactions;
+    const st = runtime.states.get(s.registry.get("t1"));
+    const item = st.items[0];
+    expect(runtime.settle(st, item, "expired", { outcome: "expired" })).toBe(true);
+    // whatever reaches it afterwards (a reply that raced, an abort listener) must not flip a final record
+    expect(runtime.settle(st, item, "answered", { outcome: "selected", optionId: "once", by: ANONYMOUS_CALLER })).toBe(false);
+    expect(runtime.settle(st, item, "withdrawn", { outcome: "withdrawn" })).toBe(false);
+    expect(await answer).toEqual({ outcome: "expired" });
+    await s.registry.drain();
+    expect((await s.store.listPending("t1"))[0]).toMatchObject({ state: "expired", result: { outcome: "expired" } });
+  });
+});

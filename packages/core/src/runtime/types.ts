@@ -12,6 +12,7 @@ import type {
   CoreEvent,
   CoreInteraction,
   CoreInteractionRequest,
+  CorePart,
   CoreInteractionResult,
   CoreMessage,
   CoreRequest,
@@ -154,6 +155,18 @@ export interface InteractionRuntime {
    * when the provider calls `run.ask(request, { handle })` again.
    */
   restore?(handle: RunInteractionHandle, records: readonly PendingInteraction[]): void;
+  /**
+   * The A2A task store is about to persist `parts` as message `messageId` of the task's history. `isNew` is true for the
+   * message the SDK just appended (the last one): only such a message can be a reply that arrived while an interaction was
+   * presented; older ones are hidden only if they were already recognised. When it answers a secret question of the
+   * presented interaction, return the parts to store instead (the answers removed); else `undefined`. Must not mutate `parts`.
+   */
+  redactReply?(
+    target: { taskId: string; handle?: RunInteractionHandle },
+    messageId: string,
+    parts: readonly CorePart[],
+    isNew: boolean,
+  ): Promise<readonly CorePart[] | undefined>;
 }
 
 /** What the registry gives its interactions runtime. */

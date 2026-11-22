@@ -219,6 +219,11 @@ export interface CoreTaskRun {
    * Park the run until the caller answers (the task becomes `input-required` or
    * `auth-required`). Resolves with a core-produced result (D5: only `selected`
    * allow approves). Concurrent asks queue per task (see `model/interaction`).
+   *
+   * Expiry: an unanswered interaction expires per kind (10 minutes, auth 30). With the
+   * default policy `onTimeout: "fail"` core fails the task, so the promise resolves
+   * `{outcome: "canceled"}` and `signal` aborts with reason `cancel`; with `"deny"` it
+   * resolves `{outcome: "expired"}` and the run goes on. Either way nothing approves.
    */
   ask(i: CoreInteractionRequest, opts?: AskOptions): Promise<CoreInteractionResult>;
   /** Persist contextId to provider session (survives restart). */

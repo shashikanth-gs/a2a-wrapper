@@ -336,7 +336,11 @@ declining a question is the structured `declined`, never a word.
 
 **Expiry defaults** (core fills `expiresAt` from policy when the provider gives none; `interactions.timeoutMs` in 3.9
 overrides): permission, confirm, question and form 10 minutes; auth 30 minutes (a person signs in on another device).
-An expired interaction resolves `expired`.
+An expired interaction is stored `expired`. What the PROVIDER sees depends on `onTimeout` (3.9): under `"deny"` its `ask`
+resolves `{outcome: "expired"}` and the same run goes on; under `"fail"` (the default) core fails the task through
+`registry.expire`, whose terminal claim is taken synchronously before the ask promise is delivered, so the provider sees
+`{outcome: "canceled"}` and its `signal` aborts with reason `cancel`. The stored record and the failed task say why. Neither
+outcome approves.
 
 **Secrets.** Secret questions are allowed in v1 by owner decision, which deviates from MCP form-mode elicitation
 ("MUST NOT request secrets"). The `secret` flag keeps redaction possible: `redactSecretAnswers` drops the text of
@@ -572,8 +576,9 @@ and configurable, and keeps today's behaviour as the default so nothing changes 
   "mode": "auto",            // "auto" (default): providers keep their native config; core asks nobody
                              // "ask": core asks the A2A client via input-required / auth-required
   "timeoutMs": 600000,       // ask mode: expiry for an unanswered interaction
-  "onTimeout": "deny",       // "deny" | "fail": what the provider sees (outcome "expired")
-  "autoAnswer": [            // ask mode: rules answered without a person; first match wins
+  "onTimeout": "fail",       // "fail" (default) | "deny". "fail": the task fails; the provider sees {outcome: "canceled"}
+                             //   and its signal aborts (reason "cancel"). "deny": the provider sees {outcome: "expired"}
+  "autoAnswer": [            // rules answered without a person; first match wins (both modes, see below)
     { "match": { "kind": "permission", "risk": "low" }, "answer": { "kind": "allow_once" } }
   ]
 }
@@ -586,8 +591,11 @@ authorization middleware (decision 3) later decides *who* may answer; this polic
 Choices made where this section was open:
 
 - `mode: "auto"` is the default and keeps today's behaviour: core asks nobody, nothing is published or stored, and a
-  provider that still calls `run.ask` gets `{outcome: "unavailable"}` (a denial). Existing wrappers never call it.
-- `autoAnswer` applies in `ask` mode only. A rule is `{match: {kind?, risk?, tool?, action?}, answer: {kind} | {optionId} |
+  provider that still calls `run.ask` gets `{outcome: "unavailable"}` (a denial). Existing wrappers never call it, and an
+  unmigrated or half-migrated wrapper keeps its native handling because the default config has NO rules.
+- `autoAnswer` applies in BOTH modes when rules are configured (owner decision): in `auto` mode a rule answers what it
+  matches and everything else is `unavailable`, so an operator can reproduce today's approve-everything with one catch-all
+  `{match: {}, answer: {kind: "allow_once"}}` rule. In `ask` mode unmatched interactions go to the client. A rule is `{match: {kind?, risk?, tool?, action?}, answer: {kind} | {optionId} |
   {decline: true}}`; `kind` picks the first option of that option kind. Only option-based interactions (permission,
   confirm) can be auto-answered; a rule asking for an option kind the interaction does not offer does not match. The
   answer is recorded `by: {id: "policy", kind: "service"}` (`POLICY_CALLER`), the record is stored `answered`, nothing is
@@ -749,8 +757,48 @@ itself (`interactionPolicy`); the seam for a different one (`InteractionRuntime`
   the restored interaction's promise, so a client reply after the restart resolves it and the provider continues its turn.
   Otherwise (no `reattach`, no handle, or `reattach` rejects or times out) the open records become `expired`, the run record
   `failed`, and `endTask` tells the A2A store: reason "server restarted".
-- **Secrets.** Answers to `secret` questions reach the provider; the stored record is redacted (`redactSecretAnswers`, paths in
-  `result.redacted`) and no result is ever logged.
+- **Secrets.** Answers to `secret` questions reach the provider; the stored `PendingInteraction` is redacted
+  (`redactSecretAnswers`, paths in `result.redacted`) and no result is ever logged. The A2A task is covered too: the SDK appends
+  the reply to `task.history` and saves it BEFORE `execute()` runs, so `OrphanGuardTaskStore.save` (on every write path) asks
+  `registry.redactReply` about each user message and stores a copy without the secret (the input is never mutated, the provider's
+  request shares those part objects). A structured answer is judged by the stored interaction it names (so it works for a late
+  save and after a restart); a text-only reply is replaced entirely when it is the message just appended and the presented
+  interaction has a secret question (the text may be the secret), and remembered by message id for later saves. Limits: the
+  replying client's OWN stream still carries its own message in the Task snapshot; a text-only reply to an interaction that
+  mixes secret and plain questions is hidden as a whole; push notifications are sent by the SDK from the same events and are not
+  covered.
+- **Two replies at once.** Every message that arrives while the run is parked used to publish its own Task snapshot on the
+  shared bus; the second landed inside the first reply's lifecycle stream and broke it (the window is the whole `authorize`
+  await). The snapshot is now a one-shot synchronous claim per park (`registry.beginReply`, cleared when that attachment
+  leaves or the run parks or resumes again). A reply that loses the claim publishes no snapshot, does not call
+  `registry.execute`, is never queued as a turn, and only says on the bus (a plain `working` status, harmless in the winner's
+  stream) that it was not used: its own stream errors at its first event, the same documented limit as a message to a live
+  task (#109); a blocking caller returns with the winner's result.
+- **Process-local versus stored state.** Everything about an interaction's life is in the store: the record (state, result,
+  `seq`, handle) and, for "was this already answered", `getPending` (the in-process `settledIds` set is only a cache in front of
+  it, so a duplicate structured reply after a restart is still recognised). Deliberately process-local: the per-run state on a
+  `WeakMap` keyed by the run handle (open items, timers, the `seq` counter, answers given to a restored interaction before its
+  provider re-asked), the context lanes, tombstones and orphan claims, the bounded set of recognised secret message ids, and the
+  publishers' per-task artifact bookkeeping (`RunRegistry.publisherState`, dropped when the run ends and at shutdown; the store
+  publisher's write queues belong to its factory). A new run for an old task starts its `seq` at 1: records are keyed by
+  interaction id, so nothing collides; only a restored run continues from the stored `seq`. A `RunStore` over SQLite or
+  Postgres needs only the three `*Pending` methods for this.
+- **Other things implemented in round 2.** A timer longer than 2^31-1 ms (a configurable `timeoutMs` can be) re-arms until the
+  deadline has really passed; an interaction answered after a restart but before its provider re-asked is handed to the re-ask
+  by handle; `settle` is guarded so a late timer, abort or reply can never rewrite a final record.
+
+**Known limits, documented not coded.**
+
+- **N3.** A late text reply after its interaction resolved ("yes" arriving after a timeout) is not a reply any more: the task is
+  `working`, so the message follows the default delivery and becomes the next turn. Structured replies (which name the
+  interaction) are ignored as duplicates; plain text cannot be told apart. #109 decides what a message to a working task means.
+- **N6.** Detached store writes (`createStorePublisher`) and the `ResultManager` writes of a consumed stream are each serialized
+  but not against each other. The SDK protects terminal states, and the one window left (a late `input-required` landing after a
+  `working`) is small and is corrected by the next event.
+- **N7.** #109 must route `delivery` `steer` / `interrupt` BEFORE `handleReply`: today every message to a task with a presented
+  interaction is a reply attempt, so a steer cannot reach the task while it is parked.
+- **N8.** #111: a provider must pass `{handle}` on every ask it wants re-attachable after a restart; without one the sweep fails
+  the task ("server restarted").
 
 **Spec problems found.**
 

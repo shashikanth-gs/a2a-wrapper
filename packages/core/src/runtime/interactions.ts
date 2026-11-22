@@ -36,6 +36,7 @@
 
 import {
   initialInteractionState,
+  isOpenInteractionState,
   newRecordHeader,
   normalizeInteraction,
   parseInteractionReply,
@@ -44,6 +45,7 @@ import {
   type CoreInteraction,
   type CoreInteractionRequest,
   type CoreInteractionResult,
+  type CorePart,
   type CoreTaskState,
   type PendingInteraction,
 } from "../model/index.js";
@@ -81,10 +83,19 @@ interface RunState {
   handle: RunInteractionHandle;
   /** Open interactions only, in `seq` order. */
   items: Item[];
+  /**
+   * Last `seq` handed out for this run: restored from the records on a restart, then counted up. The records themselves
+   * (state, result, `seq`) live in the store; this is process-local, like the run handle it hangs on.
+   */
   nextSeq: number;
-  /** Ids already resolved, so a duplicate or late structured reply is ignored. */
+  /** A cache in front of the store for "was this interaction already resolved?" (a duplicate or late structured reply). */
   settledIds: Set<string>;
+  /** Answers given to a restored interaction before the provider re-asked with its handle, keyed by that handle. */
+  restoredResults: Map<string, CoreInteractionResult>;
 }
+
+const hasSecretQuestion = (i: CoreInteraction): boolean =>
+  ((i as { questions?: readonly { secret?: boolean }[] }).questions ?? []).some((q) => q.secret === true);
 
 const stateFor = (kind: string): CoreTaskState => (kind === "auth" ? "auth-required" : "input-required");
 
@@ -130,9 +141,17 @@ export class InteractionsRuntime implements InteractionRuntime {
         this.watch(st, restored, options.signal);
         return restored.promise;
       }
+      // Answered (or ended) while no provider was waiting: the re-ask gets that outcome.
+      const early = st.restoredResults.get(options.handle);
+      if (early) {
+        st.restoredResults.delete(options.handle);
+        return Promise.resolve(early);
+      }
     }
 
-    if (this.policy.mode !== "ask") {
+    // `auto` asks nobody: without autoAnswer rules there is nothing to do. With rules (an operator reproducing today's
+    // behaviour with a catch-all allow_once, say) they still apply; whatever they do not answer is unavailable.
+    if (this.policy.mode !== "ask" && this.policy.autoAnswer.length === 0) {
       return Promise.resolve({ outcome: "unavailable", reason: 'core does not ask a person (interactions.mode is "auto")' });
     }
 
@@ -169,6 +188,9 @@ export class InteractionsRuntime implements InteractionRuntime {
       host.track(host.store.putPending(rec).catch((e) => host.log.warn("pending record write failed", String(e))));
       return Promise.resolve(answeredByPolicy);
     }
+    if (this.policy.mode !== "ask") {
+      return Promise.resolve({ outcome: "unavailable", reason: 'core does not ask a person (interactions.mode is "auto")' });
+    }
 
     let resolve!: (r: CoreInteractionResult) => void;
     const promise = new Promise<CoreInteractionResult>((r) => (resolve = r));
@@ -193,7 +215,7 @@ export class InteractionsRuntime implements InteractionRuntime {
   private stateOf(handle: RunInteractionHandle): RunState {
     let st = this.states.get(handle);
     if (!st) {
-      st = { handle, items: [], nextSeq: 0, settledIds: new Set() };
+      st = { handle, items: [], nextSeq: 0, settledIds: new Set(), restoredResults: new Map() };
       this.states.set(handle, st);
     }
     return st;
@@ -272,6 +294,7 @@ export class InteractionsRuntime implements InteractionRuntime {
     item.offAbort?.();
     st.items = st.items.filter((i) => i !== item);
     st.settledIds.add(item.interaction.id);
+    if (item.restored && item.rec.handle !== undefined) st.restoredResults.set(item.rec.handle, result);
     const { result: stored, redacted } = redactSecretAnswers(item.interaction, result);
     item.rec = {
       ...item.rec,
@@ -287,6 +310,8 @@ export class InteractionsRuntime implements InteractionRuntime {
   private onExpire(st: RunState, item: Item): void {
     if (item.settled) return;
     const host = this.host!;
+    // A timer is capped at 2^31-1 ms (and may fire a hair early): until the deadline has really passed, wait on.
+    if (Date.parse(host.now()) < Date.parse(item.rec.expiresAt)) return this.armTimer(st, item);
     const title = item.interaction.title;
     this.settle(st, item, "expired", { outcome: "expired" });
     if (this.policy.onTimeout === "fail") {
@@ -320,8 +345,17 @@ export class InteractionsRuntime implements InteractionRuntime {
       const first = presented();
       const parts = init.message?.parts ?? [];
       if (!st || !first) {
-        // Nothing is open. A late or duplicate structured reply for an interaction that already ended is ignored.
-        return !!st && parts.some((p) => p.kind === "data" && st.settledIds.has(String((p.data as { interactionId?: unknown } | null)?.interactionId)));
+        // Nothing is open. A late or duplicate structured reply for an interaction that already ended is ignored. The
+        // store is the authority (it still knows after a restart); the in-process set is only a cache in front of it.
+        if (!st) return false;
+        for (const p of parts) {
+          const id = p.kind === "data" ? (p.data as { interactionId?: unknown } | null)?.interactionId : undefined;
+          if (typeof id !== "string") continue;
+          if (st.settledIds.has(id)) return true;
+          const rec = await this.host!.store.getPending(handle.taskId, id).catch(() => undefined);
+          if (rec && !isOpenInteractionState(rec.state)) return true;
+        }
+        return false;
       }
       const host = this.host!;
       const allowed = await host.authorize(init.caller, "answer", {
@@ -360,6 +394,77 @@ export class InteractionsRuntime implements InteractionRuntime {
       this.host?.log.warn("re-prompt failed", e instanceof Error ? e.message : String(e));
     }
     return true;
+  }
+
+  // ─── Secrets in the A2A history ─────────────────────────────────────────────
+
+  /** Message ids recognised as answers to a secret question (bounded; a task store may save the same history again later). */
+  private readonly secretMessageIds = new Set<string>();
+
+  /**
+   * The SDK appends a reply to the task's `history` and saves it BEFORE `execute()` runs, so a secret answer would sit in
+   * the stored task in clear (`tasks/get`). The task store wrapper asks here for every user message it persists and stores
+   * what comes back: the same parts with the answers to `secret` questions removed.
+   *
+   * - A structured answer (`{interactionId, answers}`) is judged by the stored interaction it names, so it needs no live run
+   *   and survives a restart: the `text` / `freeText` of its secret questions are dropped.
+   * - A text-only reply cannot name its interaction. It is replaced entirely when it is the message the SDK just appended
+   *   (`isNew`) and the PRESENTED interaction has a secret question (the text may be the secret), and remembered by message id,
+   *   so a later save of the same history (the reply's Task snapshot) hides it too.
+   *
+   * The provider is unaffected (it reads the message from the request, not from the store). Never mutates `parts`.
+   */
+  async redactReply(
+    target: { taskId: string; handle?: RunInteractionHandle },
+    messageId: string,
+    parts: readonly CorePart[],
+    isNew: boolean,
+  ): Promise<readonly CorePart[] | undefined> {
+    try {
+      let changed = false;
+      const out: CorePart[] = [];
+      let hasStructured = false;
+      for (const p of parts) {
+        const d = p.kind === "data" && p.data && typeof p.data === "object" ? (p.data as { interactionId?: unknown; answers?: unknown }) : undefined;
+        if (!d || typeof d.interactionId !== "string") {
+          out.push(p);
+          continue;
+        }
+        hasStructured = true;
+        const rec = d.answers && typeof d.answers === "object" ? await this.host?.store.getPending(target.taskId, d.interactionId) : undefined;
+        const secretIds = new Set(
+          ((rec?.interaction as { questions?: readonly { id: string; secret?: boolean }[] } | undefined)?.questions ?? []).filter((q) => q.secret).map((q) => q.id),
+        );
+        if (secretIds.size === 0) {
+          out.push(p);
+          continue;
+        }
+        const answers: Record<string, unknown> = {};
+        for (const [qid, a] of Object.entries(d.answers as Record<string, unknown>)) {
+          if (secretIds.has(qid) && a && typeof a === "object") {
+            const { text, freeText, ...rest } = a as { text?: unknown; freeText?: unknown };
+            if (text !== undefined || freeText !== undefined) changed = true;
+            answers[qid] = rest;
+          } else answers[qid] = a;
+        }
+        out.push({ ...(p as Extract<CorePart, { kind: "data" }>), data: { ...d, answers } as never });
+      }
+      if (!hasStructured) {
+        const st = target.handle ? this.states.get(target.handle) : undefined;
+        const presentedSecret = isNew && !!st?.items.some((i) => i.rec.state === "presented" && hasSecretQuestion(i.interaction));
+        if (presentedSecret) {
+          if (this.secretMessageIds.size >= 1000) this.secretMessageIds.delete(this.secretMessageIds.values().next().value!);
+          this.secretMessageIds.add(messageId);
+        }
+        if (this.secretMessageIds.has(messageId)) {
+          return parts.map((p) => (p.kind === "text" && p.text.trim() !== "" ? { ...p, text: "[answer to a secret question removed]" } : p));
+        }
+        return undefined;
+      }
+      return changed ? out : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   // ─── Restart ────────────────────────────────────────────────────────────────
