@@ -749,7 +749,7 @@ export function toArtifactUpdate(
       description: artifact.description ?? "",
       parts: artifact.parts.map(toA2APart),
       metadata: artifact.meta,
-      extensions: [],
+      extensions: [...(artifact.extensions ?? [])],
     },
     append: artifact.append ?? false,
     lastChunk: artifact.lastChunk ?? false,
@@ -770,6 +770,7 @@ export function fromA2AArtifact(
     ...(flags.append ? { append: true } : {}),
     ...(flags.lastChunk ? { lastChunk: true } : {}),
     ...(artifact.metadata ? { meta: artifact.metadata } : {}),
+    ...(artifact.extensions?.length ? { extensions: [...artifact.extensions] } : {}),
   };
 }
 

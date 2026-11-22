@@ -99,6 +99,8 @@ export interface CoreArtifact {
   name?: string;
   description?: string;
   parts: readonly CorePart[];
+  /** Extension URIs the artifact belongs to (for example the trace extension of a sideband artifact). */
+  extensions?: readonly string[];
   /** Append `parts` to the artifact with this id (streaming chunk). */
   append?: boolean;
   /** This is the last chunk of the artifact. */
