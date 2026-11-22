@@ -43,7 +43,7 @@ Options:
   --cli-url <url>             Copilot CLI server URL          (default: auto — SDK spawns gh CLI)
                               Only needed when pointing at a running VS Code Copilot
                               language server (typically http://localhost:4321)
-  --model <model>             LLM model                      (default: claude-sonnet-4.5)
+  --model <model>             LLM model                      (default: auto = Copilot chooses)
                               Examples: gpt-4o, gpt-4.1, claude-sonnet-4.5
   --workspace <path>          Workspace directory for context files
   --agent-name <name>         Agent display name             (default: "Copilot A2A Agent")

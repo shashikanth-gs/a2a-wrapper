@@ -254,6 +254,7 @@ describe("Test 2d — a2a-opencode Runtime Preservation", () => {
     // OpenCode 2.x support (#60) intentionally adds the backend interface + factory, the 2.x
     // client, a Node 20 polyfill, and their tests. That is a deliberate extension, not the
     // accidental regression this test otherwise guards against.
+    // The default-model change (#95) adds __tests__/model-setting.test.ts: also deliberate.
     expect(relativePaths).toEqual([
       "__tests__/backend-factory.test.ts",
       "__tests__/client-v2-usage.test.ts",
@@ -262,6 +263,7 @@ describe("Test 2d — a2a-opencode Runtime Preservation", () => {
       "__tests__/env-overrides.test.ts",
       "__tests__/event-transport-lifecycle.test.ts",
       "__tests__/live-server.test.ts",
+      "__tests__/model-setting.test.ts",
       "__tests__/polyfills.test.ts",
       "__tests__/schema-up-to-date.test.ts",
       "__tests__/smoke.test.ts",
@@ -305,6 +307,6 @@ describe("Test 2d — a2a-opencode Runtime Preservation", () => {
     }
 
     // Verify the number of files matches our expected count
-    expect(Object.keys(hashMap)).toHaveLength(33);
+    expect(Object.keys(hashMap)).toHaveLength(34);
   });
 });

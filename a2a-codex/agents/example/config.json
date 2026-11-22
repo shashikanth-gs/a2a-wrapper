@@ -5,7 +5,7 @@
     "Required environment variables:",
     "  WORKSPACE_DIR   — absolute path to a Git repository",
     "Optional with API-key auth:",
-    "  CODEX_MODEL     — override the model (required for subscription auth)",
+    "  CODEX_MODEL     — pin a model (optional; default 'auto' = first model your account lists)",
     "Do not store credentials in this file."
   ],
   "agentCard": {

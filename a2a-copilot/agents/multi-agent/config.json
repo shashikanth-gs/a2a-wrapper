@@ -46,7 +46,7 @@
   },
 
   "copilot": {
-    "model": "claude-sonnet-4.5",
+    "model": "auto",
     "streaming": true,
     "systemPromptMode": "replace",
     "systemPrompt": "You are an orchestrator agent. Inspect available tools and delegate user requests to the most appropriate sub-agent. Synthesize their responses into a single, coherent answer for the user."

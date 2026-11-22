@@ -22,6 +22,7 @@ import { EventMapper, sanitizeMessage } from "./event-mapper.js";
 import { validateMcpServers, toCodexMcpEntry } from "./mcp-adapter.js";
 import { CODEX_BACKEND_PATHS } from "./backend-paths.js";
 import { extractUserText } from "./prompt-builder.js";
+import { resolveCodexModel } from "./model-resolver.js";
 
 import {
   materializeMemory,
@@ -88,6 +89,13 @@ export class CodexExecutor implements AgentExecutor {
 
     // 1. Validate configuration
     this.validateConfig();
+
+    // 1b. Resolve `codex.model`: an explicit name is kept; "auto" (the default)
+    //     picks the account's first listed model so a stale desktop-app default
+    //     in ~/.codex/config.toml is never inherited.
+    this.config.codex.model = await resolveCodexModel(this.config.codex.model, {
+      codexPath: this.config.codex.codexPathOverride,
+    });
 
     // 2. Memory materialization (before backend client setup)
     if (this.config.memory) {
