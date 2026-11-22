@@ -42,6 +42,7 @@ import { CANCELED } from "../model/cancel.js";
 import {
   ABORT_FAILED_OUTCOME,
   classifyState,
+  isOpenInteractionState,
   newRecordHeader,
   type AbortOutcome,
   type AbortReason,
@@ -51,19 +52,24 @@ import {
   type CoreCaller,
   type CoreError,
   type CoreEvent,
+  type CorePart,
   type CoreInteractionRequest,
   type CoreInteractionResult,
   type CoreMessage,
   type CoreResult,
   type CoreTaskRun,
+  type CoreTaskState,
   type Meta,
   type OrphanInfo,
+  type PendingInteraction,
   type ProviderExecutor,
   type QueuedMessageRecord,
   type RunRecord,
   type SessionRef,
   type TaskRunInfo,
 } from "../model/index.js";
+import { InteractionsRuntime } from "./interactions.js";
+import type { InteractionPolicy } from "./interaction-policy.js";
 import { RunHandle, RunTurn, type QueuedTurn, type TurnOutcome } from "./run-handle.js";
 import { InMemoryRunStore, type RunStore } from "./run-store.js";
 import {
@@ -91,14 +97,36 @@ const SWEEP_CONCURRENCY = 4;
 /** Builds the publisher for a task when the caller (the SDK's `cancelTask`) only has a bus. */
 export type PublisherFactory = (ids: { taskId: string; contextId: string }) => RunPublisher;
 
+/**
+ * Builds the publisher core uses for a run nobody is consuming (parked at `input-required`): one
+ * that writes the A2A task store directly. See `RunInteractionHandle.sink`.
+ */
+export type DetachedPublisherFactory = (info: {
+  taskId: string;
+  contextId: string;
+  owner: { id: string; kind: string };
+  /** The registry's per-task publisher bookkeeping, so every publisher of a run agrees on which artifacts were started. */
+  publisherState: Map<string, Set<string>>;
+}) => RunPublisher | undefined;
+
 export interface RunRegistryOptions {
   provider: ProviderExecutor;
   /** Default: a new {@link InMemoryRunStore}. */
   store?: RunStore;
   /** Default: {@link allowAll}. */
   authorize?: Authorizer;
-  /** The interactions runtime (issue #108). Absent: `run.ask` answers `unavailable`. */
+  /**
+   * The interactions runtime (issue #108). Default: core's own {@link InteractionsRuntime} over
+   * `interactionPolicy`.
+   */
   interactions?: InteractionRuntime;
+  /**
+   * Interaction policy of the default runtime (3.9). Default `mode: "auto"`: core asks nobody and
+   * `run.ask` answers `unavailable`, which is today's behaviour. `mode: "ask"` is the opt-in.
+   */
+  interactionPolicy?: Partial<InteractionPolicy>;
+  /** See {@link DetachedPublisherFactory}; the server factory sets it, or call {@link RunRegistry.setDetachedPublisher}. */
+  detached?: DetachedPublisherFactory;
   /** Upper bound for `abort` / `abortOrphan` / `release`. Default {@link DEFAULT_ABORT_TIMEOUT_MS}. */
   abortTimeoutMs?: number;
   /** Clock, ISO string. */
@@ -185,10 +213,16 @@ export class RunRegistry {
   private readonly orphanClaims = new Set<string>();
   private readonly chains = new Map<string, Promise<void>>();
   private readonly background = new Set<Promise<unknown>>();
+  /**
+   * Per-task bookkeeping the A2A publishers share (which streamed artifacts already have their first chunk, so a reply's new
+   * publisher appends instead of replacing). Scoped to this registry, dropped when the run ends and at shutdown.
+   */
+  readonly publisherState = new Map<string, Set<string>>();
   private readonly settledListeners: Array<(info: { taskId: string; contextId: string }) => void> = [];
 
   private readonly authorize: Authorizer;
-  private readonly interactions?: InteractionRuntime;
+  private readonly interactions: InteractionRuntime;
+  private detachedFactory?: DetachedPublisherFactory;
   private readonly abortTimeoutMs: number;
   private readonly now: () => string;
   private readonly newId: () => string;
@@ -199,12 +233,29 @@ export class RunRegistry {
     this.provider = options.provider;
     this.store = options.store ?? new InMemoryRunStore();
     this.authorize = options.authorize ?? allowAll;
-    this.interactions = options.interactions;
+    this.interactions = options.interactions ?? new InteractionsRuntime({ policy: options.interactionPolicy });
+    this.detachedFactory = options.detached;
     this.abortTimeoutMs = options.abortTimeoutMs ?? DEFAULT_ABORT_TIMEOUT_MS;
     this.now = options.now ?? (() => new Date().toISOString());
     this.newId = options.newId ?? (() => randomUUID());
     this.log = options.logger ?? NOOP_LOGGER;
     this.issuerOverride = options.issuer;
+    this.interactions.bind?.({
+      store: this.store,
+      log: this.log,
+      now: () => this.now(),
+      newId: () => this.newId(),
+      expire: (taskId, error, state) => this.expire(taskId, error, state),
+      setRunState: (taskId, state) => this.setRunState(taskId, state),
+      authorize: (by, action, target) => this.authorize(by, action, target),
+      track: (p) => this.track(p),
+    });
+  }
+
+  /** Move a task's RunRecord to a non-terminal `state` (the interactions runtime: `input-required`, `working`). */
+  private setRunState(taskId: string, state: CoreTaskState): void {
+    const at = this.now();
+    void this.mutateRecord(taskId, (r) => (r && classifyState(r.state) !== "terminal" ? { ...r, state, updatedAt: at } : r));
   }
 
   // ─── Introspection ────────────────────────────────────────────────────────
@@ -233,6 +284,7 @@ export class RunRegistry {
   async shutdown(): Promise<void> {
     for (const h of this.handles.values()) for (const t of h.turns) if (t.live) t.stop("shutdown");
     await this.drain();
+    this.publisherState.clear();
   }
 
   // ─── execute ──────────────────────────────────────────────────────────────
@@ -248,12 +300,13 @@ export class RunRegistry {
     const existing = this.handles.get(init.taskId);
     if (existing) return this.attach(existing, init);
 
-    const handle = new RunHandle({
+    const handle: RunHandle = new RunHandle({
       runId: this.newId(),
       taskId: init.taskId,
       contextId: init.contextId,
       owner: init.caller,
       publisher: init.publisher,
+      detached: (): RunPublisher | undefined => this.detachedPublisher(handle),
     });
     this.handles.set(init.taskId, handle);
     handle.attachments++;
@@ -263,26 +316,93 @@ export class RunRegistry {
       handle.started = true;
       this.beginTurn(handle, init, firstTurnId);
     });
-    try {
-      return await handle.waitBoundary();
-    } finally {
-      handle.attachments--;
-    }
+    return this.leave(handle, await handle.waitBoundary().finally(() => handle.attachments--));
+  }
+
+  /**
+   * An `execute()` stops waiting. When it leaves at a park and was the last one, nothing consumes
+   * the event bus any more: from here core writes the task store itself (`handle.sink`).
+   */
+  private leave(handle: RunHandle, outcome: "ended" | "parked"): ExecuteOutcome {
+    handle.replyAttaching = false;
+    if (outcome === "parked" && handle.attachments === 0 && handle.phase === "active") handle.consumerGone = true;
+    return outcome;
+  }
+
+  private detachedPublisher(handle: RunHandle): RunPublisher | undefined {
+    return this.detachedFactory?.({
+      taskId: handle.taskId,
+      contextId: handle.contextId,
+      owner: { id: handle.owner.id, kind: handle.owner.kind },
+      publisherState: this.publisherState,
+    });
+  }
+
+  /**
+   * Where core writes what it does to a run nobody is consuming (a timer expiring an interaction,
+   * a withdrawal, the next queued interaction): the A2A task store. The server factory sets it.
+   */
+  setDetachedPublisher(factory: DetachedPublisherFactory | undefined): void {
+    this.detachedFactory = factory;
+  }
+
+  /**
+   * Claim, synchronously, the right to open a reply's stream with the Task snapshot for the current park. Exactly one
+   * reply wins per park (until it leaves or the run parks again); every other concurrent reply must NOT publish a
+   * snapshot (it would land inside the winner's lifecycle stream and break it) and must not start anything. Returns
+   * `false` when the run is not parked or the claim is taken.
+   */
+  beginReply(taskId: string): boolean {
+    const h = this.handles.get(taskId);
+    if (!h || h.phase !== "active" || !h.parked || h.replyAttaching) return false;
+    h.replyAttaching = true;
+    return true;
+  }
+
+  /** Release the {@link beginReply} claim (the winner's `execute()` is over). */
+  endReply(taskId: string): void {
+    const h = this.handles.get(taskId);
+    if (h) h.replyAttaching = false;
+  }
+
+  /**
+   * A message the A2A task store is about to persist in a task's history: when it answers a SECRET question of the
+   * task's presented interaction, the parts to store instead (answers removed). `undefined` when nothing needs hiding.
+   */
+  async redactReply(taskId: string, messageId: string, parts: readonly CorePart[], isNew: boolean): Promise<readonly CorePart[] | undefined> {
+    return this.interactions.redactReply?.({ taskId, handle: this.handles.get(taskId) }, messageId, parts, isNew);
+  }
+
+  /** Is the run parked on a presented interaction (so the next message for it is a reply)? */
+  isParked(taskId: string): boolean {
+    const h = this.handles.get(taskId);
+    return !!h && h.phase === "active" && h.parked;
   }
 
   private async attach(handle: RunHandle, init: ExecuteInit): Promise<ExecuteOutcome> {
     handle.attachments++;
+    let left = false;
     try {
       if (this.interactions?.handleReply) {
-        const consumed = await this.interactions.handleReply(handle, init);
+        let consumed = false;
+        try {
+          consumed = await this.interactions.handleReply(handle, init);
+        } catch (e) {
+          // The contract says never throw. If it does, the message must still not run as a turn.
+          this.log.warn("handleReply threw", causeMessage(e));
+          consumed = handle.parked;
+        }
         if (consumed) {
-          if (handle.phase === "active") handle.publisher = init.publisher;
-          return await handle.waitBoundary();
+          if (handle.phase === "active") handle.setPublisher(init.publisher);
+          const boundary = await handle.waitBoundary();
+          handle.attachments--;
+          left = true;
+          return this.leave(handle, boundary);
         }
       }
       if (handle.phase !== "active") return "ended";
       // Default delivery: the message becomes the next turn of this task. It never runs now.
-      handle.publisher = init.publisher;
+      handle.setPublisher(init.publisher);
       const message: CoreMessage = init.message ?? {
         id: this.newId(),
         role: "user",
@@ -294,7 +414,7 @@ export class RunRegistry {
       this.kick(handle);
       return "queued";
     } finally {
-      handle.attachments--;
+      if (!left) handle.attachments--;
     }
   }
 
@@ -462,7 +582,7 @@ export class RunRegistry {
     if (this.liveTurns(handle).length > 0) return;
     if (handle.queue.length > 0) {
       if (handle.lastOutcome && handle.lastOutcome.kind !== "completed") {
-        handle.publisher?.status({
+        handle.sink?.status({
           state: "working",
           text: `The previous turn ${handle.lastOutcome.kind === "failed" ? "failed" : "was rejected"}: ${handle.lastOutcome.error.message}`,
         });
@@ -476,7 +596,7 @@ export class RunRegistry {
 
   private finalize(handle: RunHandle, outcome: TurnOutcome): void {
     if (!handle.claim("finalizing")) return;
-    const pub = handle.publisher;
+    const pub = handle.sink;
     if (outcome.kind === "completed") {
       const r = outcome.result;
       for (const a of r.artifacts ?? []) pub?.artifact(a);
@@ -514,6 +634,7 @@ export class RunRegistry {
   private closeRun(handle: RunHandle, state: string): void {
     handle.end(state);
     if (this.handles.get(handle.taskId) === handle) this.handles.delete(handle.taskId);
+    this.publisherState.delete(handle.taskId);
     this.settling.add(handle.taskId);
     // In-memory memory of the terminal state, trusted over the store until the terminal write lands:
     // a failed write must not make a finished run look active (a second cancel, an "orphan").
@@ -569,16 +690,16 @@ export class RunRegistry {
       signal: turn.controller.signal as CoreTaskRun["signal"],
       progress(text?: string, meta?: Meta) {
         if (!live()) return;
-        handle.publisher?.status({ state: "working", ...(text ? { text } : {}), ...(meta ? { metadata: meta } : {}) });
+        handle.sink?.status({ state: "working", ...(text ? { text } : {}), ...(meta ? { metadata: meta } : {}) });
       },
       event(e: CoreEvent) {
         if (!live()) return;
         if (e.type === "text") turn.text += e.text;
-        handle.publisher?.event(e);
+        handle.sink?.event(e);
       },
       artifact(a: CoreArtifact) {
         if (!live()) return;
-        handle.publisher?.artifact(a);
+        handle.sink?.artifact(a);
       },
       ask(request: CoreInteractionRequest, options?: AskOptions): Promise<CoreInteractionResult> {
         if (!live()) return Promise.resolve({ outcome: "canceled" });
@@ -717,7 +838,7 @@ export class RunRegistry {
 
     // 4. persist (not awaited yet) and publish exactly one canceled status, then close the stream
     const persisted = this.persistTerminal(handle, "canceled", { by: by.id });
-    const pub = publish ? publish({ taskId, contextId: handle.contextId }) : handle.publisher;
+    const pub = publish ? publish({ taskId, contextId: handle.contextId }) : handle.sink;
     pub?.status({ state: "canceled" });
     pub?.finished();
     this.closeRun(handle, "canceled");
@@ -820,7 +941,7 @@ export class RunRegistry {
         delivery: "interrupt",
         at: this.now(),
       };
-      handle.publisher = next.publisher;
+      handle.setPublisher(next.publisher);
       this.enqueue(handle, message, next);
     }
     if (target) {
@@ -854,8 +975,9 @@ export class RunRegistry {
     handle.settlePending();
     this.dropDependents(handle, `task ${state}: ${error.message}`);
     const persisted = this.persistTerminal(handle, state);
-    handle.publisher?.status({ state, text: error.message, ...(error.code ? { metadata: { code: error.code } } : {}) });
-    handle.publisher?.finished();
+    const pub = handle.sink;
+    pub?.status({ state, text: error.message, ...(error.code ? { metadata: { code: error.code } } : {}) });
+    pub?.finished();
     this.closeRun(handle, state);
     for (const t of turns) t.stop("cancel");
     this.stopBackend(handle, running);
@@ -1098,7 +1220,7 @@ export class RunRegistry {
         continue;
       }
       if (cls === "interrupted") {
-        entry.action = "skipped-interrupted";
+        await this.sweepInterrupted(rec, entry, options);
         continue;
       }
       const outcome = outcomes.get(rec.runId);
@@ -1159,6 +1281,105 @@ export class RunRegistry {
       }
     }
     return { entries };
+  }
+
+  /**
+   * An `interrupted` record (`input-required`, `auth-required`) with no live run: the process
+   * restarted while the task waited on a person. Core never leaves such a task hanging:
+   *
+   * - interactions that carry a provider `handle` go to `provider.reattach` when it exists:
+   *   core re-creates the run (live handle, lane held, restored interactions in front of it,
+   *   expiry timers re-armed) and the provider re-asks with each handle to continue its turn;
+   * - everything else (no `reattach`, no handle, or the provider rejects): the pending records
+   *   become `expired` and the task is failed with "server restarted".
+   */
+  private async sweepInterrupted(rec: RunRecord, entry: SweepEntry, options: SweepOptions): Promise<void> {
+    const reason = "server restarted";
+    const all = await this.store.listPending(rec.taskId).catch((e) => {
+      this.log.warn("listing pending interactions failed", causeMessage(e));
+      return [] as PendingInteraction[];
+    });
+    const open = all.filter((p) => isOpenInteractionState(p.state));
+    const reattachable = open.filter((p) => p.handle !== undefined);
+
+    const failTask = async (): Promise<void> => {
+      entry.action = "interrupted-failed";
+      const at = this.now();
+      await this.mutateRecord(rec.taskId, (r) =>
+        r && classifyState(r.state) !== "terminal" ? { ...r, state: "failed", endedAt: at, updatedAt: at } : r,
+      );
+      try {
+        await options.endTask?.({
+          taskId: rec.taskId,
+          contextId: rec.contextId,
+          state: "failed",
+          reason,
+          owner: rec.owner,
+          ...(rec.tenant ? { tenant: rec.tenant } : {}),
+        });
+      } catch (e) {
+        this.log.warn("endTask failed", causeMessage(e));
+      }
+    };
+
+    if (this.provider.reattach && this.interactions.restore && reattachable.length > 0) {
+      for (const p of open.filter((x) => x.handle === undefined)) await this.expirePending(p);
+      const handle = await this.adopt(rec);
+      this.interactions.restore(handle, reattachable);
+      const r = await this.bounded(() => this.provider.reattach!(reattachable, { view: (taskId) => this.viewFor(taskId) }));
+      if (r.ok) {
+        entry.action = "interrupted-reattached";
+        return;
+      }
+      this.log.warn(`provider.reattach failed: ${r.error.message}`);
+      await this.expire(rec.taskId, { message: reason, code: "unavailable" });
+      await this.drain();
+      for (const p of reattachable) await this.expirePending(p);
+      await failTask();
+      return;
+    }
+
+    for (const p of open) await this.expirePending(p);
+    await failTask();
+  }
+
+  /** A pending interaction that can no longer be answered. */
+  private async expirePending(p: PendingInteraction): Promise<void> {
+    await this.store
+      .putPending({ ...p, state: "expired", updatedAt: this.now(), result: { outcome: "expired" } })
+      .catch((e) => this.log.warn("pending record write failed", causeMessage(e)));
+  }
+
+  /**
+   * Re-create the live run of an interrupted task after a restart: no provider call is made (the
+   * provider's reattach resumes its own turn), but the handle, the running turn, the context lane
+   * and the session are as if the run had never stopped, so cancel, expiry and replies work.
+   */
+  private async adopt(rec: RunRecord): Promise<RunHandle> {
+    const handle: RunHandle = new RunHandle({
+      runId: rec.runId,
+      taskId: rec.taskId,
+      contextId: rec.contextId,
+      owner: { id: rec.owner.id, kind: rec.owner.kind },
+      detached: (): RunPublisher | undefined => this.detachedPublisher(handle),
+    });
+    handle.started = true;
+    handle.consumerGone = true; // nobody is attached after a restart
+    const turn = new RunTurn(rec.turnId);
+    turn.state = "running";
+    const binding = await this.store.getBinding(rec.contextId).catch(() => undefined);
+    if (binding?.session) turn.session = { ref: binding.session.ref, ...(binding.session.meta ? { meta: binding.session.meta } : {}) };
+    handle.turn = turn;
+    handle.turns.push(turn);
+    this.handles.set(rec.taskId, handle);
+    this.lane(rec.contextId).admit(handle, () => {});
+    return handle;
+  }
+
+  /** The provider-facing view of a live run's current turn (what `reattach` gets to continue it). */
+  viewFor(taskId: string): CoreTaskRun | undefined {
+    const h = this.handles.get(taskId);
+    return h?.turn ? this.makeView(h, h.turn) : undefined;
   }
 
   // ─── Records ──────────────────────────────────────────────────────────────

@@ -13,7 +13,7 @@ import type { ExecuteInit, RunPublisher } from "../../index.js";
 export const tick = () => new Promise<void>((r) => setTimeout(r, 0));
 
 export interface FakePublisher extends RunPublisher {
-  calls: Array<{ k: "status" | "event" | "artifact" | "finished"; v?: any }>;
+  calls: Array<{ k: "status" | "event" | "artifact" | "finished" | "interaction"; v?: any }>;
   statuses(): any[];
   terminal(): any[];
 }
@@ -23,6 +23,7 @@ export function makePublisher(): FakePublisher {
   const pub: FakePublisher = {
     calls,
     status: vi.fn((v) => void calls.push({ k: "status", v })),
+    interaction: vi.fn((interaction, options) => void calls.push({ k: "interaction", v: { interaction, options } })),
     event: vi.fn((v) => void calls.push({ k: "event", v })),
     artifact: vi.fn((v) => void calls.push({ k: "artifact", v })),
     finished: vi.fn(() => void calls.push({ k: "finished" })),
@@ -100,4 +101,25 @@ export function makeInit(
     }),
     ...extra,
   };
+}
+
+let replySeq = 0;
+
+/** A reply to a parked task, as the A2A layer hands it to the registry. */
+export function makeReply(
+  taskId: string,
+  parts: ExecuteInit["message"] extends infer M ? (M extends { parts: infer P } ? P : never) : never,
+  publisher: RunPublisher = makePublisher(),
+  caller: ExecuteInit["caller"] = { ...ANONYMOUS_CALLER },
+): ExecuteInit {
+  return makeInit(taskId, "ctx", publisher, {
+    caller,
+    message: { id: `reply-${++replySeq}`, role: "user", parts, from: caller, at: "t" },
+  });
+}
+
+/** The interaction last published on a fake publisher. */
+export function lastInteraction(pub: FakePublisher): any {
+  const all = pub.calls.filter((c) => c.k === "interaction");
+  return all[all.length - 1]?.v.interaction;
 }

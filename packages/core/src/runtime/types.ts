@@ -8,8 +8,11 @@
 import type {
   CoreArtifact,
   CoreCaller,
+  CoreError,
   CoreEvent,
+  CoreInteraction,
   CoreInteractionRequest,
+  CorePart,
   CoreInteractionResult,
   CoreMessage,
   CoreRequest,
@@ -17,8 +20,10 @@ import type {
   CoreTaskState,
   CoreUsage,
   Meta,
+  PendingInteraction,
   SessionRef,
 } from "../model/index.js";
+import type { RunStore } from "./run-store.js";
 
 /**
  * What the interactions and steering runtimes may see and do on a run. The
@@ -28,12 +33,30 @@ export interface RunInteractionHandle {
   readonly runId: string;
   readonly taskId: string;
   readonly contextId: string;
+  /** The task owner (who started the run). */
+  readonly owner: CoreCaller;
   /** The event stream currently attached. */
   readonly publisher?: RunPublisher;
+  /**
+   * Where core-initiated events go: the attached stream while an `execute()` is attached, else
+   * the detached publisher (writes the A2A task store, since nothing consumes the bus then; for
+   * example a timer that expires an interaction while the run is parked). Never use `publisher`
+   * for those.
+   */
+  readonly sink: RunPublisher | undefined;
+  /** Is the run parked on a presented interaction? Set by {@link signalParked}, cleared by {@link signalResumed}. */
+  readonly parked: boolean;
+  /** The reply's attachment takes over: later events go to `p`. Call before resuming the run. */
+  setPublisher(p: RunPublisher): void;
   /** Register something parked on the run; it is settled `canceled` inside a cancel's claim. Returns the unregister function. */
   registerPending(hook: PendingHook): () => void;
-  /** The run is parked on an interaction: an `execute()` waiting on it may return. */
+  /**
+   * The run is parked on an interaction: an `execute()` waiting on it may return (now, or when it
+   * starts waiting: the flag stays set until {@link signalResumed}).
+   */
   signalParked(): void;
+  /** The presented interaction was resolved and the run continues; clear the parked flag. Synchronous, before the ask promise resolves. */
+  signalResumed(): void;
 }
 
 /** Default upper bound on how long core waits for a provider's abort, abortOrphan or release. */
@@ -43,6 +66,12 @@ export const DEFAULT_ABORT_TIMEOUT_MS = 5_000;
 export interface RunPublisher {
   /** A task status. `text` becomes the status message. */
   status(update: { state: CoreTaskState; text?: string; metadata?: Meta; usage?: CoreUsage }): void;
+  /**
+   * Park the task on an interaction: `input-required` (`auth-required` for an auth interaction)
+   * with the text rendering and the structured interaction payload as the status message.
+   * `hint` is prepended to the text (a re-prompt after a reply that could not be used).
+   */
+  interaction(interaction: CoreInteraction, options?: { hint?: string }): void;
   /** A non-terminal provider event (text delta, tool, usage, ...). */
   event(event: CoreEvent): void;
   /** An artifact (a streamed chunk or a final one). */
@@ -66,7 +95,7 @@ export interface AuthTarget {
  */
 export type Authorizer = (
   by: CoreCaller,
-  action: "cancel" | "interrupt" | (string & {}),
+  action: "cancel" | "interrupt" | "answer" | (string & {}),
   target: AuthTarget,
 ) => boolean | Promise<boolean>;
 
@@ -110,13 +139,50 @@ export type ExecuteOutcome =
  * `run.ask` itself: it routes `ask` here and tells the runtime when to settle.
  */
 export interface InteractionRuntime {
+  /** Called once by the registry that owns this runtime, before anything else. */
+  bind?(host: InteractionHost): void;
   /** Handle `run.ask` of a live turn. The runtime registers its pending asks with the handle. */
-  ask(handle: RunInteractionHandle,request: CoreInteractionRequest, options?: AskOptions): Promise<CoreInteractionResult>;
+  ask(handle: RunInteractionHandle, request: CoreInteractionRequest, options?: AskOptions): Promise<CoreInteractionResult>;
   /**
    * A new `execute()` arrived for a task with a live run. Resolve `true` when it is
    * the reply to a pending interaction (it is consumed here and must not start a turn).
+   * Must never throw.
    */
-  handleReply?(handle: RunInteractionHandle,init: ExecuteInit): boolean | Promise<boolean>;
+  handleReply?(handle: RunInteractionHandle, init: ExecuteInit): boolean | Promise<boolean>;
+  /**
+   * The restart sweep re-created a live run for a task whose interactions carry a provider
+   * handle: put these (still open) records back in front of the run. Their asks are answered
+   * when the provider calls `run.ask(request, { handle })` again.
+   */
+  restore?(handle: RunInteractionHandle, records: readonly PendingInteraction[]): void;
+  /**
+   * The A2A task store is about to persist `parts` as message `messageId` of the task's history. `isNew` is true for the
+   * message the SDK just appended (the last one): only such a message can be a reply that arrived while an interaction was
+   * presented; older ones are hidden only if they were already recognised. When it answers a secret question of the
+   * presented interaction, return the parts to store instead (the answers removed); else `undefined`. Must not mutate `parts`.
+   */
+  redactReply?(
+    target: { taskId: string; handle?: RunInteractionHandle },
+    messageId: string,
+    parts: readonly CorePart[],
+    isNew: boolean,
+  ): Promise<readonly CorePart[] | undefined>;
+}
+
+/** What the registry gives its interactions runtime. */
+export interface InteractionHost {
+  readonly store: RunStore;
+  readonly log: RuntimeLogger;
+  now(): string;
+  newId(): string;
+  /** End the run because an interaction expired (the third terminal claim). */
+  expire(taskId: string, error: CoreError, state?: "failed" | "canceled"): Promise<boolean>;
+  /** Move the task's RunRecord to `state` (`input-required` while parked, `working` after). */
+  setRunState(taskId: string, state: CoreTaskState): void;
+  /** The single authorization choke point (design decision 3). */
+  authorize(by: CoreCaller, action: string, target: AuthTarget): boolean | Promise<boolean>;
+  /** Keep a background write so `registry.drain()` waits for it. */
+  track<T>(p: Promise<T>): Promise<T>;
 }
 
 /** A pending interaction (or anything else parked on the run) that must be settled when the run is canceled. */
@@ -166,6 +232,10 @@ export interface SweepEntry {
     | "task-failed"
     | "turn-failed-queue-continued"
     | "skipped-interrupted"
+    /** An interrupted task whose pending interactions a provider re-attached (`reattach`). */
+    | "interrupted-reattached"
+    /** An interrupted task that could not be re-attached: failed with "server restarted", its pending interactions expired. */
+    | "interrupted-failed"
     | "skipped-unknown-state"
     | "skipped-live";
   abort?: { stopped: string; session: string };

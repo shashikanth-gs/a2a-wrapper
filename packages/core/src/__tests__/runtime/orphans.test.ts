@@ -249,7 +249,7 @@ describe("startup sweep", () => {
     }
   });
 
-  it("leaves interrupted records to the interactions runtime and never assumes an unknown state finished", async () => {
+  it("an interrupted record with no open interaction is failed (server restarted); an unknown state is never assumed finished", async () => {
     const provider = makeProvider();
     const store = new InMemoryRunStore();
     const registry = new RunRegistry({ provider, store, logger: { warn: vi.fn() } });
@@ -258,7 +258,7 @@ describe("startup sweep", () => {
     const report = await registry.sweep();
     expect(report.entries.map((e) => [e.taskId, e.action]).sort()).toEqual([
       ["odd", "skipped-unknown-state"],
-      ["wait", "skipped-interrupted"],
+      ["wait", "interrupted-failed"],
     ]);
     expect(provider.abortOrphan).not.toHaveBeenCalled();
     expect((await store.getRun("odd"))?.state).toBe("some-future-state");

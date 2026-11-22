@@ -114,6 +114,8 @@ export interface RunHandleInit {
   contextId: string;
   owner: CoreCaller;
   publisher?: RunPublisher;
+  /** Builds the publisher core-initiated events use while no `execute()` is attached (writes the A2A task store). */
+  detached?: () => RunPublisher | undefined;
 }
 
 /**
@@ -131,6 +133,14 @@ export class RunHandle {
   endedState?: CoreTaskState;
   /** The event stream currently attached (the latest `execute()`). */
   publisher?: RunPublisher;
+  private readonly detachedFactory?: () => RunPublisher | undefined;
+  /** The run is parked on a presented interaction (see {@link signalParked}). */
+  parked = false;
+  /**
+   * A reply has claimed the right to open its stream with the Task snapshot for this park. One claim per park: a second
+   * snapshot on the shared bus lands inside the first reply's stream and breaks it (see `RunRegistry.beginReply`).
+   */
+  replyAttaching = false;
   /** The turn in progress, or the last one. */
   turn?: RunTurn;
   /** Every turn of the run, in order. */
@@ -163,6 +173,29 @@ export class RunHandle {
     this.contextId = init.contextId;
     this.owner = init.owner;
     this.publisher = init.publisher;
+    this.detachedFactory = init.detached;
+  }
+
+  /**
+   * The last `execute()` attached to the run returned at a park, so nothing consumes the event
+   * bus any more (the SDK updates the task store only from events a request consumes).
+   */
+  consumerGone = false;
+
+  /**
+   * Where core-initiated and provider events go: the attached stream, or, once the last
+   * attachment left at a park and until a reply attaches again, the detached publisher, which
+   * writes the task store directly.
+   */
+  get sink(): RunPublisher | undefined {
+    if (!this.consumerGone || !this.detachedFactory) return this.publisher;
+    return this.detachedFactory() ?? this.publisher;
+  }
+
+  /** An `execute()` attached: its stream is the one events go to now. */
+  setPublisher(p: RunPublisher): void {
+    this.publisher = p;
+    this.consumerGone = false;
   }
 
   /** True once a cancel claimed the run (or it ended canceled). */
@@ -214,14 +247,27 @@ export class RunHandle {
     return hooks.length;
   }
 
-  /** The run is parked on an interaction: an `execute()` waiting on it may return. */
+  /**
+   * The run is parked on an interaction: an `execute()` waiting on it may return. The flag
+   * stays set, so an `execute()` that starts waiting later (a reply that re-parks the run
+   * before its attachment began to wait) returns at once too.
+   */
   signalParked(): void {
+    this.parked = true;
+    this.replyAttaching = false;
     this.notify("parked");
   }
 
-  /** Resolve at the next boundary: the run ended, or it parked on an interaction. */
+  /** The parked interaction was resolved; the run continues. */
+  signalResumed(): void {
+    this.parked = false;
+    this.replyAttaching = false;
+  }
+
+  /** Resolve at the next boundary: the run ended, or it is parked on an interaction. */
   waitBoundary(): Promise<"ended" | "parked"> {
     if (this.phase === "ended") return Promise.resolve("ended");
+    if (this.parked) return Promise.resolve("parked");
     return new Promise((resolve) => this.waiters.push(resolve));
   }
 
