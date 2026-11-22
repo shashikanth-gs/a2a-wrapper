@@ -276,7 +276,7 @@ describe("usage: x-usage cost is the cost of the turn, from the running total of
 
     expect(cost(b.summary)).toBeCloseTo(0.0014, 9);
     const binding = await store.getBinding("ctx-u");
-    expect((binding?.session.meta as any).usageTotals.costUsd).toBeCloseTo(0.0089, 9);
+    expect((binding as any).usageBaseline.costUsd).toBeCloseTo(0.0089, 9);
   });
 
   it("a total that goes back down (the session was reset) is a new total, never a negative cost", async () => {

@@ -410,6 +410,9 @@ always done). Set `interactions.mode` to `ask` to route them through the A2A cli
 - `timeoutMs` (default 10 minutes) and `onTimeout`: `fail` (default) ends the task, `deny` lets the run go on with the
   request denied.
 - Also `--interactions ask` and `INTERACTIONS_MODE=ask`.
+- Whether the pre-tool hook may approve a tool call itself (nobody could answer) follows the interaction policy of the run
+  runtime (core reports it on every request), not only this wrapper's own `interactions` config. They are the same in a
+  normal deployment; the difference matters only for a program that builds the runtime with another policy.
 - After a restart a task waiting for an answer fails with "server restarted" (the Copilot request id is not re-attached).
 
 ## Bring Your Own Model (BYOK)

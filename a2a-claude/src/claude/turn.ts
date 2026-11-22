@@ -21,19 +21,20 @@
  *   its `started` arrives after the result, the turn splits there (`beginHeldTurn`) and its output is that turn's. A late
  *   fold-in is `settleSteer(handle, "inserted")`.
  *
- * The CLI's own queue lives in the process, so an interrupt (which ends the process and resumes the session in a new one) drops
- * messages that were still waiting; they are settled `dropped`.
+ * The CLI's own queue lives in the process, so an interrupt (which ends the process and resumes the session in a new one) would
+ * lose messages that were still waiting: they are handed to core with `settleSteer(handle, "requeue")` and run as the next
+ * turn. A cancel or shutdown drops them (the task is going away).
  */
 
 import { randomUUID } from "node:crypto";
 import {
   RunObservability,
   applyUsageCallToActiveSpan,
-  applyUsageSummaryToActiveSpan,
   corePartsText,
   createDeferred,
   createResponseStream,
-  usageSummaryToCoreUsage,
+  usageDelta,
+  usageToMetadata,
   SESSION_NOT_FOUND,
   type AbortOutcome,
   type AbortReason,
@@ -43,7 +44,7 @@ import {
   type CoreUsage,
   type EventTransport,
   type EventTransportFn,
-  type ModelUsage,
+  type Meta,
   type SteerOutcome,
 } from "@a2a-wrapper/core";
 
@@ -69,7 +70,7 @@ import {
 } from "./interactions.js";
 import { RateLimitTracker, rateLimitMetadata, renderRateLimitMessage } from "./rate-limit-tracker.js";
 import type { RateLimitSnapshot } from "./rate-limit-tracker.js";
-import { addByModel, resultUsage, totalsFromMeta, type UsageTotals } from "./usage.js";
+import { resultUsage } from "./usage.js";
 
 const log = logger.child("turn");
 
@@ -105,8 +106,6 @@ export interface TurnOptions {
   /** Install `canUseTool`: a person or a rule can answer permission requests and questions. */
   interactive: boolean;
   steerAckMs?: number;
-  /** 0 for the first turn of the task, then 1, 2, ... (a queued message or an interrupt starts another turn of the same task). */
-  turnOrdinal?: number;
 }
 
 /** One output segment: the turn itself, then one per steered message that started its own turn. */
@@ -121,7 +120,6 @@ interface Segment {
   finalText: string;
   structured: unknown;
   lastResult: SDKMessageLike | null;
-  byModel: Record<string, ModelUsage>;
   /** `complete` was called for it. */
   completed: boolean;
 }
@@ -164,9 +162,10 @@ export class ClaudeTurn {
   /** The session id this turn knows the binding names. */
   private boundRef: string | undefined;
   private sessionId: string | undefined;
-  /** The last cumulative usage reading and the session it belongs to (kept in the binding's meta). */
-  private totals: UsageTotals | undefined;
-  private totalsSid: string | undefined;
+  /** Sessions this turn already handed a usage reading for (only the first reading of a new session is `fresh`). */
+  private readonly readSeries = new Set<string>();
+  /** Without a binding core keeps no baseline (`session.reuseByContext: false`): the turn diffs its own readings. */
+  private lastReading: CoreUsage | undefined;
 
   constructor(private readonly opts: TurnOptions) {
     this.cfg = opts.config;
@@ -176,8 +175,6 @@ export class ClaudeTurn {
     this.steerAckMs = opts.steerAckMs ?? DEFAULT_STEER_ACK_MS;
     this.promptTimeout = this.cfg.timeouts.prompt ?? 600_000;
     this.boundRef = opts.request.session?.ref;
-    this.totals = this.boundRef ? totalsFromMeta(opts.request.session?.meta) : undefined;
-    this.totalsSid = this.totals ? this.boundRef : undefined;
     this.seg = this.newSegment(opts.run);
     // A cancel or an interrupt aborts the signal of whichever segment is live.
     const onAbort = (): void => {
@@ -208,7 +205,6 @@ export class ClaudeTurn {
       finalText: "",
       structured: undefined,
       lastResult: null,
-      byModel: {},
       completed: false,
     };
   }
@@ -216,10 +212,11 @@ export class ClaudeTurn {
   /**
    * The id of the response artifact of the segment's current round: `response-<taskId>-<round>`, as it always was for the first
    * turn of a task. Another turn of the task (a queued message) and a steered message that starts its own turn get their own ids,
-   * so a later answer never replaces an earlier one.
+   * so a later answer never replaces an earlier one. The turn is core's ordinal (`CoreRequest.turn`, persisted, so it also
+   * counts after a restart): `-t1` for the second turn, as the wrapper's own counter always named it.
    */
   private artifactId(seg: Segment): string {
-    const ordinal = this.opts.turnOrdinal ?? 0;
+    const ordinal = Math.max(0, (this.request.turn ?? 1) - 1);
     const turn = ordinal > 0 ? `-t${ordinal}` : "";
     const segment = seg.index > 0 ? `-s${seg.index}` : "";
     return `response-${this.request.taskId}${turn}${segment}-${seg.round}`;
@@ -313,7 +310,8 @@ export class ClaudeTurn {
           resultError = RESULT_ERRORS[String(msg.subtype)] ?? `Execution failed (${String(msg.subtype)}).`;
         }
         seg.lastResult = msg;
-        if (msg.subtype === "success") this.recordUsage(seg, msg);
+        // Success or error: an error result carries the cost of the work it did, which belongs to this task and not to the next.
+        await this.recordUsage(seg, msg);
 
         this.settleFolded(msg);
         const holding = this.holdEnabled && resultError === null && this.backgroundTasks.size > 0;
@@ -444,29 +442,45 @@ export class ClaudeTurn {
     if (!sid) return;
     this.sessionId = sid;
     if (this.opts.reuse && sid !== this.boundRef) {
-      this.seg.view.bind({ ref: sid });
       this.boundRef = sid;
+      void this.seg.view.bind({ ref: sid }).then((r) => {
+        if (r === "dropped") log.debug("The session binding was not stored (the turn was stopped or replaced)", { taskId: this.request.taskId });
+      });
     }
   }
 
-  private recordUsage(seg: Segment, msg: SDKMessageLike): void {
+  /**
+   * Hand core the cumulative reading of a result: it diffs it against the session's previous reading (kept with the binding) and
+   * the delta is this result's cost. A session this turn created is `fresh` (its first reading is the whole total); a resumed one
+   * is not, so a restart between the init bind and the first reading reports nothing for that one turn instead of the whole
+   * session total.
+   */
+  private async recordUsage(seg: Segment, msg: SDKMessageLike): Promise<void> {
     const sid = typeof msg.session_id === "string" ? msg.session_id : this.sessionId;
     const series = sid ?? "session";
-    const ru = resultUsage(msg, this.cfg.claude.model, series, this.totalsSid === series ? this.totals : undefined);
-    this.totals = ru.totals;
-    this.totalsSid = series;
-    seg.obs.recordCall(ru.call);
-    // Optional: otel.annotateUsageCalls — per-call span events (noisy; off by default).
-    applyUsageCallToActiveSpan(ru.call);
-    addByModel(seg.byModel, ru.byModel);
-    // Keep the cumulative reading with the binding, so the next turn's difference is exact (also after a restart).
-    if (this.opts.reuse && sid) {
-      try {
-        seg.view.bind({ ref: sid, meta: { usageTotals: JSON.parse(JSON.stringify(ru.totals)) } });
-      } catch (e) {
-        log.warn("Could not store the usage total with the session binding", { error: (e as Error).message });
-      }
+    const fresh = this.request.session === undefined && !this.readSeries.has(series);
+    const ru = resultUsage(msg, this.cfg.claude.model, series, fresh);
+    if (msg.subtype !== "success" && !(typeof msg.total_cost_usd === "number" && msg.total_cost_usd > 0)) {
+      // A crash or startup-error result "may carry zeroed values" (the SDK says so): its totals are no reading of the session. Its
+      // own tokens still count, but the cost stays out of core's baseline (a zero would make the next task report the whole total).
+      seg.obs.recordCall({ ...ru.call, cost: null });
+      return;
     }
+    this.readSeries.add(series);
+    let reading = ru.reading;
+    if (!this.opts.reuse) {
+      // No binding, so no baseline in core: a held-open turn's later rounds are diffed here (the session is new every turn).
+      const prev = this.lastReading;
+      this.lastReading = reading;
+      reading = usageDelta(prev && prev.series === series ? prev : undefined, reading);
+    }
+    try {
+      await seg.obs.recordCumulative(ru.call, reading);
+    } catch (e) {
+      log.warn("Could not record the usage of a result", { error: (e as Error).message });
+    }
+    // Optional: otel.annotateUsageCalls — per-call span events (noisy; off by default).
+    applyUsageCallToActiveSpan({ ...ru.call, cost: null });
   }
 
   // ─── Output ───────────────────────────────────────────────────────────────
@@ -491,19 +505,8 @@ export class ClaudeTurn {
   private completeSegment(seg: Segment, terminal: boolean): void {
     if (terminal) this.end();
     seg.completed = true;
-    let meta: Record<string, unknown> = {};
-    let usage: CoreUsage | undefined;
-    try {
-      const summary = seg.obs.accumulator.summary();
-      // OTel: task-span rollup only, never a second LLM span / token metric.
-      applyUsageSummaryToActiveSpan(summary);
-      meta = { "x-usage": summary };
-      usage = usageSummaryToCoreUsage(summary);
-      if (Object.keys(seg.byModel).length > 0) usage = { ...usage, byModel: seg.byModel };
-    } catch (e) {
-      log.warn("accumulator.summary() failed, omitting x-usage from the final event", { error: (e as Error).message });
-    }
-    seg.view.complete({ ...(usage ? { usage } : {}), meta: meta as never });
+    const done = seg.obs.usageNow();
+    seg.view.complete({ ...(done.usage ? { usage: done.usage } : {}), meta: done.meta });
     log.info("Task completed", { taskId: this.request.taskId });
   }
 
@@ -514,7 +517,17 @@ export class ClaudeTurn {
   private failTurn(message: string, code: "backend" | "timeout"): void {
     this.end();
     this.dropAllHeld("the turn failed");
-    this.seg.view.fail({ message, code });
+    this.seg.view.fail({ message, code, ...this.failureUsage(this.seg) });
+  }
+
+  /**
+   * What the failed turn spent, as metadata of its failed status (`x-usage` and core's usage key): a result that ends in an error
+   * (`error_max_turns`, `error_max_budget_usd`, ...) still cost money, and it is that task's cost. Nothing when no result arrived.
+   */
+  private failureUsage(seg: Segment): { meta?: Meta } {
+    if (!seg.obs.usageIfAny()) return {};
+    const done = seg.obs.usageNow();
+    return { meta: { ...done.meta, ...(done.usage ? usageToMetadata(done.usage) : {}) } };
   }
 
   private failTimeout(): void {
@@ -672,7 +685,7 @@ export class ClaudeTurn {
     }
   }
 
-  private safeSettle(handle: string, outcome: "inserted" | "dropped"): void {
+  private safeSettle(handle: string, outcome: "inserted" | "dropped" | "requeue"): void {
     try {
       this.seg.view.settleSteer(handle, outcome);
     } catch {
@@ -740,8 +753,12 @@ export class ClaudeTurn {
       this.stopReason = reason;
       this.clearTimer();
       this.clearHeldTimer();
+      // Take the steers over NOW: the loop's teardown (`dropAllHeld`) runs while the interrupt is awaited and must not drop what is
+      // about to be handed to core.
       const held = [...this.steers.values()];
+      this.steers.clear();
       const q = this.query;
+      const requeue = reason === "interrupt";
       if (reason === "interrupt" && q) {
         await Promise.race([
           Promise.resolve()
@@ -753,16 +770,32 @@ export class ClaudeTurn {
       this.abortController.abort();
       if (reason !== "interrupt" && q) Promise.resolve().then(() => q.interrupt()).catch(() => {});
       this.input.close();
-      // Messages the CLI still had queued die with the process.
+      // Messages the CLI still had queued die with the process. On an interrupt the task goes on, so core takes them over
+      // and runs them as the next turn; on a cancel or shutdown the task is going away and they are dropped.
+      const answered: Steer[] = [];
       for (const steer of held) {
         this.steers.delete(steer.uuid);
         if (steer.state === "held") {
-          try {
-            this.seg.view.dropHeld(steer.handle);
-          } catch {
-            /* the run is gone */
+          if (requeue) this.safeSettle(steer.handle, "requeue");
+          else {
+            try {
+              this.seg.view.dropHeld(steer.handle);
+            } catch {
+              /* the run is gone */
+            }
           }
+        } else if (requeue) {
+          // The steer call has not returned: answer it `queued` so core holds the handle, then hand the message over.
+          steer.state = "held";
+          steer.answer("queued");
+          answered.push(steer);
         } else steer.answer("dropped");
+      }
+      if (answered.length > 0) {
+        // Core registers the handle when the steer call returns: one macrotask later. The abort does not settle before the
+        // messages are core's, so they run ahead of the message that interrupted.
+        await new Promise((r) => setTimeout(r, 0));
+        for (const steer of answered) this.safeSettle(steer.handle, "requeue");
       }
     })();
     return this.stopP;

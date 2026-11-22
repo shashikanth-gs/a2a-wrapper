@@ -3,26 +3,21 @@
  *
  * What the Claude Agent SDK reports on a `result` message, and what each field means (verified against the CLI):
  *
- * - `usage`: tokens of THIS turn, main loop only (sub-agents excluded). A per-turn delta.
+ * - `usage`: tokens of THIS turn, main loop only (sub-agents excluded). A per-turn delta. These are the tokens of `x-usage`.
  * - `total_cost_usd`: CUMULATIVE for the whole session. It keeps growing across turns of a streaming query, continues from the
  *   transcript total when a new query resumes the session, and drops back when the session is reset (`/clear`).
- * - `modelUsage`: per model, including sub-agents and compaction, cumulative like `total_cost_usd`.
+ * - `modelUsage`: per model, including sub-agents and compaction, cumulative like `total_cost_usd`. Its token counts are
+ *   therefore NOT the same measure as `usage` (they include sub-agents and compaction); they are the per-model breakdown of the
+ *   core usage key, and `x-usage` tokens stay the main loop's.
  *
- * The wrapper reports what the turn spent, never a running total: `x-usage` (tokens from `usage`, as it always was) carries the
- * cost of this turn, and core's usage key carries the per-model breakdown of this turn. The turn cost is the difference of two
- * readings of the same series (the Claude session id), taken with core's `usageDelta`, so nothing is counted twice when a task
- * spans several results or a context spans several tasks. The last cumulative reading is kept in the context binding's `meta`
- * (`usageTotals`), so the difference stays exact after a restart.
+ * The wrapper reports what the turn spent, never a running total. It hands core the cumulative reading (cost and `modelUsage`,
+ * series = the Claude session id) and core diffs it against the previous reading of that session, kept with the context binding
+ * (`run.reportUsage`, `RunObservability.recordCumulative`), so nothing is counted twice when a task spans several results or a
+ * context spans several tasks, also after a restart.
  */
 
-import { usageDelta, type CoreUsage, type JsonObject, type ModelUsage, type UsageCallRecord } from "@a2a-wrapper/core";
+import type { CoreUsage, ModelUsage, UsageCallRecord } from "@a2a-wrapper/core";
 import type { SDKMessageLike } from "./client-factory.js";
-
-/** The cumulative reading kept with the session binding. */
-export interface UsageTotals {
-  costUsd: number | null;
-  byModel?: Record<string, ModelUsage>;
-}
 
 const num = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? v : 0);
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -44,50 +39,33 @@ function modelTotals(raw: unknown): Record<string, ModelUsage> | undefined {
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
-const reading = (series: string, t: UsageTotals): CoreUsage => ({
-  scope: "cumulative",
-  series,
-  tokens: {},
-  costUsd: t.costUsd,
-  ...(t.byModel ? { byModel: t.byModel } : {}),
-});
-
-/** The reading stored with a binding, if it is for this session and well formed. */
-export function totalsFromMeta(meta: JsonObject | undefined): UsageTotals | undefined {
-  const t = meta?.usageTotals;
-  if (!isObj(t)) return undefined;
-  const byModel = isObj(t.byModel) ? (t.byModel as Record<string, ModelUsage>) : undefined;
-  return { costUsd: typeof t.costUsd === "number" ? t.costUsd : null, ...(byModel ? { byModel } : {}) };
-}
-
 export interface ResultUsage {
-  /** For the usage accumulator (`x-usage`): this turn's tokens and cost. */
-  call: UsageCallRecord;
-  /** This turn's per-model breakdown, from the difference of two `modelUsage` readings. */
-  byModel: Record<string, ModelUsage> | undefined;
-  /** The cumulative reading to keep for the next difference. */
-  totals: UsageTotals;
+  /** For the usage accumulator (`x-usage`): this result's main-loop tokens. The cost is the delta core reports. */
+  call: Omit<UsageCallRecord, "cost">;
+  /** The cumulative reading to hand to core. */
+  reading: CoreUsage;
 }
 
 /**
- * Usage of one success result.
+ * Usage of one `result` message, success or error (an `error_max_turns` or `error_max_budget_usd` result carries
+ * `total_cost_usd` too, and what it cost belongs to that task).
  *
  * @param series the Claude session id: two readings belong together only within one session.
- * @param prev the previous cumulative reading of that session, when there is one.
+ * @param fresh this is the first reading of a session this turn created (a resume continues a total this process never saw, so
+ *   it is not fresh): with no baseline core then reports the whole reading, else nothing (see `CoreTaskRun.reportUsage`).
  */
-export function resultUsage(
-  msg: SDKMessageLike,
-  modelFallback: string | undefined,
-  series: string,
-  prev: UsageTotals | undefined,
-): ResultUsage {
+export function resultUsage(msg: SDKMessageLike, modelFallback: string | undefined, series: string, fresh: boolean): ResultUsage {
   const usage = isObj(msg.usage) ? msg.usage : {};
-  const totals: UsageTotals = {
+  const byModel = modelTotals(msg.modelUsage);
+  const reading: CoreUsage = {
+    scope: "cumulative",
+    series,
+    ...(fresh ? { fresh: true } : {}),
+    tokens: {},
     costUsd: typeof msg.total_cost_usd === "number" ? msg.total_cost_usd : null,
-    ...(modelTotals(msg.modelUsage) ? { byModel: modelTotals(msg.modelUsage)! } : {}),
+    ...(byModel ? { byModel } : {}),
   };
-  const delta = usageDelta(prev ? reading(series, prev) : undefined, reading(series, totals));
-  const call: UsageCallRecord = {
+  const call: Omit<UsageCallRecord, "cost"> = {
     model: (typeof msg.model === "string" ? msg.model : undefined) || modelFallback || "",
     inputTokens: num(usage.input_tokens),
     outputTokens: num(usage.output_tokens),
@@ -96,22 +74,8 @@ export function resultUsage(
     reasoningTokens: 0,
     durationMs: num(msg.duration_ms),
     timeToFirstTokenMs: null,
-    cost: delta.costUsd === undefined ? null : delta.costUsd,
     apiEndpoint: null,
     initiator: "claude",
   };
-  return { call, byModel: delta.byModel as Record<string, ModelUsage> | undefined, totals };
-}
-
-/** Add `more` to `into` per model (a task that spans several results spent the sum of their turns). */
-export function addByModel(into: Record<string, ModelUsage>, more: Record<string, ModelUsage> | undefined): void {
-  if (!more) return;
-  for (const [model, u] of Object.entries(more)) {
-    const t = (into[model] ??= {});
-    for (const k of ["input", "output", "cacheRead", "cacheWrite", "reasoning", "total"] as const) {
-      if (typeof u[k] === "number") t[k] = (t[k] ?? 0) + (u[k] as number);
-    }
-    if (typeof u.costUsd === "number") t.costUsd = (typeof t.costUsd === "number" ? t.costUsd : 0) + u.costUsd;
-    else if (t.costUsd === undefined) t.costUsd = null;
-  }
+  return { call, reading };
 }

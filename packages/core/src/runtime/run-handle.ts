@@ -122,6 +122,13 @@ export interface QueuedTurn {
   messageId: string;
   message: CoreMessage;
   init: ExecuteInit;
+  /** The ordering key of its record (`QueuedMessageRecord.position`). */
+  position?: number;
+  /**
+   * Where it sits at the FRONT of the queue: `interrupt` (the message that interrupted, which runs next) or `requeued` (a
+   * provider-held steer handed back to core). The front is `[interrupts..., requeued in arrival order..., everything else]`.
+   */
+  lane?: "interrupt" | "requeued";
   /** Settles when the queue record is written, so a turn never claims a record that is not there yet. */
   written?: Promise<unknown>;
 }
@@ -130,6 +137,9 @@ export interface QueuedTurn {
 export interface HeldEntry {
   handle: string;
   messageId?: string;
+  /** The held message and the request that delivered it, kept so `settleSteer(handle, "requeue")` can run it as a core-queued turn. */
+  message?: CoreMessage;
+  init?: ExecuteInit;
 }
 
 export interface RunHandleInit {
@@ -187,6 +197,13 @@ export class RunHandle {
   queueSeq?: number;
   /** The turn in progress, or the last one. */
   turn?: RunTurn;
+  /**
+   * Turns of this task that ran before this handle existed (a restart that adopted the run, or continued the task):
+   * the ordinal of a turn is `turnBase` plus its place in {@link turns}.
+   */
+  turnBase = 0;
+  /** Settles when the run's record is written (and `turnBase` is known): the first request waits for it. */
+  recordReady: Promise<unknown> = Promise.resolve();
   /** Every turn of the run, in order. */
   readonly turns: RunTurn[] = [];
   /** How the last ended turn ended; the run finalizes with it once nothing else remains. */

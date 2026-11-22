@@ -472,8 +472,9 @@ Messages that carry the same `contextId` continue the same Claude session. The C
 >
 > Tasks themselves are in memory either way (an in-flight task does not survive a restart; its Claude session does).
 
-What the binding also keeps: the running cost total of the session (`binding.session.meta.usageTotals`), so `x-usage`
-cost stays the cost of the turn after a restart.
+What the binding also keeps: core stores the last cumulative usage reading of the session with it
+(`ContextBinding.usageBaseline`), so `x-usage` cost stays the cost of the turn after a restart (see
+[Usage and cost](#usage-and-cost)).
 
 ## Usage and cost
 
@@ -484,6 +485,31 @@ of the total. Earlier releases put the running total in `x-usage` on every task,
 looked more and more expensive, and a held-open task counted the total once per round. A first turn of a session is
 unchanged. Core's own usage key (`urn:a2a-wrapper:usage:v1`) next to it carries the per-model breakdown of the turn
 (sub-agents and compaction included), from the same difference of the SDK's cumulative `modelUsage`.
+
+**Which token count is authoritative.** Two measures are reported and they are not the same number:
+
+- `x-usage` tokens (`inputTokens`, `outputTokens`, cache) come from the result's `usage`: the **main loop only**, sub-agents
+  and compaction excluded. This is the measure the wrapper has always reported, and the one to use for "what did this
+  conversation turn cost me in the model I called".
+- The per-model breakdown in `urn:a2a-wrapper:usage:v1` (`byModel`) comes from `modelUsage`: **every model, including
+  sub-agents and compaction**. Its cost per model, and its sum, is what Claude billed. Use it for cost and for the sub-agent
+  share. Its token counts are larger than `x-usage` tokens whenever sub-agents or compaction ran.
+
+The cost in `x-usage` is the difference of `total_cost_usd`, which includes sub-agents; so cost and `byModel` agree, and
+`x-usage` tokens are the narrower, main-loop figure.
+
+**Where the previous total lives.** Core diffs each reading against the previous reading of the same Claude session and keeps
+that reading with the context binding (`run.reportUsage`), so a restart with a durable `RunStore` does not change the result.
+A total that goes down (the session was reset) starts a new total, and a cost is never negative. If core has no previous reading
+for a session that this turn **resumed** (the process died after the session was bound and before its first result, or the
+binding came from a release that kept the total elsewhere), the wrapper cannot tell what the resumed total contains: that one
+task reports no cost (`cost: null`, no per-model cost) instead of the whole session total, and the next task is exact. A session
+this turn created is always counted in full.
+
+**A task that ends in an error still reports what it spent.** An `error_max_turns`, `error_max_budget_usd` or
+`error_during_execution` result carries `total_cost_usd` too. That cost belongs to the failed task: its failed status carries
+`x-usage` and `urn:a2a-wrapper:usage:v1` (nothing is added when no result arrived, for example a crash or a rate limit before
+the first result). Earlier releases left it out, so it was added to the next successful task of the session.
 
 ## Steering a running task
 
@@ -503,13 +529,18 @@ Known limitations:
 
 - A `steer` answered `queued` splits the task into turns. If the CLI later folds the message into the turn in flight, the
   wrapper keeps that turn going (no split).
-- The CLI's own queue lives in its process, so an `interrupt` (which replaces the process) drops a steered message the CLI
-  still held; it is reported `dropped`. Only text can be steered.
+- The CLI's own queue lives in its process, so an `interrupt` (which replaces the process) would lose a steered message the
+  CLI still held. The wrapper hands such a message to core (`settleSteer(handle, "requeue")`): it runs as the next turn of the
+  task, right after the message that interrupted (which runs next) and ahead of messages queued with `queue`, in the order they were
+  steered. Earlier releases dropped it. A cancel still drops it (the
+  task is going away). Only text can be steered.
 - A task with a held (queued) message publishes the first turn's result as a non-final `working` status, so `x-usage` can
   appear on a `working` status. Clients that read usage only from terminal metadata should read the completed status.
 - In `streamArtifactChunks` mode the stored task holds the response text twice (the chunks, then the last-chunk marker with
   the full text, both appended). This is the behaviour of earlier releases and is kept.
-- Every extra turn of a task (a queued message) publishes its own response artifact id (`response-<taskId>-t<n>-<round>`).
+- Every extra turn of a task (a queued message) publishes its own response artifact id (`response-<taskId>-t<n>-<round>`),
+  numbered by core's per-task turn ordinal, which is persisted with the run record (a task that continues after a restart does
+  not reuse the ids of its earlier turns).
 
 ## Permissions and questions (`interactions`)
 

@@ -365,7 +365,8 @@ the caller's `delivery`:
 
 - `queue` (default): next turn of the task, after the running turn ends.
 - `steer`: folded into the running turn.
-- `interrupt`: stop the running turn, then run the message as the next turn of the task.
+- `interrupt`: stop the running turn, then run the message as the NEXT turn of the task: it runs before provider-held steers handed
+  back with `settleSteer(handle, "requeue")` and before messages that were already core-queued (3.16 gives the full order).
 
 The task stays `working` through all three: an interrupt does **not** end the task with `canceled`. This follows the
 open A2A steering proposal (a2aproject #2125), which keeps the task working on a steer and goes `input-required` with
@@ -1322,6 +1323,89 @@ rounds are part of the wrapper's contract).
    wrapper that names artifacts after the task (Claude's `response-<taskId>-<round>`) collides with the earlier turn's ids and the later
    answer REPLACES the earlier one in the stored task. `CoreRequest` has no turn ordinal; the provider counts them per task. A
    `turnIndex` on the request would remove the counter.
+
+Problems 2, 3, 4 and 6 above, and the dropped steer at an interrupt, are resolved in 3.16.
+
+### 3.16 Core follow-ups from the Copilot and Claude migrations (#124)
+
+Everything below is additive (a wrapper that does not call it behaves as before) and closes the contract gaps 3.14 and 3.15 listed
+before the OpenCode, Codex and Antigravity migrations.
+
+**Cumulative usage readings (3.15 problem 3).** `run.reportUsage(reading): Promise<CoreUsage>` takes a `cumulative` reading (with
+`series`, optionally `byModel`) and returns the DELTA of this turn: core applies `usageDelta` (3.7: per series and per model, a
+counter that went down starts a new epoch, never negative) against the previous reading of the same series and stores the new
+reading as the baseline. `RunObservability.recordCumulative(call, reading)` wraps it for the usual wrapper: it records the call
+with the delta as its cost, accumulates the per-model deltas, and `finish()` / the new `usageNow()` (the same summary without
+closing the lifecycle) put them in `x-usage` and in the core usage key (`urn:a2a-wrapper:usage:v1`).
+
+- **Where the baseline lives.** `ContextBinding.usageBaseline` (a `CoreUsage`, no `contextWindow`), written through the `RunStore`
+  with the binding, so a new registry over the same store (a restart) continues exactly. It is gone when the binding is deleted
+  and reset when a DIFFERENT session ref is bound (a new session is a new total); rebinding the same ref keeps it. Readings of one
+  context are applied inside the context's serial queue (the same one binds use) and turns of a context are serialized by the lane,
+  so two turns never interleave.
+- **A series change** (the baseline is for another series) is a new total: the reading is the delta, as `usageDelta` always said.
+- **A lost baseline** (no previous reading: the process died between the session being bound and its first reading, the binding
+  was replaced or deleted, no session is bound) cannot be told apart from a resumed total that includes turns this process never
+  saw. Decision: core reports the whole reading ONLY when the provider says `CoreUsage.fresh` (the total started inside this turn,
+  a brand-new provider session); otherwise the delta is EMPTY (no tokens, no cost, `cost: null` in `x-usage`) and the reading is
+  still stored, so the next turn is exact. Never negative and never over-reported; the price is that one turn's usage is not claimed.
+- **Degenerate readings never become the baseline.** A crash or a startup error may report zeroed or missing totals. Per value (a
+  counter, the cost, a model's entry): a value that is absent, `null`, not finite, or `0` while the baseline's value is greater than 0
+  is IGNORED and the baseline's value stands (a model the reading does not list keeps its entry). A reading with no value left reports
+  nothing and does not replace the baseline, so the next real reading is the plain difference. A drop to a smaller NON-ZERO value is
+  not degenerate: it is a genuine reset (`/clear`) and starts a new epoch on its first real reading (a rounding-level decrease
+  restarts the epoch too, harmless for monotonic totals); a reset that restarts from exactly zero is only seen once a reading is
+  below the old total. A degenerate reading with no baseline stores nothing either.
+- **A view that is not live** (canceled, interrupted) reports nothing and stores nothing (its spend is part of the next reading and
+  lands on the next turn); a stale reading could otherwise look like a decrease and over-report. Consequence: the session total stays
+  correct, but the spend of an interrupted, canceled or stale turn is attributed to the NEXT turn of the session, so per-task cost
+  moves between neighbouring tasks.
+- A `delta` reading is returned as it is. A provider with no binding at all (it never calls `bind`) gets no baseline from core:
+  `fresh` readings are whole, anything else is not claimed, so such a provider diffs its own readings with `usageDelta` (the pure
+  function) and reports `delta`.
+
+**Compatibility.** `CoreRequest.turn` is a new REQUIRED field and `run.bind` returns a promise: a hand-built `CoreRequest` or a fake
+`CoreTaskRun` in a wrapper's test harness must add `turn` (and `bind` returning `Promise<"stored" | "dropped">`, plus `reportUsage`,
+`status` and the `"requeue"` outcome). In this repository the only hand-built requests were core's test harness builders, which spread
+the ids core passes (so `turn` arrives with them); no wrapper harness needed a change. Source compatibility for `void`-style callers of
+`bind` is unchanged.
+
+**Turn ordinal.** `CoreRequest.turn` is the 1-based ordinal of the turn within its TASK (a queued message, an interrupt and a held
+message each start the next one; the `session-not-found` retry of a turn keeps its ordinal). It is persisted as
+`RunRecord.turnCount`, so it keeps counting after a restart (an adopted run continues from the record, a task that continues under a
+new run continues from the unfinished record of the earlier one). `turnArtifactId(kind, taskId, turn)` builds
+`<kind>-<taskId>-<turn>`. This replaces the provider's process-local counter (3.15 problem 6).
+
+**`settleSteer(handle, "requeue")` (3.15, Claude's dropped steers).** A provider that holds a steer and learns it cannot deliver it
+(an `interrupt` ends the backend process and its native queue with it) hands it to core. The held record becomes `queued` with holder
+`core`, and the task runs it through the provider's `run` like any queued message; it survives a restart as a core-queued record.
+Idempotent by handle and message id, ignored for a handle that is not held, silent after a cancel.
+
+**Order after an interrupt.** The queue has a front block: `[the interrupting message(s), requeued steers in the order the provider
+requeued them (arrival order), then everything that was core-queued, in arrival order]`. The interrupting message runs NEXT (design
+doc 3.4: it becomes the next turn; before this change it was appended behind earlier queued messages, which is what #109 did). A steer
+the provider held was sent before the interrupt, so it follows the interrupting message and precedes messages queued earlier or later
+by `queue`. The persisted `QueuedMessageRecord.position` values are the same order (the block is renumbered just below the first
+entry outside it; positions are only an ordering key and may be zero or negative), so a restart replays the live order.
+
+**`bind` result (3.15 problem 2).** `run.bind(...)` returns `Promise<"stored" | "dropped">` (a stale or canceled view, a bind from a
+turn older than the one that bound last, a context another caller owns, a store failure; never rejects). A live view still throws a
+`TypeError` for an unstorable argument; a view that is not live never throws. A caller that ignores the promise keeps working.
+
+**Metadata without text (3.15 problem 4).** `run.status({ meta })` publishes a non-terminal `working` status carrying the metadata and
+NO text, so a provider holding a task open can attach `backgroundTasks` or usage without the round's text appearing a second time
+(`progress(text, meta)` is one status, so text and metadata arrive together). Nothing is published for an empty `meta`.
+
+**`CoreRequest.interactionMode` (Copilot).** The mode of the runtime's interaction policy, reported on every request when the
+interaction handler declares one, so a provider decides from the runtime and not from its own configuration whether a person can be
+asked (Copilot's pre-tool hook approves a call itself only when nobody could answer).
+
+**Adoption.** Claude removes its own `usageDelta` and `usageTotals` bookkeeping (the cumulative reading is core's, with `fresh` for
+a session the turn created), records usage from `error_*` results (the failed status carries `x-usage` and the core usage key), takes
+artifact ids from `CoreRequest.turn`, and requeues the steers the CLI still held at an interrupt. Copilot derives its hook mode from
+`CoreRequest.interactionMode`. Still open: held-open rounds keep `progress(text, meta)` in the Claude wrapper (switching to
+`run.status` would change what a client sees: the round text would no longer be a status message), and a pending permission after
+a restart still fails as `server restarted` (no defer hook).
 
 ## 4. A2A mapping and the run model (core internal)
 

@@ -556,6 +556,10 @@ export interface CoreRequestOptions {
   runId: string;
   /** Core-assigned id of this turn (one per turn of the run). Defaults to a fresh UUID. */
   turnId?: string;
+  /** The ordinal of this turn within its task (1-based). Default 1. */
+  turn?: number;
+  /** The mode of the runtime's interaction policy, when known. */
+  interactionMode?: "auto" | "ask";
   /** Overrides the caller derived from the SDK call context. */
   caller?: CoreCaller;
   /** Persisted provider session for the context, if any. */
@@ -616,6 +620,8 @@ export function coreRequestFromContext(ctx: RequestContext, options: CoreRequest
   return {
     runId: options.runId,
     turnId: options.turnId ?? uuidv4(),
+    turn: options.turn ?? 1,
+    ...(options.interactionMode ? { interactionMode: options.interactionMode } : {}),
     taskId: ctx.taskId,
     contextId: ctx.contextId,
     input: (message?.parts ?? []).map(fromA2APart),

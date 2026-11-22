@@ -23,7 +23,7 @@
 import { v4 as uuidv4 } from "uuid";
 import { TRACE_EXTENSION_URI } from "../server/agent-card.js";
 import type { EventsConfig } from "../config/types.js";
-import type { CoreArtifact, CoreRequest, CoreTaskRun, CoreUsage, Meta, ModelUsage } from "../model/index.js";
+import { addModelUsage, type CoreArtifact, type CoreRequest, type CoreTaskRun, type CoreUsage, type Meta, type ModelUsage } from "../model/index.js";
 import { applyUsageSummaryToActiveSpan } from "../telemetry/usage-bridge.js";
 import { slugAgentId } from "../telemetry/attributes.js";
 import {
@@ -75,7 +75,8 @@ export interface RunObservabilityOptions {
   /** A short label stamped on the lifecycle events (`backend`), chosen by the wrapper. */
   backend: string;
   request: Pick<CoreRequest, "taskId" | "contextId" | "correlation">;
-  run: Pick<CoreTaskRun, "artifact">;
+  /** `reportUsage` is needed only by {@link RunObservability.recordCumulative}. */
+  run: Pick<CoreTaskRun, "artifact"> & Partial<Pick<CoreTaskRun, "reportUsage">>;
   events?: EventsConfig;
   customTransport?: EventTransport | EventTransportFn;
   /** Also publish a `trace.usage` artifact per call and a `context_window` event per reading. Default `false`. */
@@ -106,7 +107,9 @@ export class RunObservability {
   readonly agentId: string;
   readonly accumulator = new LlmUsageAccumulator();
 
-  private readonly run: Pick<CoreTaskRun, "artifact">;
+  private readonly run: RunObservabilityOptions["run"];
+  /** The per-model deltas of the cumulative readings of this turn ({@link recordCumulative}). */
+  private readonly deltaByModel: Record<string, ModelUsage> = {};
   private readonly backend: string;
   private readonly trackUsage: boolean;
   private readonly terminalTimeoutMs: number;
@@ -148,6 +151,21 @@ export class RunObservability {
     }
   }
 
+  /**
+   * One LLM call whose cost the backend reports as a RUNNING TOTAL (a session's `total_cost_usd`). Core diffs `reading`
+   * against the previous reading of its series (`run.reportUsage`, see there for the rules: new series, lost baseline,
+   * decrease), records `call` with the DELTA as its cost (`null` when the delta carries no cost) and keeps the delta's
+   * per-model breakdown, which {@link finish} puts in the core usage it returns. Returns the delta. `call.cost` is ignored.
+   * Call it for a failing result too, so its spend is attributed to that task and not to the next one.
+   */
+  async recordCumulative(call: Omit<UsageCallRecord, "cost">, reading: CoreUsage): Promise<CoreUsage> {
+    if (!this.run.reportUsage) throw new TypeError("recordCumulative needs a run with reportUsage");
+    const delta = await this.run.reportUsage(reading);
+    addModelUsage(this.deltaByModel, delta.byModel);
+    this.recordCall({ ...call, cost: delta.costUsd === undefined ? null : delta.costUsd });
+    return delta;
+  }
+
   /** The latest context-window reading. Emitted as `context_window` when `trackUsage` is on. */
   setContextWindow(snapshot: ContextWindowSnapshot): void {
     this.accumulator.setContextWindow(snapshot);
@@ -176,6 +194,18 @@ export class RunObservability {
    * collector hears about the usage before the caller sees the task finish, and a slow collector never stalls tasks.
    */
   async finish(extra: Record<string, unknown> = {}): Promise<RunFinish> {
+    const done = this.usageNow();
+    await this.terminal("agent_finished", { backend: this.backend, usage: done.summary ?? null, ...extra });
+    return done;
+  }
+
+  /**
+   * The usage of the turn so far as {@link finish} reports it (the `x-usage` summary, its metadata and the core usage with
+   * the per-model deltas of {@link recordCumulative}), WITHOUT closing the lifecycle: for a wrapper whose backend emits its
+   * own `agent_finished`, or one that attaches usage to a failed turn. `summary` is absent when no summary could be
+   * computed (never throws); with no call recorded it is the empty summary, as `finish` has always done.
+   */
+  usageNow(): RunFinish {
     let summary: UsageTelemetryData | undefined;
     try {
       summary = this.accumulator.summary();
@@ -185,12 +215,17 @@ export class RunObservability {
       this.warn("accumulator.summary() failed, omitting x-usage from the final event", { error: (e as Error).message });
       summary = undefined;
     }
-    await this.terminal("agent_finished", { backend: this.backend, usage: summary ?? null, ...extra });
     return {
       ...(summary ? { summary } : {}),
       meta: summary ? { [X_USAGE_KEY]: summary } : {},
-      ...(summary ? { usage: usageSummaryToCoreUsage(summary) } : {}),
+      ...(summary ? { usage: this.coreUsage(summary) } : {}),
     };
+  }
+
+  /** The summary as core usage; the per-model breakdown of cumulative readings (exact per model) replaces the one derived from the calls. */
+  private coreUsage(summary: UsageTelemetryData): CoreUsage {
+    const usage = usageSummaryToCoreUsage(summary);
+    return Object.keys(this.deltaByModel).length > 0 ? { ...usage, byModel: { ...this.deltaByModel } } : usage;
   }
 
   /** The turn failed: `agent_error` with the usage spent so far (`null` when no call was made). */

@@ -68,6 +68,21 @@ export interface CoreRequest {
   runId: string;
   /** One per turn of the run. */
   turnId: string;
+  /**
+   * The ordinal of this turn within its TASK: 1 for the first turn, 2 for the next, and so on (a queued message, an
+   * interrupt, a message folded in as its own turn and a held turn each start a new one). Persisted with the run record,
+   * so it keeps counting after a restart, and the same for the retry of a turn with `session-not-found`. Derive ids that
+   * must differ per turn from it (see {@link turnArtifactId}) instead of keeping a process-local counter.
+   */
+  turn: number;
+  /**
+   * The mode of the interaction policy the runtime was configured with: with `auto` nobody is asked (`run.ask` answers
+   * `unavailable` / `policy-auto` unless a rule matches), with `ask` an unmatched interaction goes to the caller. A provider
+   * that must decide up front whether a person can be asked (for example whether to let a pre-tool hook approve a tool call
+   * itself) reads it here instead of from its own configuration, which may not be the runtime's (a programmatic embedder). Absent
+   * when the runtime's interaction handler does not declare one.
+   */
+  interactionMode?: "auto" | "ask";
   taskId: string;
   contextId: string;
   input: readonly CorePart[];
@@ -90,6 +105,15 @@ export interface CoreRequest {
   };
   /** Negotiated A2A extensions, opaque to providers. */
   extensions: ReadonlyMap<string, unknown>;
+}
+
+/**
+ * An artifact id that is unique per turn of a task: `<kind>-<taskId>-<turn>`, for example `response-t1-2`. A turn of a
+ * task that is not its first runs under the same `taskId` and `runId`, so an id built from those alone would collide with
+ * the earlier turn's artifact and the later answer would REPLACE the earlier one in the stored task.
+ */
+export function turnArtifactId(kind: string, taskId: string, turn: number): string {
+  return `${kind}-${taskId}-${turn}`;
 }
 
 /** A streamed or buffered output of a run. */
@@ -227,6 +251,13 @@ export interface CoreTaskRun {
   readonly signal: CoreAbortSignal;
   /** Report that the turn is working, with an optional status text. Always `working`. */
   progress(text?: string, meta?: Meta): void;
+  /**
+   * Attach metadata to the task with a non-terminal `working` status that carries NO text: for a provider that holds a
+   * task open between rounds and wants to publish `backgroundTasks`, a usage summary, and so on, without the round's
+   * text appearing a second time as a status message (`progress(text, meta)` is one status, so its text and its metadata
+   * arrive together). Nothing is published for an empty `meta`. Dropped after the turn stopped, like every other call.
+   */
+  status(update: { meta: Meta }): void;
   /** Text/thought delta, tool, plan, todo, diff, usage, log. */
   event(e: CoreEvent): void;
   artifact(a: CoreArtifact): void;
@@ -245,9 +276,32 @@ export interface CoreTaskRun {
    * Persist contextId to provider session (survives restart). A later bind replaces the earlier one; a bind after a
    * cancel, from an aborted turn or from a turn older than the one that bound last is dropped. Throws a `TypeError` for
    * an empty `ref` or a `meta` that is not JSON-safe (it could not be stored, and a silently lost binding means no
-   * resume after a restart).
+   * resume after a restart); a view that is no longer live never throws, whatever it passes.
+   *
+   * Resolves `"stored"` once the binding is written, or `"dropped"` when it was not: a stale or canceled view, a bind
+   * from a turn older than the one that bound last, a context another caller owns, a store failure. Never rejects. A
+   * caller that does not need to know may ignore the promise (the write is tracked by core either way).
    */
-  bind(session: SessionRef): void;
+  bind(session: SessionRef): Promise<BindResult>;
+  /**
+   * Hand core a usage reading and get back what THIS turn spent. A `delta` reading is returned as it is. A `cumulative`
+   * one is a running total: core diffs it (`usageDelta`, per series and per model, a total that went down starts a new
+   * epoch and is never reported negative) against the previous reading of the same series, which it keeps with the
+   * context's session binding (`ContextBinding.usageBaseline`) so it is exact after a restart, and stores this reading
+   * as the new baseline. Readings of one context are applied in order (the context lane serializes the turns).
+   *
+   * - A new `series` (a new session) is a new total: the reading is the delta.
+   * - A series core has NO previous reading of (the baseline is lost: the process died between the session being bound
+   *   and its first reading, the binding was replaced or deleted, no session is bound) is reported as the whole reading
+   *   only when the provider says it is `fresh`; otherwise the delta is EMPTY (no tokens, no cost: nothing is claimed),
+   *   because the total may include earlier turns this process never saw and over-reporting is worse than leaving a
+   *   turn's usage unreported. The reading is still stored, so the NEXT turn is exact.
+   * - A view that is not live (a canceled or interrupted turn) reports nothing and stores nothing: its spend is part of
+   *   the next reading and lands on the next turn.
+   *
+   * Pass the result to `complete({ usage })`, or let `RunObservability.recordCumulative` do it. Never rejects.
+   */
+  reportUsage(reading: CoreUsage): Promise<CoreUsage>;
   race<T>(work: Promise<T>): Promise<T | typeof CANCELED>;
   /** End the turn successfully (`completed`). */
   complete(result: CoreResult): void;
@@ -273,11 +327,21 @@ export interface CoreTaskRun {
    * (because the backend had not said yet) learns later that the message was in fact `inserted` into a turn that was
    * running, or that it was never delivered (`dropped`). Core marks the message's record `done` or `dropped` and stops
    * holding the handle (the task may now go terminal), WITHOUT starting a turn: use {@link beginHeldTurn} when the held
-   * message begins its own turn. Idempotent: a handle that is not (or no longer) held is ignored. Silently dropped after the
-   * task was canceled.
+   * message begins its own turn.
+   *
+   * `"requeue"`: the provider can no longer deliver it but the message must not be lost (an `interrupt` that ends the
+   * backend process takes its native queue with it). Core takes it over: the record becomes `queued` with holder `core`
+   * (so it survives a restart like any core-queued message) and the message runs through the provider's `run` like any
+   * queued message: after the message that interrupted (which runs next), in the order the provider requeued its steers, and ahead
+   * of messages that were core-queued. Idempotent by message id.
+   *
+   * Idempotent: a handle that is not (or no longer) held is ignored. Silently dropped after the task was canceled.
    */
-  settleSteer(handle: string, outcome: "inserted" | "dropped"): void;
+  settleSteer(handle: string, outcome: "inserted" | "dropped" | "requeue"): void;
 }
+
+/** What {@link CoreTaskRun.bind} reports: written, or not written (why is logged, never thrown). */
+export type BindResult = "stored" | "dropped";
 
 /** Read-only identity of a run, passed to `abort`. */
 export interface TaskRunInfo {

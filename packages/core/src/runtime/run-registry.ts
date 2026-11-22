@@ -58,7 +58,9 @@ import {
   type CoreMessage,
   type CoreResult,
   type CoreTaskRun,
+  type BindResult,
   type CoreTaskState,
+  type CoreUsage,
   type DeliveryKind,
   type DeliveryResult,
   type Meta,
@@ -73,6 +75,7 @@ import {
   type TaskRunInfo,
   deliveryFromSteer,
   messageHasContent,
+  unknownUsageDelta,
   resolveDelivery,
   type ResolvedDelivery,
 } from "../model/index.js";
@@ -426,7 +429,7 @@ export class RunRegistry {
     this.handles.set(init.taskId, handle);
     handle.attachments++;
     const firstTurnId = this.newId();
-    this.writeRecord(handle, { state: "submitted", turnId: firstTurnId });
+    handle.recordReady = this.writeRecord(handle, { state: "submitted", turnId: firstTurnId });
     this.lane(init.contextId).admit(handle, () => {
       handle.started = true;
       this.beginTurn(handle, init, firstTurnId);
@@ -781,7 +784,7 @@ export class RunRegistry {
           cache: true,
         };
       }
-      if (!this.registerHeld(taskId, held, message)) {
+      if (!this.registerHeld(taskId, held, message, init)) {
         return {
           result: this.rejected(taskId, message.id, "task-ended", "the provider queued the message after the task ended"),
           resumed: false,
@@ -867,9 +870,17 @@ export class RunRegistry {
   }
 
   /** Queue a message as the next turn of the run and write its record. */
-  private enqueue(handle: RunHandle, message: CoreMessage, init: ExecuteInit): void {
-    handle.queueSeq = (handle.queueSeq ?? 0) + 1;
-    const written = this.track(
+  private enqueue(handle: RunHandle, message: CoreMessage, init: ExecuteInit, lane?: "interrupt"): void {
+    const entry: QueuedTurn = { messageId: message.id, message, init };
+    if (lane) {
+      this.placeFront(handle, entry, lane);
+    } else {
+      handle.queueSeq = (handle.queueSeq ?? 0) + 1;
+      // An ordering key, monotonic per run: the position a caller is told is its live index, which shrinks as turns start.
+      entry.position = handle.queueSeq;
+      handle.queue.push(entry);
+    }
+    entry.written = this.track(
       this.store
         .putQueued({
           ...newRecordHeader({ id: init.caller.id, kind: init.caller.kind }, this.now()),
@@ -877,20 +888,60 @@ export class RunRegistry {
           contextId: handle.contextId,
           message,
           holder: "core",
-          // An ordering key, monotonic per run: the position a caller is told is its live index, which shrinks as turns start.
-          position: handle.queueSeq,
+          position: entry.position!,
           state: "queued",
         })
         .catch((e) => this.log.warn("queued record write failed", causeMessage(e))),
     );
-    handle.queue.push({ messageId: message.id, message, init, written });
+  }
+
+  /**
+   * Put `entry` into the front block of the run's queue: `[interrupts (newest first), requeued steers (arrival order), the rest]`.
+   * An interrupt goes to the very front (it runs NEXT); a requeued steer goes after the last entry of the block, so steers handed
+   * back one after the other keep their arrival order. The block's positions are reassigned just below the first entry outside it
+   * (increasing, so the persisted order, which a restart replays, is the live order); the records of the block's other entries
+   * are rewritten when their position changed. Positions are only an ordering key and may be zero or negative.
+   */
+  private placeFront(handle: RunHandle, entry: QueuedTurn, lane: "interrupt" | "requeued"): void {
+    entry.lane = lane;
+    let idx = 0;
+    if (lane === "requeued") while (idx < handle.queue.length && handle.queue[idx]!.lane) idx++;
+    handle.queue.splice(idx, 0, entry);
+    let front = 0;
+    while (front < handle.queue.length && handle.queue[front]!.lane) front++;
+    const rest = handle.queue[front];
+    const base = (rest?.position ?? (handle.queueSeq ?? 0) + 1) - front;
+    for (let j = 0; j < front; j++) {
+      const q = handle.queue[j]!;
+      const position = base + j;
+      if (q === entry) {
+        q.position = position;
+        continue;
+      }
+      if (q.position === position) continue;
+      q.position = position;
+      const prev = q.written ?? Promise.resolve();
+      q.written = this.track(
+        prev
+          .then(() => this.store.listQueued(handle.taskId))
+          .then((records) => {
+            const rec = records.find((r) => r.message.id === q.messageId && r.state === "queued");
+            return rec ? this.store.putQueued({ ...rec, position, updatedAt: this.now() }) : undefined;
+          })
+          .catch((e) => this.log.warn("queued record reorder failed", causeMessage(e))),
+      );
+    }
   }
 
   /** Register a provider-held message (the provider returned `queued` with `handle`). The steering runtime (#109) calls this. */
-  registerHeld(taskId: string, heldHandle: string, message?: CoreMessage): boolean {
+  registerHeld(taskId: string, heldHandle: string, message?: CoreMessage, init?: ExecuteInit): boolean {
     const handle = this.handles.get(taskId);
     if (!handle || handle.phase !== "active") return false;
-    handle.held.set(heldHandle, { handle: heldHandle, ...(message ? { messageId: message.id } : {}) });
+    handle.held.set(heldHandle, {
+      handle: heldHandle,
+      ...(message ? { messageId: message.id, message } : {}),
+      ...(init ? { init } : {}),
+    });
     if (message) {
       this.track(
         this.store
@@ -987,14 +1038,17 @@ export class RunRegistry {
         this.turnEnded(handle, turn, { kind: "rejected", error: resolved.error });
         return;
       }
+      await handle.recordReady; // the run's record is written and the turn ordinal base is known
+      if (gone()) return;
       let session: SessionRef | undefined = resolved.kind === "session" ? resolved.session : undefined;
       turn.resumed = session !== undefined;
       for (let first = true; ; first = false) {
         turn.session = session;
-        const request = init.request({ runId: handle.runId, turnId: turn.turnId, ...(session ? { session } : {}) });
+        const ordinal = this.ordinalOf(handle, turn);
+        const request = init.request({ runId: handle.runId, turnId: turn.turnId, turn: ordinal, ...(this.interactions?.policy ? { interactionMode: this.interactions.policy.mode } : {}), ...(session ? { session } : {}) });
         turn.request = request;
         turn.state = "running";
-        if (first) this.writeRecord(handle, { state: "working", turnId: turn.turnId });
+        if (first) void this.writeRecord(handle, { state: "working", turnId: turn.turnId, turnCount: ordinal });
         turn.attempt++;
         const view = this.makeView(handle, turn);
         const retry = new Promise<"retry">((resolve) => {
@@ -1236,6 +1290,12 @@ export class RunRegistry {
         if (!live()) return;
         handle.sink?.status({ state: "working", ...(text ? { text } : {}), ...(meta ? { metadata: meta } : {}) });
       },
+      status(update: { meta: Meta }) {
+        if (!live()) return;
+        const meta = update?.meta;
+        if (typeof meta !== "object" || meta === null || Object.keys(meta).length === 0) return;
+        handle.sink?.status({ state: "working", metadata: meta });
+      },
       event(e: CoreEvent) {
         if (!live()) return;
         turn.observable = true;
@@ -1255,12 +1315,25 @@ export class RunRegistry {
         }
         return self.interactions.ask(handle, request, options).then((r) => (live() ? r : { outcome: "canceled" as const }));
       },
-      bind(session: SessionRef) {
-        if (!live()) return; // a late bind from an aborted or stale view is dropped silently (it must not resurrect a discarded session, nor throw into dead code)
+      bind(session: SessionRef): Promise<BindResult> {
+        if (!live()) return Promise.resolve("dropped"); // a late bind from an aborted or stale view is dropped silently (it must not resurrect a discarded session, nor throw into dead code)
         assertBindable(session);
         turn.session = session;
         turn.observable = true; // a session was established: a replay would not be of the same turn
-        self.bindSession(handle, turn, session);
+        return self.bindSession(handle, turn, session);
+      },
+      reportUsage(reading: CoreUsage): Promise<CoreUsage> {
+        if (reading?.scope !== "cumulative") return Promise.resolve(reading);
+        if (!live()) return Promise.resolve(unknownUsageDelta(reading));
+        return self.track(
+          self.bindings.reportUsage({
+            contextId: handle.contextId,
+            caller: turn.caller ?? handle.owner,
+            ...(turn.tenant !== undefined ? { tenant: turn.tenant } : {}),
+            ...(turn.session ? { ref: turn.session.ref } : {}),
+            reading,
+          }),
+        );
       },
       race<T>(work: Promise<T>): Promise<T | typeof CANCELED> {
         return turn.race(work);
@@ -1299,16 +1372,17 @@ export class RunRegistry {
               .catch((e) => self.log.warn("held record update failed", causeMessage(e))),
           );
         }
-        self.writeRecord(handle, { state: "working", turnId: heldTurn.turnId });
+        void self.writeRecord(handle, { state: "working", turnId: heldTurn.turnId, turnCount: self.ordinalOf(handle, heldTurn) });
         return self.makeView(handle, heldTurn);
       },
       dropHeld(heldHandle: string) {
         if (handle.phase !== "active") return;
         self.dropHeld(handle, heldHandle, "dropped by the provider");
       },
-      settleSteer(heldHandle: string, outcome: "inserted" | "dropped") {
+      settleSteer(heldHandle: string, outcome: "inserted" | "dropped" | "requeue") {
         if (handle.phase !== "active") return; // after a cancel the held records are already dropped
-        self.settleSteer(handle, heldHandle, outcome);
+        if (outcome === "requeue") self.requeueHeld(handle, heldHandle);
+        else self.settleSteer(handle, heldHandle, outcome);
       },
     };
     return view;
@@ -1327,6 +1401,54 @@ export class RunRegistry {
    * was running (its record is `done`). `dropped`: it was never delivered (record `dropped`). Either way the handle is no
    * longer held, so the task may go terminal. Idempotent (a handle that is not held is ignored).
    */
+  /**
+   * `settleSteer(handle, "requeue")`: the provider cannot deliver a message it held (its backend process is ending) but the
+   * message must not be lost. Core takes it over as a core-queued message: the record becomes `queued` / holder `core` with
+   * an ordering position AHEAD of everything queued (it was sent before whatever arrived with the interrupt), and the task
+   * runs it as its next turn. Idempotent: a handle that is not held is ignored, and a message that is queued already is not
+   * queued twice.
+   */
+  private requeueHeld(handle: RunHandle, heldHandle: string): void {
+    const entry = handle.held.get(heldHandle);
+    if (!entry) return;
+    handle.held.delete(heldHandle);
+    const { message, init, messageId } = entry;
+    if (!messageId || !message || !init) {
+      // Registered without the message (a runtime-internal registration): there is nothing core could run.
+      this.log.warn("settleSteer(requeue): the held message is not known to core; treating it as dropped", heldHandle);
+      this.advance(handle);
+      return;
+    }
+    if (handle.queue.some((q) => q.messageId === messageId)) {
+      this.advance(handle);
+      return;
+    }
+    const taskId = handle.taskId;
+    const queued: QueuedTurn = { messageId, message, init };
+    this.placeFront(handle, queued, "requeued");
+    const position = queued.position!;
+    queued.written = this.track(
+      this.store
+        .listQueued(taskId)
+        .then((records) => {
+          const prior = records.find((r) => r.message.id === messageId);
+          const base: QueuedMessageRecord = prior ?? {
+            ...newRecordHeader({ id: message.from.id, kind: message.from.kind }, this.now()),
+            taskId,
+            contextId: handle.contextId,
+            message,
+            holder: "provider",
+            state: "queued",
+          };
+          const { handle: _gone, ...rest } = base;
+          void _gone;
+          return this.store.putQueued({ ...rest, holder: "core", position, state: "queued", updatedAt: this.now() });
+        })
+        .catch((e) => this.log.warn("requeued record write failed", causeMessage(e))),
+    );
+    this.advance(handle);
+  }
+
   private settleSteer(handle: RunHandle, heldHandle: string, outcome: "inserted" | "dropped"): void {
     const entry = handle.held.get(heldHandle);
     if (!entry) return;
@@ -1371,8 +1493,8 @@ export class RunRegistry {
   }
 
   /** Persist `run.bind` for the turn (validated by the caller). */
-  private bindSession(handle: RunHandle, turn: RunTurn, session: SessionRef): void {
-    this.track(
+  private bindSession(handle: RunHandle, turn: RunTurn, session: SessionRef): Promise<BindResult> {
+    return this.track(
       this.bindings.bind({
         contextId: handle.contextId,
         caller: turn.caller ?? handle.owner,
@@ -1593,7 +1715,7 @@ export class RunRegistry {
     for (const t of running) t.stop("interrupt");
     if (next) {
       if (next.takeStream) handle.setPublisher(next.init.publisher);
-      this.enqueue(handle, next.message, next.init);
+      this.enqueue(handle, next.message, next.init, "interrupt");
     }
     if (target) {
       handle.stopping = true;
@@ -2050,6 +2172,7 @@ export class RunRegistry {
       detached: (): RunPublisher | undefined => this.detachedPublisher(handle),
     });
     handle.started = true;
+    handle.turnBase = Math.max(0, (rec.turnCount ?? 1) - 1); // the adopted turn is the one the record counts
     handle.consumerGone = true; // nobody is attached after a restart
     const turn = new RunTurn(rec.turnId);
     turn.state = "running";
@@ -2102,13 +2225,16 @@ export class RunRegistry {
   }
 
   /** Create the run's record, or move it to `state` / `turnId`. */
-  private writeRecord(handle: RunHandle, patch: { state: string; turnId: string }): void {
+  private writeRecord(handle: RunHandle, patch: { state: string; turnId: string; turnCount?: number }): Promise<boolean> {
     const at = this.now();
-    void this.mutateRecord(handle.taskId, (r) => {
+    return this.mutateRecord(handle.taskId, (r) => {
       if (r && r.runId === handle.runId) {
         if (classifyState(r.state) === "terminal") return r;
         return { ...r, ...patch, updatedAt: at };
       }
+      // A record of an earlier run of the same task that never ended (a restart continued the task under a new run): the
+      // ordinal of its turns keeps counting.
+      if (r && classifyState(r.state) !== "terminal" && typeof r.turnCount === "number") handle.turnBase = r.turnCount;
       return {
         ...newRecordHeader({ id: handle.owner.id, kind: handle.owner.kind }, at),
         runId: handle.runId,
@@ -2117,7 +2243,13 @@ export class RunRegistry {
         turnId: patch.turnId,
         state: patch.state,
         startedAt: at,
+        ...(patch.turnCount !== undefined ? { turnCount: patch.turnCount } : {}),
       };
     });
+  }
+
+  /** The 1-based ordinal of a turn within its task: the turns that ran before this handle existed plus its place among the handle's. */
+  private ordinalOf(handle: RunHandle, turn: RunTurn): number {
+    return handle.turnBase + handle.turns.indexOf(turn) + 1;
   }
 }
