@@ -3,7 +3,7 @@
  *
  * Maps A2A contextId → Codex Thread for multi-turn conversation continuity.
  * Serializes turns within the same context via a promise-chain queue.
- * Tracks active executions for cancellation support.
+ * Tracks active executions so TTL cleanup never removes a busy context.
  */
 
 import type { CodexClientLike, CodexThreadLike, ThreadOptionsLike } from "./client-factory.js";
@@ -28,7 +28,6 @@ export interface CodexSession {
 export interface ActiveExecution {
   taskId: string;
   contextId: string;
-  abortController: AbortController;
 }
 
 // ─── SessionManager ───────────────────────────────────────────────────────────
@@ -92,8 +91,8 @@ export class SessionManager {
   }
 
   /** Register an active execution for cancellation tracking. */
-  trackExecution(taskId: string, contextId: string, abortController: AbortController): void {
-    this.activeExecutions.set(taskId, { taskId, contextId, abortController });
+  trackExecution(taskId: string, contextId: string): void {
+    this.activeExecutions.set(taskId, { taskId, contextId });
   }
 
   /** Remove active execution tracking. */

@@ -25,6 +25,7 @@ import { extractUserText } from "./prompt-builder.js";
 import { resolveCodexModel } from "./model-resolver.js";
 
 import {
+  TaskRunRegistry,
   materializeMemory,
   bootstrapSubAgents,
   publishTask,
@@ -73,6 +74,8 @@ export class CodexExecutor implements AgentExecutor {
   private readonly config: Required<AgentConfig>;
   private client: CodexClientLike | null = null;
   private sessionManager: SessionManager | null = null;
+  /** A2A run tracking and cancellation (provider-neutral, from core). */
+  private readonly runs = new TaskRunRegistry();
   private initialized = false;
 
   /** Optional custom event transport supplied via programmatic API. */
@@ -163,9 +166,14 @@ export class CodexExecutor implements AgentExecutor {
 
   // ── Task Execution ───────────────────────────────────────────────────────
 
-  async execute(ctx: RequestContext, bus: ExecutionEventBus): Promise<void> {
+  async execute(ctx: RequestContext, rawBus: ExecutionEventBus): Promise<void> {
     const { taskId, contextId, userMessage, task } = ctx;
     await this.initialize();
+
+    // Everything this turn publishes goes through `bus`, which drops events once
+    // `cancelTask` has claimed the task (see TaskRunRegistry in core).
+    const run = this.runs.begin(taskId, contextId, rawBus);
+    const bus = run.bus;
 
     const { emitter } = createExecutionObservability({
       agentName: this.config.agentCard.name,
@@ -194,12 +202,13 @@ export class CodexExecutor implements AgentExecutor {
       log.info("Executing task", { taskId, contextId, promptLen: promptText.length });
 
       // Serialize execution — queue behind any in-progress turn for this context
-      const abortController = new AbortController();
-      this.sessionManager!.trackExecution(taskId, contextId, abortController);
+      this.sessionManager!.trackExecution(taskId, contextId);
 
       const turnFn = async (): Promise<void> => {
         const accumulator = new LlmUsageAccumulator();
         try {
+          // Canceled while queued behind another turn: never start it.
+          if (run.canceled) return;
           publishStatus(bus, taskId, contextId, "working", "Processing request...");
 
           let finalText = "";
@@ -209,7 +218,7 @@ export class CodexExecutor implements AgentExecutor {
           let streamArtifactStarted = false;
 
           const { events } = await session.thread.runStreamed(promptText, {
-            signal: abortController.signal,
+            signal: run.signal,
           });
 
           for await (const event of events) {
@@ -258,6 +267,9 @@ export class CodexExecutor implements AgentExecutor {
             mapper.handleEvent(event);
           }
 
+          if (run.canceled) return; // cancelTask already published
+          if (!run.beginFinalize()) return;
+
           // Publish artifact
           if (this.config.features.streamArtifactChunks && streamArtifactStarted) {
             publishLastChunkMarker(bus, taskId, contextId, streamArtifactId, finalText);
@@ -286,6 +298,8 @@ export class CodexExecutor implements AgentExecutor {
           if (isAbort) {
             log.info("Task execution aborted", { taskId });
             // cancelTask already published the canceled status
+          } else if (run.canceled || !run.beginFinalize()) {
+            log.debug("Ignoring error from canceled task", { taskId });
           } else {
             const msg = sanitizeMessage(err instanceof Error ? err.message : String(err));
             log.error("Task execution failed", { taskId, error: msg });
@@ -294,6 +308,7 @@ export class CodexExecutor implements AgentExecutor {
           }
         } finally {
           this.sessionManager?.untrackExecution(taskId);
+          run.end();
         }
       };
 
@@ -307,27 +322,27 @@ export class CodexExecutor implements AgentExecutor {
     } catch (outerErr) {
       const msg = sanitizeMessage(outerErr instanceof Error ? outerErr.message : String(outerErr));
       log.error("Executor outer error", { taskId, error: msg });
-      publishStatus(bus, taskId, contextId, "failed", msg, true);
-      bus.finished();
+      if (!run.canceled && run.beginFinalize()) {
+        publishStatus(bus, taskId, contextId, "failed", msg, true);
+        bus.finished();
+      }
       this.sessionManager?.untrackExecution(taskId);
+      run.end();
     }
   }
 
   // ── Cancellation ─────────────────────────────────────────────────────────
 
+  /**
+   * Cancel a running task. The A2A side (claim, `canceled` ordering, late-event
+   * suppression, idempotency) is core's `TaskRunRegistry`; the Codex-specific
+   * part is only that aborting the run's signal stops `runStreamed`, which kills
+   * the CLI turn. The thread stays usable for the next message in the context.
+   */
   async cancelTask(taskId: string, bus: ExecutionEventBus): Promise<void> {
     log.info("Cancel requested", { taskId });
-
-    const execution = this.sessionManager?.getExecution(taskId);
-    if (!execution) {
-      log.debug("No active execution found for cancellation", { taskId });
-      return;
-    }
-
-    execution.abortController.abort();
-    publishStatus(bus, execution.contextId, execution.contextId, "canceled", undefined, true);
-    bus.finished();
-    this.sessionManager?.untrackExecution(taskId);
+    const canceled = await this.runs.cancel(taskId, bus, {});
+    if (!canceled) log.debug("No cancelable run for task", { taskId });
   }
 
   // ── Context Build ────────────────────────────────────────────────────────
