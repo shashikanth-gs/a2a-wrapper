@@ -22,6 +22,12 @@ export interface ProviderInfo {
   outputModes: readonly string[];
 }
 
+/** What core hands to {@link ProviderExecutor.reattach}: the restored runs, by task. */
+export interface ReattachRuns {
+  /** The restored run's view, or `undefined` when core did not restore that task. */
+  view(taskId: string): CoreTaskRun | undefined;
+}
+
 export interface ProviderExecutor {
   info(): ProviderInfo;
   initialize(): Promise<void>;
@@ -49,8 +55,16 @@ export interface ProviderExecutor {
    * run (for example after a crash). Returns what the backend confirmed, like `abort`.
    */
   abortOrphan?(info: OrphanInfo): Promise<AbortOutcome>;
-  /** After a restart, resume waiting on interactions that carry a `handle`. */
-  reattach?(pending: readonly PendingInteraction[]): Promise<void>;
+  /**
+   * After a restart, resume waiting on interactions that carry a `handle`. Core has
+   * restored them (same id, `seq` and reply code, presented or queued, timers re-armed) and
+   * re-created a live run for each task; `runs.view(taskId)` is that run's view. The provider
+   * calls `view.ask(request, { handle })` again for each pending interaction it re-attached:
+   * core matches the handle, returns the restored interaction's promise (no new record) and the
+   * provider continues the turn it had parked. A provider that does not implement `reattach`
+   * (or rejects) gets its interrupted tasks failed with "server restarted".
+   */
+  reattach?(pending: readonly PendingInteraction[], runs: ReattachRuns): Promise<void>;
   /** Drop provider state for a discarded session. */
   release?(session: Pick<SessionRef, "ref">): Promise<void>;
   shutdown(): Promise<void>;

@@ -172,9 +172,9 @@ describe("N1: CoreExecutor.execute never rejects while the task is live", () => 
     const boom = async () => { throw new Error("boom"); };
     const bus: any = { publish: vi.fn(), finished: vi.fn() };
     const ctx: any = { taskId: "t1", contextId: "c", task: { id: "t1" }, userMessage: undefined, context: undefined };
-    const live = new CoreExecutor({ isLive: () => true, execute: boom, provider: {} } as any);
+    const live = new CoreExecutor({ isLive: () => true, isParked: () => false, execute: boom, provider: {} } as any);
     await expect(live.execute(ctx, bus)).resolves.toBeUndefined();
-    const idle = new CoreExecutor({ isLive: () => false, execute: boom, provider: {} } as any);
+    const idle = new CoreExecutor({ isLive: () => false, isParked: () => false, execute: boom, provider: {} } as any);
     await expect(idle.execute(ctx, bus)).rejects.toThrow("boom");
   });
 });

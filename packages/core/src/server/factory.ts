@@ -66,6 +66,7 @@ import type { AgentCardConfig } from "../config/types.js";
 import type { EventTransport, EventTransportFn } from "../events/transport.js";
 import { RunEventBusManager } from "../a2a/bus-manager.js";
 import { OrphanGuardTaskStore, endTaskInStore } from "../a2a/orphan-task-store.js";
+import { createStorePublisher } from "../a2a/store-publisher.js";
 import type { RunRegistry } from "../runtime/run-registry.js";
 import { instrumentExecutor } from "../telemetry/instrument.js";
 import { PEER_HEADER } from "../telemetry/propagation.js";
@@ -372,6 +373,10 @@ export async function createA2AServer<T extends BuildAgentCardInput>(
     undefined, // extendedAgentCardProvider
     agentCardSignatureGenerator,
   );
+
+  // A run parked at input-required has no stream attached; what core does to it on its own (an expiry, a
+  // withdrawal, the next queued interaction) is written to this store through the SDK's ResultManager.
+  runRegistry?.setDetachedPublisher((info) => createStorePublisher(baseTaskStore, info));
 
   if (runRegistry && options?.sweepOnStart !== false) {
     await runRegistry.sweep({ endTask: endTaskInStore(baseTaskStore) });

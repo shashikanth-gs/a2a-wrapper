@@ -169,8 +169,8 @@ provider returned in `SteerOutcome.queued`; it is REQUIRED there (a provider wit
 go terminal. **Liveness backstop:** if `provider.run()` settles while held handles are neither begun nor dropped, core
 treats them as dropped (and reports it), so a provider that forgets cannot keep a task open forever. Without these calls
 `complete()` of the running turn would end the task and the held message's output would arrive after it is terminal and
-be dropped. The cancel/abort side of the runtime is implemented (issue #107, section 3.10); the steering and
-interaction runtimes that drive `beginHeldTurn` / `dropHeld` / `ask` are #109 and #108.
+be dropped. The cancel/abort side of the runtime is implemented (issue #107, section 3.10) and so is `ask` (issue #108,
+section 3.11); the steering runtime that drives `beginHeldTurn` / `dropHeld` is #109.
 
 `signal.reason` is the `AbortReason` core stopped the run for (`cancel`, `interrupt`, `shutdown`), and an interrupt
 aborts the signal too, so a provider reading only the signal can tell a stop-and-continue from a stop-for-good.
@@ -309,7 +309,7 @@ marks the record `withdrawn`, and presents the next queued interaction, or retur
 `presented`; asks made while one is open are `queued`, in `seq` order. When the presented one ends (answered, expired,
 canceled, withdrawn) the lowest-`seq` queued one is presented. A reply is always matched against the presented
 interaction, so a stale reply for an earlier one cannot reach a later one. Pure helpers: `initialInteractionState`,
-`presentedInteraction`, `nextQueuedInteraction`. The queueing runtime is issue #108.
+`presentedInteraction`, `nextQueuedInteraction`. The queueing runtime is implemented (#108, section 3.11).
 
 **Stale text replies.** Core assigns each interaction a `replyCode`: four characters from an alphabet without look-alikes
 (no `0 1 I L O`), about 920,000 values, deterministic from the interaction id and its per-task `seq` (so re-rendering the
@@ -323,7 +323,8 @@ authentication; it stops a "yes" meant for one prompt from approving the next.
 
 **Unparseable replies.** When a text reply to the presented interaction cannot be parsed (no code, wrong option, no
 match), `parseInteractionReply` returns `undefined` and core ignores the message with no side effect; the runtime
-re-publishes the prompt with a hint ("Reply with `1 K7M2`", issue #108). Claude's global `AskUserQuestion` `response`
+re-publishes the prompt with a hint ("That reply could not be matched to the open request.", then the numbered options
+and the code; implemented in #108, section 3.11). Claude's global `AskUserQuestion` `response`
 maps to `declined` with `feedback`.
 
 **Kind spelling.** `normalizeInteraction` refuses a `kind` that equals a known kind after trim and case-folding
@@ -501,8 +502,9 @@ input is refused at ask time. `decodeRecord` reverses it, restoring `Uint8Array`
 record with no version or a version newer than this core's. `encodePart` / `decodePart` do the same for one part.
 
 After a restart, core finds open records (`presented`, `queued`). Those with a `handle` go to the provider's
-`reattach?(records)` so it can resume waiting (Copilot `continuePendingWork`, OpenCode re-list). The rest become
-`expired` and the task is failed with a precise reason instead of hanging.
+`reattach?(records, runs)` so it can resume waiting (Copilot `continuePendingWork`, OpenCode re-list). The rest become
+`expired` and the task is failed with a precise reason ("server restarted") instead of hanging. Implemented in #108:
+the sweep reads `interrupted` run records (`input-required` / `auth-required`), see 3.11.
 
 ### 3.7 Static provider info and usage
 
@@ -577,8 +579,24 @@ and configurable, and keeps today's behaviour as the default so nothing changes 
 }
 ```
 
-In `ask` mode, unmatched interactions go to the client, and an unanswered one expires into a denial (D5). The
+In `ask` mode, unmatched interactions go to the client, and an unanswered one expires (D5: never an approval). The
 authorization middleware (decision 3) later decides *who* may answer; this policy decides *whether* a person is asked.
+
+**Implemented (#108): `InteractionPolicy`** (`runtime/interaction-policy.ts`, passed as `RunRegistryOptions.interactionPolicy`).
+Choices made where this section was open:
+
+- `mode: "auto"` is the default and keeps today's behaviour: core asks nobody, nothing is published or stored, and a
+  provider that still calls `run.ask` gets `{outcome: "unavailable"}` (a denial). Existing wrappers never call it.
+- `autoAnswer` applies in `ask` mode only. A rule is `{match: {kind?, risk?, tool?, action?}, answer: {kind} | {optionId} |
+  {decline: true}}`; `kind` picks the first option of that option kind. Only option-based interactions (permission,
+  confirm) can be auto-answered; a rule asking for an option kind the interaction does not offer does not match. The
+  answer is recorded `by: {id: "policy", kind: "service"}` (`POLICY_CALLER`), the record is stored `answered`, nothing is
+  published and the run never parks. `{decline: true}` selects a plain `reject_once` (not an interrupting one).
+- `timeoutMs` overrides the 10-minute default of every kind but `auth`; `authTimeoutMs` (default 30 minutes) overrides auth.
+- **`onTimeout` default is `"fail"`, not `"deny"` (spec problem, see 3.11).** An expiry always resolves the interaction
+  `expired` and stores it `expired`; `"fail"` then ends the task through `registry.expire` (terminal `failed`, reason in the
+  status message, provider aborted), `"deny"` lets the provider see the denial (`expired`) and the same run goes on.
+- A malformed policy throws at construction (a typo must not silently become "ask nobody").
 
 ### 3.10 Run runtime: the cancel entry point (implemented, #107)
 
@@ -607,7 +625,8 @@ Code: `packages/core/src/runtime/` (SDK-free: `RunRegistry`, `RunHandle`, `RunSt
   interactions runtime (`InteractionRuntime.handleReply`, #108); otherwise the message is queued as the next turn (default
   delivery, D4) with a `QueuedMessageRecord`, claimed `queued -> running` by compare-and-set before its turn runs.
 - **Pending interactions** register `PendingHook`s on the handle; cancel (and expiry) settle them `canceled` inside the
-  claim. `ask` answers `unavailable` until the interactions runtime exists. `RunRegistry.expire` is the third claim.
+  claim. `ask` is the interactions runtime (#108, 3.11); with the default `mode: "auto"` it still answers `unavailable`.
+  `RunRegistry.expire` is the third claim.
 - **Orphans.** `RunRegistry.handleStoreCancel(taskId)` is what `OrphanGuardTaskStore` calls when the SDK saves `CANCELED`:
   if the `RunRecord` is non-terminal and no live handle or in-flight terminal write exists, the record is marked
   canceled and `abortOrphan(info)` runs in the background (a live handle is canceled through the normal path instead).
@@ -641,16 +660,115 @@ Code: `packages/core/src/runtime/` (SDK-free: `RunRegistry`, `RunHandle`, `RunSt
 - **Cancel during an interrupt's abort.** `RunHandle.aborting` keeps the in-flight `abort(info, "interrupt")`. A cancel or
   expiry arriving meanwhile waits for it, THEN sends `abort(info, "cancel")` (so the provider flushes its native queue),
   and only then releases the lane.
-- **Open decisions for #108.** What exactly publishes `input-required` and what `signalParked` promises (today the runtime
-  publishes through `handle.publisher` and then signals); the expiry policy calling `registry.expire`; the lane is held while
-  a run is parked (a second task in the context waits up to the interaction timeout); `handleReply` must never throw (an
-  `execute()` rejection on a live task is swallowed by `CoreExecutor`, which hides the error); what a restart does to
-  `interrupted` records (the sweep skips them, so a reply later starts a fresh run).
+- **Decisions for #108 (settled by the owner, implemented in 3.11).** (1) A parked run holds its context lane until it
+  resolves or expires: providers cannot run two turns on one session, so a second task in the context waits up to the
+  interaction timeout. (2) Expiry calls `registry.expire` per the policy (`onTimeout`, defaults 10 minutes, auth 30).
+  (3) `handleReply` never throws (`CoreExecutor` swallows an `execute()` rejection on a live task, which would hide the
+  error). (4) Restart: pending interactions with a provider `handle` go to `provider.reattach` when it exists, else the sweep
+  fails the task with reason "server restarted" and marks the pending records `expired`. (5) Secrets are allowed in answers
+  for now (a deviation from MCP form-mode elicitation, which forbids requesting them), never logged, and stored redacted.
 - **Open decisions for #109.** A second message on a live streaming task (reject before queueing without throwing, or make
   the response honest); how a `DeliveryResult` reaches a blocking `sendMessage` caller; `interrupt` with no follow-up
   message (the task waits for a next turn forever today); where steer dispatch happens in `attach`.
 - **Trust.** A store-triggered cancel is recorded as `{id: "store", kind: "service"}` and goes through `authorize`; once
   `authorize` is real, decide whether that identity is trusted (the SDK writes `CANCELED` on behalf of any caller).
+
+### 3.10.1 Spike S1 results: what SDK 1.3 does at `input-required` and `auth-required` (#108)
+
+Measured with the real `DefaultRequestHandler` (in-memory task store) and a bare executor that parks and returns; the
+facts are pinned as executable documentation in `packages/core/src/__tests__/a2a/s1-interrupted-states.test.ts`, so an SDK
+upgrade that changes one fails there first. The design in 3.11 follows from them.
+
+| Question | Finding |
+|---|---|
+| (a) blocking `message/send` that parks at `input-required` | Returns the Task with state `input-required` and the status message. `execute()` returned, and the bus is kept alive (`keepBusAliveStates` defaults to the interrupted states; core also owns it through `settleByTaskId`). |
+| (b) `message/stream` that parks | The stream delivers `task`, `working`, `input-required` and ENDS: `ExecutionEventQueue.events()` stops at a terminal state or `input-required`. |
+| (c) the reply | A new `message/send` or `message/stream` on the same `taskId`. The SDK runs a SECOND `execute()` on the SAME bus. It has already appended the reply to the stored task's `history` and passes the stored task (`ctx.task`, still `input-required`) to that `execute()`. The original stream is long closed: nothing is attached to the bus, so any event published with no new request consuming it is lost to the task store (the SDK updates the store only from consumed events). |
+| the opening event | A STREAMING request throws "Received statusUpdate before initial 'Message'/'Task' event" when its first event is a status update, so the reply's `execute()` must publish the Task snapshot (`ctx.task`) first. A BLOCKING request does not check and works either way. A snapshot published while ANOTHER stream is attached to the shared bus breaks that stream ("Stream ordering violation": a `task` event inside a task-lifecycle stream). This is the #117 finding: the live-task attach path skipped the snapshot and the reply stream failed; for a message to a WORKING task the snapshot would break the running stream, which is why that case is #109. |
+| (d) `auth-required` | Different from `input-required`: the SDK queue does NOT stop there, so a streaming client's stream stays open (it expects the executor to resume on the same bus after out-of-band credential injection) while a blocking caller gets the snapshot at once and the SDK keeps draining in the background. If the original stream is left attached, the reply's Task snapshot breaks it (as above) and the continuation of the run reaches only the reply's stream. The older "a fresh request is expected" assumption is superseded: the reply to an auth challenge is also a new request on the same task. |
+
+Consequences for core (all implemented):
+
+1. The first `execute()` returns at the park (`ExecuteOutcome` `parked`) and `CoreExecutor` calls `bus.finished()` for BOTH
+   states. At `input-required` the SDK would have stopped listening anyway; at `auth-required` closing it is what keeps the
+   reply's snapshot from breaking an open stream, so a client sees the same lifecycle for every interaction.
+2. The reply's `execute()` publishes the Task snapshot (`ctx.task`) only when the run is PARKED (`registry.isParked`): then no
+   stream is attached. It never does for a run with a stream attached (that is #109).
+3. A reply is a new attachment: a new publisher over the same bus. Streamed-artifact bookkeeping (which artifacts already have
+   their first chunk, so the next chunk `append`s) is therefore shared per task, or the text after an approval would REPLACE
+   the text before it.
+4. Nothing consumes the bus while the run is parked, so what core itself does to a parked run (an expiry timer, a withdrawal,
+   the next queued interaction, the run completing) would never reach the task store. Core writes the store through the SDK's
+   own `ResultManager` (`createStorePublisher`, the registry's "detached publisher"; the server factory wires it). The
+   registry switches to it when the last attachment left at a park and back when a reply attaches.
+
+### 3.11 Interactions runtime (implemented, #108; also delivers #65 and #57 at the core level)
+
+Code: `runtime/interactions.ts` (`InteractionsRuntime`, SDK-free), `runtime/interaction-policy.ts`, `model/interaction-reply.ts`
+(the SDK-free `parseInteractionReply`, re-exported by the adapter), `a2a/store-publisher.ts`. `RunRegistry` builds the runtime
+itself (`interactionPolicy`); the seam for a different one (`InteractionRuntime`, `bind`, `restore`) stays.
+
+- **`run.ask(request, opts)`** assigns the interaction id, the per-task `seq` and the reply code (`replyCodeFor(id, seq)`),
+  fills `expiresAt` from policy (a provider-given `expiresAt` is kept), runs `normalizeInteraction` (a malformed request is
+  answered `unavailable` with the reasons and never parks), and writes a `PendingInteraction` through `RunStore` (new
+  `putPending` / `getPending` / `listPending`, in-memory implementation included). The first ask of a task is `presented`, later
+  ones `queued` (FIFO by `seq`, exactly one presented). Only the presented one is published; a queued one's expiry clock
+  starts when it is presented (unless the provider fixed `expiresAt`).
+- **Parking (#65).** Presenting an interaction writes `RunRecord.state = input-required` (`auth-required` for kind `auth`, so
+  the restart sweep sees an `interrupted` record), publishes through `RunPublisher.interaction()` (the adapter's
+  `renderInteraction`: text rendering with numbered options and the reply code, plus the structured data part under
+  `urn:a2a-wrapper:interaction:v1`), and signals the run parked. `provider.run` stays pending on the `ask` promise, the
+  context lane stays held, and the first `execute()` returns `parked`. The parked flag is sticky (`RunHandle.parked`,
+  cleared by `signalResumed` before the ask promise resolves) so a reply whose attachment starts waiting after the provider
+  already re-parked does not lose the boundary.
+- **Replies and resume.** The registry routes a message for a task with a live run to `handleReply`. While an interaction is
+  presented EVERY message to the task is a reply attempt: it is parsed (`parseInteractionReply`) against the PRESENTED
+  interaction only (structured by `interactionId`, which wins over text beside it; a text approval needs the reply code),
+  checked with `authorize(by, "answer", target)` (the single choke point; `by` is the caller from the call context), and on
+  success the parked ask resolves and the SAME `provider.run` continues (no second provider run). Then the next queued
+  interaction is presented, or the task returns to `working` (a `working` status on the reply's stream). A reply that cannot be
+  used (stale id, wrong or missing code, unknown option or outcome, malformed, denied) is ignored: the presented interaction is
+  re-published as a status message with a hint, the task stays interrupted, and nothing is approved (D5). A duplicate
+  structured reply for an interaction that already ended is ignored with no side effect. `handleReply` never throws: an
+  internal error (or an authorizer that throws) consumes the message when anything is open, so it can never run as a turn.
+- **Ending.** Answered, `expired`, `canceled` (the task was canceled or ended: the registry's claim settles every presented and
+  queued interaction synchronously; complete, fail or reject of the turn does the same after the terminal event, so a run that
+  completes with an ask queued drops it cleanly) or `withdrawn` (`AskOptions.signal`: the next queued interaction is presented,
+  or the task returns to `working`). Every state change is stored. Timers are `unref`'d and cleared on every end.
+- **Expiry** (per kind, 3.9): the interaction resolves and is stored `expired`; then `onTimeout` `"fail"` (default) ends the
+  task through `registry.expire` (terminal `failed`, code `timeout`), `"deny"` lets the same run go on. With `"fail"` the
+  provider's pending asks are settled by the claim, so the provider sees `canceled` rather than `expired` (the stored record
+  says `expired`); neither approves.
+- **Detached writes.** Core acts on a parked run nobody consumes (expiry, withdrawal, next interaction, completion) through
+  `RunHandle.sink`, which is the detached publisher (`createStorePublisher` over the A2A task store and the SDK's
+  `ResultManager`) from the moment the last attachment left at a park until a reply attaches. The server factory wires it.
+- **Restart.** `RunRegistry.sweep` no longer skips `interrupted` records. Pending interactions with a `handle`, when the
+  provider implements `reattach(pending, runs)`: core re-creates the run (live handle, running turn without a provider call,
+  lane held, session from the binding), restores the interactions (same ids, `seq` and codes, timers re-armed against the
+  ORIGINAL deadline) and calls `reattach`; the provider calls `runs.view(taskId).ask(request, {handle})` for each, which returns
+  the restored interaction's promise, so a client reply after the restart resolves it and the provider continues its turn.
+  Otherwise (no `reattach`, no handle, or `reattach` rejects or times out) the open records become `expired`, the run record
+  `failed`, and `endTask` tells the A2A store: reason "server restarted".
+- **Secrets.** Answers to `secret` questions reach the provider; the stored record is redacted (`redactSecretAnswers`, paths in
+  `result.redacted`) and no result is ever logged.
+
+**Spec problems found.**
+
+1. 3.9 gave `onTimeout` default `deny`, while the owner decision (2) and the table in section 4 say expiry fails the task
+   through `registry.expire`. The default is `fail`; `deny` is the opt-in.
+2. `ProviderExecutor.reattach(pending)` could not work: after a restart the provider has no run view to continue with. It now
+   gets `runs.view(taskId)`, and re-asks with the handle (see Restart).
+3. The doc said the SDK does not re-drive streams at `auth-required`; SDK 1.3 keeps the stream open instead (3.10.1). Core
+   closes the attachment at every park.
+4. A reply to an interrupted task needs the Task snapshot, a task with a stream attached must not get one, and nothing consumes
+   the bus while parked (3.10.1); none of this was in the original model.
+5. `RunPublisher` gained `interaction()`; a message to a task whose interaction is presented can no longer be queued or steered
+   (it is a reply attempt), so `delivery` on such a message is ignored until the interaction ends (#109 decides whether a
+   steer should be able to answer or withdraw an interaction).
+6. The structured payload is always attached next to the text (the agent card does not declare the interaction extension yet,
+   so activation cannot be detected); gate `createBusPublisher`'s `interaction()` on activation once the card declares it.
+7. A duplicate structured reply while the task is `working` (not parked) is consumed without a snapshot, so a streaming client
+   gets the "before initial Task" error; same family as the second-message-on-a-live-task problem of #109.
 
 ## 4. A2A mapping and the run model (core internal)
 
@@ -666,12 +784,10 @@ The SDK calls `execute()` per request and tears the bus down when it returns, ex
   same `RunHandle`, forwards the remaining events, and returns at the next terminal or interrupted state.
 - A message to a working task is intercepted by core before any provider call: handled per its `delivery` (D4:
   `queue` by default, `steer`, or `interrupt`). Core never lets the SDK start a second `execute()` for a live run.
-- **`auth-required` (revised for SDK 1.3; spike S1 to re-run).** This document first assumed that the SDK does not
-  re-drive streams at `auth-required`, so core would complete the attachment and expect a fresh request after the
-  out-of-band step. SDK 1.3 contradicts that: `keepBusAliveStates` defaults to the interrupted states, which include
-  `auth-required`, so the bus stays alive and the executor may resume publishing on the same bus after the out-of-band
-  auth completes. Which of the two models core uses is decided by re-running S1 on 1.3; until then treat "expects a
-  fresh request" as superseded.
+- **`auth-required` (S1 re-run on SDK 1.3, section 3.10.1).** The SDK keeps the bus alive and the stream OPEN at
+  `auth-required` (it expects the executor to resume on the same bus). Core does not rely on that: it closes the attachment
+  at the park exactly as at `input-required`, and the reply (the "done" message after the out-of-band sign-in) is a new
+  request on the same task whose `execute()` resolves the ask and continues the SAME run.
 - **Bus lifetime.** Core owns it through `ExecutionEventBusManager.settleByTaskId` (see 3.5), including the orphan
   case: a `tasks/cancel` with no bus never calls the executor in SDK 1.3.
 
@@ -682,7 +798,7 @@ The SDK calls `execute()` per request and tears the bus down when it returns, ex
 | reply `selected` / `answered` / `submitted` | a message on the same task: structured data part `{interactionId, ...}` first, text fallback second ("approve", option label, number) |
 | client that did not activate the extension | text rendering only, options numbered, with the reply code ("Reply with `1 K7`"); core still parses the text reply, and selects an `allow_*` option only when the code is present |
 | duplicate or late reply | idempotent on (task, interaction id); unknown or answered ids are ignored with no side effect |
-| `expired` | task `failed` (or `canceled`) with the reason, per policy |
+| `expired` | task `failed` with the reason (`onTimeout: "fail"`, default), or the provider sees the denial and the run goes on (`"deny"`) |
 | cancel while pending | `outcome: "canceled"` delivered to the provider, then the normal cancel path |
 | `CoreCaller` | from the A2A call context; permission replies require the task owner or a configured approver |
 | core state with no v1 equivalent, or `unknown` | task state `working` (never `TASK_STATE_UNSPECIFIED`), the original string in `urn:a2a-wrapper:core-state:v1` status metadata; restored on read when the wire state is `working` (or the old `UNSPECIFIED`) and the carried state is one core does not model |
@@ -770,11 +886,9 @@ Decisions (settled 2026-11-21):
 
 Spikes before implementation:
 
-- **S1.** Validate the run/attachment model (section 4) on SDK 1.0.0 and 1.3: park a run at `input-required`, send the
-  reply, confirm the second `execute()` only resolves the ask and streams the rest. **Re-run on 1.3 for
-  `auth-required`:** `keepBusAliveStates` keeps the bus alive, so the executor may resume publishing on the same bus
-  after out-of-band auth; this contradicts the earlier "expects a fresh request" assumption. Also confirm
-  `settleByTaskId` and the cancel-with-no-bus path (3.5).
+- **S1.** DONE on SDK 1.3 (#108): section 3.10.1 and `__tests__/a2a/s1-interrupted-states.test.ts`. Park at
+  `input-required` and `auth-required`, blocking and streaming, the reply as a second `execute()`, the Task snapshot rule.
+  `settleByTaskId` and the cancel-with-no-bus path are covered by the #107 end-to-end tests (3.5, 3.10).
 - **S2.** Real Copilot: `onPermissionRequest` left pending, answered later by RPC; measure `immediate` steering and the
   `delivery` event.
 - **S3.** Real Claude: `canUseTool` pending across an A2A round trip; `defer` hook behaviour on resume.

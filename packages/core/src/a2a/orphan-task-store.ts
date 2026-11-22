@@ -41,6 +41,14 @@ export class OrphanGuardTaskStore implements TaskStore {
   }
 }
 
+/** The SDK call context an owner-scoped task store finds a task under (the run record's owner and tenant). */
+export function contextForOwner(owner: { id: string; kind: string }, tenant?: string): ServerCallContext {
+  return new ServerCallContext({
+    user: { isAuthenticated: owner.id !== "anonymous", userName: owner.id === "anonymous" ? "" : owner.id },
+    ...(tenant ? { tenant } : {}),
+  });
+}
+
 /**
  * `SweepOptions.endTask` over a `TaskStore`: mark the task `failed` with the sweep's
  * reason, so a client that asks sees it instead of a task stuck in `working`.
@@ -54,11 +62,7 @@ export function endTaskInStore(
     const ctx =
       typeof context === "function"
         ? context({ owner, ...(tenant ? { tenant } : {}) })
-        : (context ??
-          new ServerCallContext({
-            user: { isAuthenticated: owner.id !== "anonymous", userName: owner.id === "anonymous" ? "" : owner.id },
-            ...(tenant ? { tenant } : {}),
-          }));
+        : (context ?? contextForOwner(owner, tenant));
     const task = await store.load(taskId, ctx);
     if (!task) return;
     const s = task.status?.state;

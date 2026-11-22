@@ -20,12 +20,14 @@ import { ANONYMOUS_CALLER } from "../model/index.js";
 import { createLogger } from "../utils/logger.js";
 import type { RunRegistry } from "../runtime/run-registry.js";
 import { callerFromContext, coreRequestFromContext, fromA2AMessage } from "./adapter.js";
-import { createBusPublisher } from "./bus-publisher.js";
+import { createBusPublisher, forgetTaskPublisherState } from "./bus-publisher.js";
 
 const log = createLogger("core-executor");
 
 export class CoreExecutor implements A2AExecutor {
-  constructor(private readonly registry: RunRegistry) {}
+  constructor(private readonly registry: RunRegistry) {
+    registry.onSettled?.(({ taskId }) => forgetTaskPublisherState(taskId));
+  }
 
   initialize(): Promise<void> {
     return this.registry.provider.initialize();
@@ -41,12 +43,19 @@ export class CoreExecutor implements A2AExecutor {
     // one, the bus is shared with the stream that is already open (the reply and queue paths
     // belong to the interactions and steering runtimes, #108 and #109).
     const live = this.registry.isLive(ctx.taskId);
+    // A run parked on an interaction has no stream attached (the original one ended at input-required and
+    // core closed it at auth-required), so a reply may open its stream with the stored task as the snapshot;
+    // the SDK throws on a stream whose first event is a status update (spike S1, design doc 3.10.1).
+    // A snapshot on a run that DOES have a stream attached would break that stream, so never then.
+    const parked = live && this.registry.isParked(ctx.taskId);
     if (!live) {
       if (ctx.task) bus.publish({ kind: "task", data: ctx.task });
       else publishTask(bus, ctx.taskId, ctx.contextId);
+    } else if (parked && ctx.task) {
+      bus.publish({ kind: "task", data: ctx.task });
     }
     try {
-      await this.registry.execute({
+      const outcome = await this.registry.execute({
         taskId: ctx.taskId,
         contextId: ctx.contextId,
         caller: callerFromContext(ctx),
@@ -54,6 +63,10 @@ export class CoreExecutor implements A2AExecutor {
         ...(ctx.userMessage ? { message: fromA2AMessage(ctx.userMessage) } : {}),
         request: (ids) => coreRequestFromContext(ctx, ids),
       });
+      // Parked: the SDK itself stops listening at input-required but NOT at auth-required, where it keeps the
+      // stream open for an executor that resumes on the same bus. Core resumes through the reply's own
+      // attachment, so close this one at both (a stream left open would be broken by the reply's snapshot).
+      if (outcome === "parked") bus.finished();
     } catch (e) {
       // While the task is live the bus is shared with the running turn: if this execute() rejected,
       // the SDK would publish Task + FAILED on that bus, a second terminal event. Never reject then.

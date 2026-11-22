@@ -9,7 +9,20 @@
 import type { ExecutionEventBus } from "@a2a-js/sdk/server";
 import type { CoreArtifact, CoreEvent, Meta } from "../model/index.js";
 import type { RunPublisher } from "../runtime/types.js";
-import { toArtifactUpdate, toStatusUpdate, usageToMetadata } from "./adapter.js";
+import { toArtifactUpdate, toInteractionStatusUpdate, usageToMetadata, toStatusUpdate } from "./adapter.js";
+
+/**
+ * Which streamed artifacts of a task already have their first chunk out. Shared by every publisher
+ * of one task: a reply to a parked run is a NEW attachment (a new publisher over the same bus, or
+ * over the task store), and its first text chunk must append to the artifact the run started, not
+ * replace it. Dropped by {@link forgetTaskPublisherState} when the run ends.
+ */
+const startedByTask = new Map<string, Set<string>>();
+
+/** Forget the streamed-artifact bookkeeping of a task whose run ended. */
+export function forgetTaskPublisherState(taskId: string): void {
+  startedByTask.delete(taskId);
+}
 
 /**
  * Publish through `bus`. Text and thought deltas become streamed artifact chunks
@@ -19,7 +32,8 @@ import { toArtifactUpdate, toStatusUpdate, usageToMetadata } from "./adapter.js"
  */
 export function createBusPublisher(bus: ExecutionEventBus, ids: { taskId: string; contextId: string }): RunPublisher {
   const { taskId, contextId } = ids;
-  const started = new Set<string>();
+  const started = startedByTask.get(taskId) ?? new Set<string>();
+  startedByTask.set(taskId, started);
 
   const chunk = (artifactId: string, text: string, meta?: Meta) => {
     const append = started.has(artifactId);
@@ -44,6 +58,16 @@ export function createBusPublisher(bus: ExecutionEventBus, ids: { taskId: string
         kind: "statusUpdate",
         data: toStatusUpdate({ taskId, contextId, state, ...(text ? { text } : {}), ...(merged ? { metadata: merged } : {}) }),
       });
+    },
+    interaction(interaction, options) {
+      // Structured payload always on: it sits next to the text rendering, so a client that ignores it loses nothing.
+      // (When the agent card declares the interaction extension, gate it on the client's activation here.)
+      const event = toInteractionStatusUpdate(taskId, contextId, interaction);
+      const hint = options?.hint;
+      const first = event.status?.message?.parts?.[0];
+      if (hint && first?.content?.$case === "text") first.content.value = `${hint}
+${first.content.value}`;
+      bus.publish({ kind: "statusUpdate", data: event });
     },
     event(e: CoreEvent) {
       if (e.type === "text") chunk(e.messageId ?? "text", e.text, e.meta);
