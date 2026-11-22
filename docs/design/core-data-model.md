@@ -4,7 +4,11 @@ Status: proposal, for discussion. Companion to [core-owned-a2a-boundary.md](core
 the principles. This document is the data model, designed from evidence. Evidence lives in
 [research/](research/) (one report per area, every claim labelled verified or inferred, with sources).
 
-Research snapshot: 2026-11-21. A2A spec v1.0.1; `@a2a-js/sdk` 1.0.0 installed (upstream 1.3.0); Claude Agent SDK
+Revised after the review of #106 (types, adapter and this document): turn semantics, unknown states, owned and
+versioned records, interaction shapes, usage deltas and versioned wire keys. Sections 3.1-3.8 and 4 describe the
+revised model; `@a2a-js/sdk` is now 1.3.0 (core's peer dependency).
+
+Research snapshot: 2026-11-21. A2A spec v1.0.1; `@a2a-js/sdk` 1.0.0 installed at the snapshot (now 1.3.0); Claude Agent SDK
 0.3.286 (latest 0.3.329); Copilot SDK 1.0.5 (latest 1.0.34); Codex SDK 0.137.0 (latest 0.171.0); OpenCode 1.19.6
 and 2.3.2; `google-antigravity` 0.1.5 (latest 0.1.24).
 
@@ -71,8 +75,10 @@ today. Detail and sources: `research/provider-*.md`.
 - **D3. A run outlives `execute()`.** Core owns a `RunHandle` keyed by task; each SDK `execute()` is an *attachment*
   to it (section 4). This is the central mechanism and needs a spike (section 8).
 - **D4. A message to a running task carries a caller-chosen `delivery`:** `queue` (default when the caller says
-  nothing: becomes the next turn of that context), `steer` (inject into the running turn), or `interrupt` (abort
-  the running turn, then run the message as a new turn). Core never lets the SDK start a second concurrent
+  nothing: becomes the next turn of that task), `steer` (inject into the running turn), or `interrupt` (abort
+  the running turn, then run the message as the next turn of the same task). A task is a sequence of turns and goes
+  terminal only when the last turn ends and nothing is queued; an interrupt never ends it with `canceled`. A message
+  with only a `contextId` starts a new task in the context lane. Core never lets the SDK start a second concurrent
   `execute()` for a live run.
 - **D5. Unknown never approves.** Only an explicit `selected` outcome on an `allow_*` option approves. Unknown
   kinds, outcomes, expired, unavailable and malformed replies all deny.
@@ -81,140 +87,246 @@ today. Detail and sources: `research/provider-*.md`.
 
 ## 3. Data model
 
-TypeScript is illustrative. Types live in `packages/core` and are exported without any A2A SDK type.
+TypeScript is illustrative; the source of truth is `packages/core/src/model/`. Types are exported without any A2A SDK
+type. Anything core persists is built from `Json` / `JsonObject` (3.6); live metadata (`Meta`) stays loose.
 
 ### 3.1 Primitives
 
 ```ts
-type Meta = Record<string, unknown>;
+type Json = null | boolean | number | string | readonly Json[] | { readonly [k: string]: Json };
+type JsonObject = { readonly [k: string]: Json };
+type Meta = Record<string, unknown>;                     // live, in-flight metadata only; stored data uses JsonObject
 type Open<T extends string> = T | (string & {});        // open enum: unknown values round-trip
 
 interface CoreCaller {                                   // set by core from authentication (#68)
   id: string;                                            // stable subject, "anonymous" when unauthenticated
   kind: Open<"user" | "agent" | "service" | "anonymous">;
-  scopes?: string[];
-  claims?: Meta;
+  scopes?: readonly string[];                            // kept on the caller, never on the request
+  claims?: JsonObject;
 }
 
 type CorePart =
-  | { kind: "text"; text: string; meta?: Meta }
+  | { kind: "text"; text: string; mediaType?: string; meta?: Meta }
   | { kind: "data"; data: unknown; mediaType?: string; meta?: Meta }
-  | { kind: "file"; name?: string; mediaType?: string; uri?: string; bytes?: Uint8Array; meta?: Meta }
+  | CoreFilePart                                         // bytes (optionally with the uri they came from) | uri; never neither
   | { kind: "unknown"; raw: unknown };                   // kind this core version does not model
 
 type CoreTaskState = Open<
   | "submitted" | "working" | "input-required" | "auth-required"
   | "completed" | "failed" | "canceled" | "rejected">;
+
+type TaskStateClass = "active" | "interrupted" | "terminal" | "unknown";
+function classifyState(s: CoreTaskState): TaskStateClass;   // callers must handle "unknown" explicitly
 ```
 
-### 3.2 Request, session binding and run
+`isTerminalState` and `isInterruptedState` remain. Unknown is neither.
+
+**Unknown task states.** Core never produces one: a provider cannot name a state (3.2). Core can receive one (a peer
+agent, an old stored task). The policy, in order: treat the task as still running (`classifyState` returns
+`"unknown"`, which is neither terminal nor interrupted), keep the original string for display, and let each caller
+decide what to do about it, for example fail the task after a policy timeout in which no known state arrives. An
+unknown state is never read as completion and never as approval. On the wire core never emits
+`TASK_STATE_UNSPECIFIED`; see section 4.
+
+### 3.2 Request, session binding, run and events
 
 ```ts
 interface CoreRequest {                                  // what a provider receives
-  runId: string; taskId: string; contextId: string;
-  input: CorePart[];
-  history: readonly CoreMessage[];
+  runId: string;                                         // one per task
+  turnId: string;                                        // one per turn of the run
+  taskId: string; contextId: string;
+  input: readonly CorePart[];
+  history: readonly HistoryMessage[];                    // from and at are optional: A2A stores neither, so neither is invented
   caller: CoreCaller;
-  session?: { ref: string; meta?: Meta };                // persisted provider session, if this context has one
+  session?: { ref: string; meta?: JsonObject };         // persisted provider session, if this context has one
   correlation: { eventId: string; parentAgentId?: string; trace?: CoreTraceContext; metadata: Meta };
   extensions: ReadonlyMap<string, unknown>;
 }
 
-interface TaskRun {                                      // what a provider acts through
+interface CoreTaskRun {                                  // what a provider acts through
   readonly signal: AbortSignal;                          // aborted on cancel
-  status(state: CoreTaskState, text?: string): void;
-  event(e: CoreEvent): void;                             // text/thought delta, tool, plan, todo, diff, usage, log
+  progress(text?: string, meta?: Meta): void;            // always "working"
+  event(e: CoreEvent): void;
   artifact(a: CoreArtifact): void;
-  ask(i: Omit<CoreInteraction, "id" | "expiresAt"> & { expiresAt?: string },
-      opts?: { handle?: string }): Promise<CoreInteractionResult>;
-  bind(session: { ref: string; meta?: Meta }): void;     // persist contextId -> provider session (survives restart)
+  ask(i: CoreInteractionRequest, opts?: AskOptions): Promise<CoreInteractionResult>;
+  bind(session: { ref: string; meta?: JsonObject }): void;  // persist contextId -> provider session (survives restart)
   race<T>(work: Promise<T>): Promise<T | typeof CANCELED>;
-  complete(result: CoreResult): void;
-  fail(error: CoreError): void;
+  complete(result: CoreResult): void;                    // completed
+  fail(error: CoreError): void;                          // failed
+  reject(reason: CoreError): void;                       // rejected: the request is refused, not attempted
 }
+```
+
+A provider cannot name a task state. Terminal states come only from `complete`, `fail` and `reject`; interrupted
+states only from `ask`; `progress` is always `working`. A state core does not know can therefore never be emitted.
+
+**Runs and turns.** A task has one `runId` and is a sequence of turns, each with a `turnId`. A message queued or
+interrupting at a task is the next turn of that same task; the task goes terminal only when the last turn ends and
+nothing is queued for it (3.4).
+
+**How a run ends.**
+
+- `run()` resolves without calling `complete`, `fail` or `reject`: core completes the turn with the text accumulated
+  from `text` events, or fails it (`code: "internal"`, "provider returned without a result") when there is none.
+- `run()` rejects: core fails the turn with the error message.
+- After a cancel, everything the provider publishes is dropped, including a late `complete`. Exactly one terminal
+  outcome wins, claimed synchronously (as `TaskRunRegistry` does today).
+- A second `complete`/`fail`/`reject` for one turn is ignored.
+
+```ts
+type CoreEvent = ({
+  type: "text" | "thought";  messageId?: string; text: string;       // DELTAS: append text to the message messageId
+} | {
+  type: "tool"; id: string; name: string; kind?: ToolKind;           // read | edit | delete | move | search | execute | think | fetch | switch_mode | other
+  state: Open<"started" | "running" | "completed" | "failed">;
+  input?: unknown; output?: unknown;
+  locations?: readonly { path: string; line?: number }[];
+  parentToolId?: string;
+} | { type: "plan"; entries: ... } | { type: "todo"; items: ... }
+  | { type: "diff"; path: string; oldText?: string | null; newText: string }
+  | { type: "usage"; usage: CoreUsage }
+  | { type: "log"; level: ...; message: string }
+  | { type: "unknown"; raw: unknown }) & { agent?: { id: string; parentId?: string } };  // set for a sub-agent's events
+
+interface CoreError { message: string; code?: Open<"timeout"|"backend"|"auth"|"internal"|"rate_limit"|"context_overflow"|"invalid_request"|"unavailable">;
+                      retryable?: boolean; detail?: unknown; }
 ```
 
 `bind` replaces each wrapper's in-memory `contextId` to session map. On the next request for that context
 (including after a restart) core passes the stored `session` back in `CoreRequest`.
+
+**Context lane.** Turns in one context run one at a time. A message that carries only a `contextId` (no `taskId`)
+starts a new task in that context and waits in the context's lane behind the running turn; core never runs two turns of
+one context concurrently, so one provider session never sees overlapping prompts.
 
 `handle` on `ask` is opaque provider data (a Copilot `requestId`, an OpenCode `requestID`, ...). Its presence is the
 signal that the interaction can be re-attached after a restart; absent means it cannot. No flag is needed.
 
 ### 3.3 Interactions
 
+`CoreInteraction` is a union keyed by `kind`, so each kind has the fields it needs:
+
 ```ts
-interface CoreInteraction {
+interface InteractionBase {
   id: string;                                            // core-assigned, stable, idempotency key
-  kind: Open<"permission" | "question" | "form" | "auth" | "confirm">;
-  title: string;
-  description?: string;
+  title: string; description?: string;
   subject?: InteractionSubject;                          // what the question is about
-  options?: InteractionOption[];                         // permission, confirm
-  questions?: Question[];                                // question
-  schema?: FlatSchema;                                   // form: flat JSON Schema subset (as MCP elicitation)
-  auth?: AuthChallenge;                                  // auth
   expiresAt?: string;                                    // core fills from policy when absent
-  meta?: Meta;
+  replyCode?: string;                                    // core-assigned, see "stale text replies"
+  meta?: JsonObject;
 }
+type CoreInteraction =
+  | (InteractionBase & { kind: "permission"; options: NonEmpty<InteractionOption> })
+  | (InteractionBase & { kind: "confirm";    options: NonEmpty<InteractionOption> })
+  | (InteractionBase & { kind: "question";   questions: NonEmpty<Question> })
+  | (InteractionBase & { kind: "form";       schema: FlatSchema })
+  | (InteractionBase & { kind: "auth";       auth: AuthChallenge })
+  | (InteractionBase & { kind: string & {}; options?; questions?; schema?; auth? });   // a kind this core does not model
+```
 
-interface InteractionSubject {
-  tool?: string; action?: string; command?: string;
-  resources?: string[];                                  // paths, URLs, patterns
-  risk?: Open<"low" | "medium" | "high">;
-  detail?: Meta;
-}
+The open last member accepts any kind string, so the compiler alone cannot reject a `permission` with no options.
+`normalizeInteraction(request, {id})` is the enforcement and runs on every `run.ask`: a `confirm` without options gets
+`allow_once` / `reject_once`; a `permission` with no options, a `question` with no questions, a `form` with no schema,
+an `auth` with no service, duplicate ids or non-JSON `meta` are refused (core answers the ask `unavailable`). An
+unknown kind passes through and can only be answered by explicit option selection.
 
+```ts
 interface InteractionOption {                            // permission option; shape follows ACP, plus our fields
-  id: string;
-  label: string;
+  id: string; label: string;
   kind: Open<"allow_once" | "allow_always" | "reject_once" | "reject_always">;
   scope?: Open<"call" | "session" | "context" | "location" | "project" | "permanent">;
   allowsFeedback?: boolean;                              // a reject may carry text for the model
   interrupts?: boolean;                                  // choosing it also aborts the turn (Claude deny.interrupt, Codex cancel)
 }
-
 interface Question {                                     // one entry of a question interaction
-  id: string;
-  header?: string;
-  prompt: string;
-  options?: { id: string; label: string; description?: string }[];
+  id: string; header?: string; prompt: string;
+  options?: readonly { id: string; label: string; description?: string; meta?: JsonObject }[];
   multi?: boolean;
   allowFreeform?: boolean;                               // Claude/OpenCode "custom", Codex isOther, Copilot allowFreeform
-  secret?: boolean;                                      // Codex isSecret: never logged, persisted or traced in clear
+  secret?: boolean;                                      // Codex isSecret
 }
-
-interface AuthChallenge {                                // out-of-band only; no credential forms
-  service: string;
-  url?: string;
-  userCode?: string;                                     // device-code flows
-  instructions?: string;
+interface FlatSchema {                                   // MCP elicitation subset: primitives, enums, titled enums, multi-select
+  properties: Record<string, { type?: "string"|"number"|"integer"|"boolean"|"array"; title?; description?;
+                               enum?: Json[]; oneOf?: { const; title }[];              // titled single choice
+                               items?: { enum?: string[]; anyOf?: { const: string; title: string }[] };  // multi-select
+                               minItems?; maxItems?; default?: Json }>;
+  required?: readonly string[];
 }
+interface AuthChallenge { service: string; url?: string; userCode?: string; instructions?: string; }   // out-of-band only
+interface AskOptions { handle?: string; signal?: AbortSignal; }
 ```
+
+`FlatSchema` validation reads own properties only (`Object.hasOwn`): a value named `constructor` or `__proto__` is not
+a declared field.
 
 Result, always produced by core, never by a provider:
 
 ```ts
 type CoreInteractionResult =
-  | { outcome: "selected"; optionId: string; feedback?: string; by: CoreCaller }
-  | { outcome: "answered"; answers: Record<string, { optionIds?: string[]; text?: string }>; by: CoreCaller }
-  | { outcome: "submitted"; values: Meta; by: CoreCaller }          // form
-  | { outcome: "declined"; feedback?: string; by: CoreCaller }      // dismissed or form declined
+  | { outcome: "selected"; optionId: string; feedback?: string; amendment?: JsonObject; by: CoreCaller }   // amendment: edits to the proposed action
+  | { outcome: "answered"; answers: Record<string, { optionIds?: string[]; text?: string; freeText?: string }>; by: CoreCaller }
+  | { outcome: "submitted"; values: JsonObject; by: CoreCaller }    // form
+  | { outcome: "declined"; feedback?: string; by: CoreCaller }      // the caller explicitly refused
+  | { outcome: "dismissed"; by?: CoreCaller }                       // the caller closed it without choosing (MCP "cancel")
   | { outcome: "completed"; by?: CoreCaller }                       // auth finished out of band
   | { outcome: "canceled" }                                         // task canceled while pending
   | { outcome: "expired" }                                          // core timeout
-  | { outcome: "unavailable"; reason: string };                     // nobody can answer (policy, no client)
+  | { outcome: "withdrawn" }                                        // the provider withdrew the ask (AskOptions.signal)
+  | { outcome: "unavailable"; reason: string };                     // nobody can answer (policy, no client, malformed request)
 ```
 
 Per D5, a provider treats `selected` of an `allow_*` option as approval and everything else as denial. Providers map
-`feedback` to their native field (Claude deny `message`, Copilot reject feedback, OpenCode reply `message`).
+`feedback` to their native field (Claude deny `message`, Copilot reject feedback, OpenCode reply `message`) and
+`amendment` to theirs (Claude `updatedInput`). `freeText` is text typed beside or instead of the options ("other");
+`text` is a free-form-only answer.
+
+**Withdrawal.** `AskOptions.signal`: when it aborts before an answer, core resolves the ask `{outcome: "withdrawn"}`,
+marks the record `withdrawn`, and presents the next queued interaction, or returns the task to `working` if none.
+
+**Several asks in one task (per-task FIFO).** A task presents one interaction at a time. The first `ask` is
+`presented`; asks made while one is open are `queued`, in `seq` order. When the presented one ends (answered, expired,
+canceled, withdrawn) the lowest-`seq` queued one is presented. A reply is always matched against the presented
+interaction, so a stale reply for an earlier one cannot reach a later one. Pure helpers: `initialInteractionState`,
+`presentedInteraction`, `nextQueuedInteraction`. The queueing runtime is issue #108.
+
+**Stale text replies.** Core assigns each interaction a short `replyCode` (two characters, no `0 1 I L O`). The text
+rendering says "Reply with the option number and the code, for example `1 K7`", and `parseInteractionReply` selects an
+`allow_*` option from text only when the reply carries the presented interaction's code ("1 K7", "yes K7"). No code,
+a wrong code, or an interaction with no code: the reply is ignored. A text reject needs no code (a stale "no" only
+denies). Structured replies are bound by `interactionId` and need no code. The code is not a secret and not
+authentication; it stops a "yes" meant for one prompt from approving the next.
+
+**Free-form answers.** When an interaction has questions, "no", "n", "deny" and "decline" are answers like any other;
+declining a question is the structured `declined`, never a word.
+
+**Expiry defaults** (core fills `expiresAt` from policy when the provider gives none; `interactions.timeoutMs` in 3.9
+overrides): permission, confirm, question and form 10 minutes; auth 30 minutes (a person signs in on another device).
+An expired interaction resolves `expired`.
+
+**Secrets.** Secret questions are allowed in v1 by owner decision, which deviates from MCP form-mode elicitation
+("MUST NOT request secrets"). The `secret` flag keeps redaction possible: `redactSecretAnswers` drops the text of
+secret answers before they are stored and returns the removed paths, which the record keeps in `result.redacted`.
 
 ### 3.4 Steering and messages
+
+A task is a sequence of turns (3.2). A message to a task that is running runs as the next turn of that same task, by
+the caller's `delivery`:
+
+- `queue` (default): next turn of the task, after the running turn ends.
+- `steer`: folded into the running turn.
+- `interrupt`: stop the running turn, then run the message as the next turn of the task.
+
+The task stays `working` through all three: an interrupt does **not** end the task with `canceled`. This follows the
+open A2A steering proposal (a2aproject #2125), which keeps the task working on a steer and goes `input-required` with
+`interrupted: true` when a turn is stopped waiting for direction; the proposal is not final and the inbound alias in
+section 4 is best effort. The task goes terminal only when the last turn ends and nothing is queued for it. A message
+with only a `contextId` starts a new task in the context lane (3.2).
 
 ```ts
 interface CoreMessage {
   id: string;                                            // returned to the caller at insertion
   role: "user" | "agent";
-  parts: CorePart[];
+  parts: readonly CorePart[];
   from: CoreCaller;
   delivery?: Open<"queue" | "steer" | "interrupt">;      // caller intent; default "queue" (D4)
   idempotencyKey?: string;
@@ -222,56 +334,101 @@ interface CoreMessage {
   meta?: Meta;
 }
 
-type SteerOutcome =
+type SteerOutcome =                                      // what a provider's steer handler returns
   | { state: "inserted" }                                // folded into the running turn
-  | { state: "held" }                                    // will be the next turn
+  | { state: "queued"; handle?: string }                 // the provider holds it in its own queue
   | { state: "rejected"; reason: Open<"no-active-turn" | "not-steerable" | "unsupported">; detail?: string };
+
+type DeliveryResult =                                    // what core tells the caller
+  | { state: "inserted"; taskId: string; messageId: string }
+  | { state: "queued"; taskId: string; messageId: string; holder: "provider" | "core"; position?: number }
+  | { state: "interrupted"; taskId: string; messageId: string }
+  | { state: "rejected"; taskId: string; messageId: string; reason: string; detail?: string };
 ```
 
-Provider handler: `steer?(run, message): Promise<SteerOutcome>`. The outcomes map to evidence: Copilot
+Provider handler: `steer?(run, message): Promise<SteerOutcome>`. Outcomes map to evidence: Copilot
 `delivery: steering | queued`, OpenCode 2 `steer | queue`, Claude `priority now | next | later`, Codex app-server
 `turn/steer` (or `rejected: not-steerable` for review/compact turns), Antigravity workaround (cancel and re-run, then
-`inserted`). A provider without `steer` gets the core default: a `steer` request is answered `held`, and the response says so; core
-never silently changes the caller's choice.
+`inserted`). A provider that returns `queued` holds the message (`holder: "provider"`; `deliveryFromSteer`). A provider
+without `steer` gets the core default: core holds the message in its own per-context lane (`queued`,
+`holder: "core"`) and runs it as the next turn; the response says so, and core never silently changes the caller's
+choice.
 
-`interrupt` is composed by core from `abort` plus a new turn in the context's lane, so it works for every provider that
-implements `abort` (all five) and needs no new handler. Its outcome is `{ state: "interrupted" }` (the old turn
-ended with the A2A state `canceled` for that turn, the new message starts the next turn on the same context).
-
-```ts
-type DeliveryResult = SteerOutcome | { state: "interrupted" };
-```
+`interrupt` is composed by core from `abort(run, "interrupt")` plus the message as the next turn of the same task, so it
+works for every provider that implements `abort` (all five) and needs no new handler. Its result is
+`{ state: "interrupted" }`. The stopped turn ends without a terminal task state.
 
 ### 3.5 Abort
 
 ```ts
+type AbortReason = Open<"cancel" | "interrupt" | "shutdown">;
 interface AbortOutcome {
   stopped: "confirmed" | "unconfirmed";                  // did the backend acknowledge it stopped
   session: "reusable" | "discard";                       // can the bound session take the next turn
 }
 ```
 
-`abort?(run): Promise<AbortOutcome>`. A rejected or timed-out call is treated as
-`{ stopped: "unconfirmed", session: "discard" }`; core then clears the binding and calls `release?(session)` so the
-provider can drop its state. This replaces the earlier `onAbortFailed` hook. `abortOrphan?(info)` covers tasks the
-store thinks are active but that have no live run.
+`abort?(run, reason): Promise<AbortOutcome>`. The reason decides what happens to the provider's native queue: on
+`interrupt` the task continues with the next turn, so the provider **keeps** its queue; on `cancel` the task is going
+away, so it **flushes** it; `shutdown` is treated as `cancel` unless the provider can resume. A rejected or timed-out
+call is treated as `{ stopped: "unconfirmed", session: "discard" }`; core then clears the binding and calls
+`release?(session)` so the provider can drop its state. This replaces the earlier `onAbortFailed` hook.
+
+`abortOrphan?(info): Promise<AbortOutcome>` covers tasks the store thinks are active but that have no live run. It
+returns an outcome, like `abort`, so core can record what the backend confirmed.
+
+**Bus lifetime and orphans (types here; runtime is issue #107).** Core owns the event bus lifetime through SDK 1.3
+`ExecutionEventBusManager.settleByTaskId`, which is offered the decision when `execute()` returns and may keep the bus
+alive. With SDK 1.3, `tasks/cancel` on a task that has no bus never calls the executor: it writes `CANCELED` straight
+to the `TaskStore` (`dist/server/index.js`, `cancelTask`, about lines 3233-3263). A run that is active in core's
+`RunRecord` but has no live handle (the process restarted, the bus was settled) would be canceled in the store while
+the backend keeps working. Core therefore (a) wraps `TaskStore.save` to detect a `CANCELED` transition for a task whose
+`RunRecord` is active with no live handle and calls `abortOrphan`, and (b) runs a startup sweep over active
+`RunRecord`s. Neither is implemented yet.
 
 ### 3.6 Persistence records (core's `TaskStore` extension)
 
+Every record is JSON-safe, versioned and owned:
+
 ```ts
-interface PendingInteraction {
+interface RecordHeader {
+  v: 1;                                                  // a reader refuses a higher version
+  owner: { id: string; kind: string };                   // the task owner; per-caller scoping (spec 13.1) reads it
+  tenant?: string;
+  createdAt: string; updatedAt: string;
+}
+
+type InteractionState = "queued" | "presented" | "answered" | "expired" | "canceled" | "withdrawn";
+interface PendingInteraction extends RecordHeader {
   interaction: CoreInteraction;
   taskId: string; contextId: string; runId: string;
-  state: "pending" | "answered" | "expired" | "canceled";
-  createdAt: string; expiresAt: string;
-  result?: CoreInteractionResult;                        // secret answers stored redacted
+  seq: number;                                           // per-task order; FIFO of presentation
+  state: InteractionState;                               // queued and presented are open, the rest final
+  expiresAt: string;
+  result?: CoreInteractionResult & { redacted?: readonly string[] };  // redacted: removed paths, e.g. "answers.token.text"
   handle?: string;                                       // opaque provider handle, if re-attachable
 }
-interface ContextBinding { contextId: string; session?: { ref: string; meta?: Meta }; updatedAt: string; }
-interface RunRecord { runId: string; taskId: string; contextId: string; state: CoreTaskState; startedAt: string; }
+interface ContextBinding extends RecordHeader {
+  contextId: string;
+  session?: { ref: string; meta?: JsonObject; issuer: string };   // issuer: opaque provider id + version
+}
+interface RunRecord extends RecordHeader {
+  runId: string; taskId: string; contextId: string; turnId: string;
+  state: CoreTaskState; startedAt: string; endedAt?: string;
+  cancel?: { requestedAt: string; by: string; abort?: AbortOutcome };
+  input?: readonly CorePart[];
+}
 ```
 
-After a restart, core finds `pending` records. Those with a `handle` go to the provider's
+`issuer` names the provider and version that created the session. Core compares it for equality only, to notice that a
+stored session may not be usable by the provider now running; it never branches on its content.
+
+`encodeRecord` turns a record into plain JSON (`JSON.stringify`-safe): file bytes inside file parts become
+`{kind: "file", bytes: {base64}, uri?, ...}`; `undefined` is dropped; anything else that is not JSON (a function,
+`NaN`, a stray `Uint8Array`) throws at write time. `decodeRecord` reverses it, restoring `Uint8Array`, and refuses a
+record with no version or a version newer than this core's. `encodePart` / `decodePart` do the same for one part.
+
+After a restart, core finds open records (`presented`, `queued`). Those with a `handle` go to the provider's
 `reattach?(records)` so it can resume waiting (Copilot `continuePendingWork`, OpenCode re-list). The rest become
 `expired` and the task is failed with a precise reason instead of hanging.
 
@@ -280,17 +437,36 @@ After a restart, core finds `pending` records. Those with a `handle` go to the p
 ```ts
 interface ProviderInfo {                                 // descriptive only; core never branches on it
   id: string; displayName: string; version?: string;
-  inputModes: string[]; outputModes: string[];           // media types, feed the agent card
+  inputModes: readonly string[]; outputModes: readonly string[];   // media types, feed the agent card
 }
 
+interface UsageCounters { input?; output?; cacheRead?; cacheWrite?; reasoning?; total?: number }
 interface CoreUsage {
-  scope: "delta" | "cumulative";                         // core converts cumulative to delta (fixes double counting)
-  tokens: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; reasoning?: number; total?: number };
+  scope: "delta" | "cumulative";
+  series?: string;                                       // identity of the running total (cumulative)
+  tokens: UsageCounters;
   costUsd?: number | null;                               // null when the provider does not report cost
   contextWindow?: { used?: number; limit?: number };
   model?: string;
+  byModel?: Record<string, UsageCounters & { costUsd?: number | null }>;
 }
+function usageDelta(prev: CoreUsage | undefined, next: CoreUsage): CoreUsage;
 ```
+
+`cumulative` is a running total, and a running total only means something against its own previous reading. `series`
+names the thing that accumulates (for example one per provider session); two readings belong together only when their
+`series` is equal. `usageDelta` is the pure conversion core applies:
+
+- `next.scope === "delta"`: returned as is.
+- No `prev`, or a different `series`: the reading is the delta (a new total).
+- Same series: each (series, model) group is diffed on its own, the top-level counters and every `byModel` entry. If any
+  counter or the cost of a group went DOWN, the total was reset and a new epoch starts: the delta is the new reading,
+  never a negative number.
+
+This is what the evidence needs: Claude's `total_cost_usd` is cumulative across turns, resumes from the transcript and
+resets on `/clear`. A provider that resumes a session and keeps reporting the same series with continuing totals yields
+plain differences; one that starts a fresh total reports a new `series` (or the total drops and the epoch rule applies).
+`contextWindow` is a point-in-time reading and is passed through.
 
 ### 3.8 Provider contract (summary)
 
@@ -298,11 +474,11 @@ interface CoreUsage {
 interface ProviderExecutor {
   info(): ProviderInfo;
   initialize(): Promise<void>;
-  run(req: CoreRequest, run: TaskRun): Promise<void>;                      // required
-  steer?(run: TaskRun, m: CoreMessage): Promise<SteerOutcome>;
-  abort?(run: TaskRunInfo): Promise<AbortOutcome>;
-  abortOrphan?(info: { taskId: string; contextId: string; session?: { ref: string } }): Promise<void>;
-  reattach?(pending: PendingInteraction[]): Promise<void>;
+  run(req: CoreRequest, run: CoreTaskRun): Promise<void>;                  // required
+  steer?(run: CoreTaskRun, m: CoreMessage): Promise<SteerOutcome>;
+  abort?(run: TaskRunInfo, reason: AbortReason): Promise<AbortOutcome>;
+  abortOrphan?(info: { taskId: string; contextId: string; session?: { ref: string } }): Promise<AbortOutcome>;
+  reattach?(pending: readonly PendingInteraction[]): Promise<void>;
   release?(session: { ref: string }): Promise<void>;
   shutdown(): Promise<void>;
 }
@@ -345,19 +521,50 @@ The SDK calls `execute()` per request and tears the bus down when it returns, ex
   same `RunHandle`, forwards the remaining events, and returns at the next terminal or interrupted state.
 - A message to a working task is intercepted by core before any provider call: handled per its `delivery` (D4:
   `queue` by default, `steer`, or `interrupt`). Core never lets the SDK start a second `execute()` for a live run.
-- Because the SDK does not re-drive streams at `auth-required`, core completes the attachment with that status and
-  expects a fresh request after the out-of-band step. Spike to confirm.
+- **`auth-required` (revised for SDK 1.3; spike S1 to re-run).** This document first assumed that the SDK does not
+  re-drive streams at `auth-required`, so core would complete the attachment and expect a fresh request after the
+  out-of-band step. SDK 1.3 contradicts that: `keepBusAliveStates` defaults to the interrupted states, which include
+  `auth-required`, so the bus stays alive and the executor may resume publishing on the same bus after the out-of-band
+  auth completes. Which of the two models core uses is decided by re-running S1 on 1.3; until then treat "expects a
+  fresh request" as superseded.
+- **Bus lifetime.** Core owns it through `ExecutionEventBusManager.settleByTaskId` (see 3.5), including the orphan
+  case: a `tasks/cancel` with no bus never calls the executor in SDK 1.3.
 
 | Core | A2A |
 |---|---|
-| `status("input-required")` after `ask` | task state `input-required`; status message = text rendering; data part with the interaction (extension `urn:a2a-wrapper:interaction:v1`) |
+| `ask` (parks the run) | task state `input-required`; status message = text rendering; data part with the interaction (extension `urn:a2a-wrapper:interaction:v1`) |
 | `auth` interaction | task state `auth-required`; message carries `url`/`userCode`; no credential collection |
 | reply `selected` / `answered` / `submitted` | a message on the same task: structured data part `{interactionId, ...}` first, text fallback second ("approve", option label, number) |
-| client that did not activate the extension | text rendering only, options numbered; core still parses the text reply |
+| client that did not activate the extension | text rendering only, options numbered, with the reply code ("Reply with `1 K7`"); core still parses the text reply, and selects an `allow_*` option only when the code is present |
 | duplicate or late reply | idempotent on (task, interaction id); unknown or answered ids are ignored with no side effect |
 | `expired` | task `failed` (or `canceled`) with the reason, per policy |
 | cancel while pending | `outcome: "canceled"` delivered to the provider, then the normal cancel path |
 | `CoreCaller` | from the A2A call context; permission replies require the task owner or a configured approver |
+| core state with no v1 equivalent, or `unknown` | task state `working` (never `TASK_STATE_UNSPECIFIED`), the original string in `urn:a2a-wrapper:core-state:v1` status metadata; restored on read when the wire state is `working` (or the old `UNSPECIFIED`) and the carried state is one core does not model |
+| `reject(reason)` | task state `rejected` |
+| `interrupt` delivery | the task stays `working` and the message is the next turn; no `canceled` |
+
+### 4.1 Wire keys
+
+Every key core writes is versioned and listed in one constant, `WIRE_EXTENSIONS`; `agentExtensionDeclarations()` turns
+it into optional (`required: false`) agent card `extensions` entries (not yet wired into the server factory).
+
+| Key | Where | Meaning |
+|---|---|---|
+| `urn:a2a-wrapper:interaction:v1` | extension, status message | structured permission/question/form/auth data parts |
+| `urn:a2a-wrapper:delivery:v1` | message metadata | `queue` / `steer` / `interrupt` |
+| `urn:a2a-wrapper:usage:v1` | event metadata | usage, including `series` and `byModel` |
+| `urn:a2a-wrapper:core-state:v1` | status metadata | original state when it has no v1 equivalent |
+| `urn:a2a-wrapper:file-uri:v1` | part metadata | source uri of a file part that also carries bytes |
+| `urn:a2a-wrapper:unknown-part:v1` | part metadata | marks a data part that carries an unmodeled part unchanged |
+
+The old unversioned keys (`urn:a2a-wrapper:delivery`, `usage`, `core-state`, `file-uri`, `unknown-part`) are still read
+inbound and never written.
+
+**Steering alias (best effort).** The inbound alias `https://a2a-protocol.org/extensions/steering/v1/control` is
+accepted for `steer` / `interrupt` / `queue`. The A2A steering proposal (#2125) is not final, so the shape is an
+assumption: a message metadata entry under that URI whose value is the string, or an object with one of `action`,
+`mode`, `type`, `delivery` holding it. The core key wins when both are present; unrecognised values are ignored.
 
 ## 5. Per-provider fit (what lives in each provider)
 
@@ -371,6 +578,20 @@ The SDK calls `execute()` per request and tears the bus down when it returns, ex
 
 ## 6. What this changes versus the first design doc
 
+Revision after the #106 review:
+
+- Turn semantics: a task is a sequence of turns; `queue` and `interrupt` run as the next turn of the same task, which
+  goes terminal only when nothing is left. `SteerOutcome.held` becomes `queued`; `DeliveryResult` names task, message and
+  holder; `abort` takes a reason; `CoreRequest` gains `turnId`.
+- Providers cannot name a state: `status(state)` becomes `progress`, and `reject` is added; unknown states are classified
+  with `classifyState` and never put on the wire as `UNSPECIFIED`.
+- Records carry a header (version, owner, tenant), are JSON-safe, and round-trip through `encodeRecord` / `decodeRecord`.
+- Interactions are a union with a normalizing constructor; withdrawal, per-task FIFO, reply codes, `dismissed`,
+  `amendment`, `freeText`; secret answers have a redaction representation.
+- Usage has a `series`, a per-model breakdown and a reset-safe `usageDelta`.
+- Wire keys are versioned and declared.
+
+
 - `abortBackend` plus `onAbortFailed` becomes `abort` returning `AbortOutcome`.
 - `run.ask` replaces per-wrapper permission handlers, and gains `handle`, expiry, authorization and idempotency.
 - `inbox` as an async iterable is dropped: steering is a handler with a typed outcome, and the default is core's.
@@ -379,7 +600,7 @@ The SDK calls `execute()` per request and tears the bus down when it returns, ex
 ## 7. Evidence-driven findings to track as issues
 
 - A2A SDK is at 1.0.0 with the concurrent-`execute()` hazard and no bus retention; upstream 1.2 adds
-  `keepBusAliveStates`, `settleByTaskId` and an atomic cancel. Treat 1.2 as the floor for interactions.
+  `keepBusAliveStates`, `settleByTaskId` and an atomic cancel. 1.3 is now the floor (core's peer dependency).
 - Wrapper security smells: OpenCode auto-replies `always` (writes persistent project rules); Copilot uses `approveAll`.
 - Codex never resumes its thread and passes `contextId` as the task id on cancel; Antigravity publishes `canceled`
   twice and runs queued turns after cancel; Claude wrapper appears to store cumulative cost per round (inferred, to verify).
@@ -399,13 +620,16 @@ Decisions (settled 2026-11-21):
    recorded in `by` from the start (`anonymous` for now), so adding the check later changes no data model.
 4. **A2A SDK:** upgrade to the latest release (1.3.0 at the research snapshot) before any interaction work.
 5. **Codex:** stays on the exec SDK for now. It offers no interactions or steering until revisited; core defaults apply
-   (a `steer` request is `held`; permission requests cannot arise because exec mode cannot prompt).
+   (a `steer` request is `queued` by core; permission requests cannot arise because exec mode cannot prompt).
 6. **Auto-answer policy:** see 3.9. Default preserves today's per-wrapper behaviour; asking a client is opt-in.
 
 Spikes before implementation:
 
-- **S1.** Validate the run/attachment model (section 4) on SDK 1.0.0 and 1.2: park a run at `input-required`, send the
-  reply, confirm the second `execute()` only resolves the ask and streams the rest.
+- **S1.** Validate the run/attachment model (section 4) on SDK 1.0.0 and 1.3: park a run at `input-required`, send the
+  reply, confirm the second `execute()` only resolves the ask and streams the rest. **Re-run on 1.3 for
+  `auth-required`:** `keepBusAliveStates` keeps the bus alive, so the executor may resume publishing on the same bus
+  after out-of-band auth; this contradicts the earlier "expects a fresh request" assumption. Also confirm
+  `settleByTaskId` and the cancel-with-no-bus path (3.5).
 - **S2.** Real Copilot: `onPermissionRequest` left pending, answered later by RPC; measure `immediate` steering and the
   `delivery` event.
 - **S3.** Real Claude: `canUseTool` pending across an A2A round trip; `defer` hook behaviour on resume.

@@ -53,12 +53,13 @@
 
 import type { ExecutionEventBus } from "@a2a-js/sdk/server";
 import { publishStatus } from "../events/event-publisher.js";
+import { CANCELED } from "../model/cancel.js";
 
 /** Default upper bound on how long `cancel()` waits for the backend abort. */
 export const DEFAULT_ABORT_TIMEOUT_MS = 5_000;
 
-/** Value `run.race()` resolves with when the run was canceled first. */
-export const CANCELED: unique symbol = Symbol("a2a.task.canceled");
+/** Value `run.race()` resolves with when the run was canceled first. Defined in `model/cancel` (SDK-free). */
+export { CANCELED };
 
 /** One in-flight task, as seen by the executor that is running it. */
 export interface TaskRun {

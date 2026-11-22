@@ -14,6 +14,7 @@ import {
   fromA2APart,
   fromA2ATaskState,
   fromStatusUpdate,
+  classifyState,
   isInterruptedState,
   isRepresentableState,
   isTerminalState,
@@ -84,9 +85,16 @@ describe("parts", () => {
     expect(back.meta).toEqual({ k: 1 }); // reserved key removed
   });
 
-  it("round-trips an empty file (no uri, no bytes)", () => {
-    const p: CorePart = { kind: "file", name: "empty.txt", mediaType: "text/plain" };
-    expect(fromA2APart(toA2APart(p))).toEqual(p);
+  it("never emits an empty url: a url part with no value is kept as unknown, unchanged", () => {
+    const empty = { content: { $case: "url", value: "" }, metadata: undefined, filename: "e.txt", mediaType: "text/plain" } as Part;
+    const core = fromA2APart(empty);
+    expect(core).toEqual({ kind: "unknown", raw: empty });
+    expect(toA2APart(core)).toBe(empty);
+    // A file part always has a source, so every file part core emits has a non-empty url or raw bytes.
+    for (const p of [{ kind: "file", uri: "https://x/y" }, { kind: "file", bytes: new Uint8Array([1]) }] as CorePart[]) {
+      const w = toA2APart(p);
+      expect(w.content?.$case === "url" ? (w.content.value as string).length : 1).toBeGreaterThan(0);
+    }
   });
 
   it("preserves an A2A part core cannot model as unknown, and emits it again unchanged", () => {
@@ -196,11 +204,23 @@ describe("task state", () => {
     expect(fromA2ATaskState("TASK_STATE_UNSPECIFIED")).toBe("unknown");
   });
 
-  it("returns an unknown string state unchanged (open type) and maps it to UNSPECIFIED outbound", () => {
+  it("returns an unknown string state unchanged (open type) and never maps it to UNSPECIFIED outbound", () => {
     expect(fromA2ATaskState("paused")).toBe("paused");
-    expect(toA2ATaskState("paused")).toBe(TaskState.TASK_STATE_UNSPECIFIED);
-    expect(toA2ATaskState("unknown")).toBe(TaskState.TASK_STATE_UNSPECIFIED);
+    expect(toA2ATaskState("paused")).toBe(TaskState.TASK_STATE_WORKING);
+    expect(toA2ATaskState("unknown")).toBe(TaskState.TASK_STATE_WORKING);
+    expect(toA2ATaskState("constructor")).toBe(TaskState.TASK_STATE_WORKING); // prototype keys are not states
     expect(isRepresentableState("paused")).toBe(false);
+    expect(isRepresentableState("constructor")).toBe(false);
+    expect(fromA2ATaskState("constructor")).toBe("constructor");
+  });
+
+  it("classifyState makes callers handle unknown explicitly", () => {
+    expect(classifyState("working")).toBe("active");
+    expect(classifyState("submitted")).toBe("active");
+    expect(classifyState("input-required")).toBe("interrupted");
+    expect(classifyState("auth-required")).toBe("interrupted");
+    for (const s of ["completed", "failed", "canceled", "rejected"]) expect(classifyState(s)).toBe("terminal");
+    for (const s of ["unknown", "paused", "TASK_STATE_UNSPECIFIED", ""]) expect(classifyState(s)).toBe("unknown");
   });
 
   it("classifies terminal and interrupted states; unknown is neither", () => {
@@ -303,13 +323,16 @@ describe("coreRequestFromContext", () => {
       ],
     };
     const ctx = new RequestContext(request(userMessage), "t1", "c1", sctx, task);
-    const req = coreRequestFromContext(ctx, { runId: "r", session: { ref: "sess-9", meta: { a: 1 } }, at: "T" });
+    const req = coreRequestFromContext(ctx, { runId: "r", session: { ref: "sess-9", meta: { a: 1 } } });
     expect(req.session).toEqual({ ref: "sess-9", meta: { a: 1 } });
     expect(req.extensions.has("urn:ext:two")).toBe(true);
-    expect(req.history.map((m) => [m.id, m.role, m.from.kind, m.at])).toEqual([
-      ["h1", "user", "anonymous", "T"],
-      ["h2", "agent", "agent", "T"],
+    // Stored messages carry no sender and no time: neither is invented.
+    expect(req.history.map((m) => [m.id, m.role, m.from, m.at])).toEqual([
+      ["h1", "user", undefined, undefined],
+      ["h2", "agent", undefined, undefined],
     ]);
+    expect(req.history.every((m) => !("from" in m) && !("at" in m))).toBe(true);
+    expect(typeof req.turnId).toBe("string");
     expect(typeof req.correlation.eventId).toBe("string");
   });
 
@@ -353,19 +376,40 @@ describe("status updates", () => {
     }
   });
 
-  it("preserves a state with no v1 equivalent in metadata and restores it", () => {
+  it("sends a state with no v1 equivalent as working, keeps it in versioned metadata and restores it", () => {
     const ev = toStatusUpdate({ taskId: "t", contextId: "c", state: "paused", metadata: { k: 1 } });
-    expect(ev.status?.state).toBe(TaskState.TASK_STATE_UNSPECIFIED);
+    expect(ev.status?.state).toBe(TaskState.TASK_STATE_WORKING);
     expect(ev.metadata).toEqual({ k: 1, [CORE_STATE_META_KEY]: "paused" });
+    expect(CORE_STATE_META_KEY).toBe("urn:a2a-wrapper:core-state:v1");
     const back = fromStatusUpdate(ev);
     expect(back.state).toBe("paused");
     expect(back.metadata).toEqual({ k: 1 });
   });
 
-  it("does not stash 'unknown' (it is already what UNSPECIFIED means)", () => {
+  it("never puts TASK_STATE_UNSPECIFIED on the wire, whatever the core state", () => {
+    for (const state of ["paused", "unknown", "", "TASK_STATE_UNSPECIFIED", "constructor", "working", "completed"]) {
+      expect(toStatusUpdate({ taskId: "t", contextId: "c", state }).status?.state).not.toBe(TaskState.TASK_STATE_UNSPECIFIED);
+    }
+  });
+
+  it("round-trips 'unknown' through working, and reads the old unversioned key and UNSPECIFIED wire state", () => {
     const ev = toStatusUpdate({ taskId: "t", contextId: "c", state: "unknown" });
-    expect(ev.metadata).toBeUndefined();
+    expect(ev.status?.state).toBe(TaskState.TASK_STATE_WORKING);
     expect(fromStatusUpdate(ev).state).toBe("unknown");
+    const legacy = {
+      taskId: "t", contextId: "c",
+      status: { state: TaskState.TASK_STATE_UNSPECIFIED, message: undefined, timestamp: undefined },
+      metadata: { "urn:a2a-wrapper:core-state": "paused", k: 1 },
+    } as TaskStatusUpdateEvent;
+    expect(fromStatusUpdate(legacy)).toMatchObject({ state: "paused", metadata: { k: 1 } });
+  });
+
+  it("ignores a carried state that contradicts the wire state", () => {
+    const ev = toStatusUpdate({ taskId: "t", contextId: "c", state: "completed" });
+    const forged = { ...ev, metadata: { [CORE_STATE_META_KEY]: "paused" } } as TaskStatusUpdateEvent;
+    expect(fromStatusUpdate(forged).state).toBe("completed");
+    const knownOnWorking = { ...ev, status: { ...ev.status!, state: TaskState.TASK_STATE_WORKING }, metadata: { [CORE_STATE_META_KEY]: "completed" } } as TaskStatusUpdateEvent;
+    expect(fromStatusUpdate(knownOnWorking).state).toBe("working");
   });
 
   it("reads a status update back into core terms", () => {

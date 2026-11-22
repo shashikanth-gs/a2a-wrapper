@@ -31,6 +31,13 @@ describe("model/ source", () => {
     expect(modelFiles.length).toBeGreaterThan(5);
   });
 
+  it("never imports the SDK-importing executor module (the CANCELED symbol lives in model/)", () => {
+    for (const f of modelFiles) {
+      const src = readFileSync(join(modelDir, f), "utf8");
+      expect(src, f).not.toMatch(/from\s+["']\.\.\/executor\//);
+    }
+  });
+
   it("never imports or mentions the A2A SDK (provider-facing types are SDK-free)", () => {
     for (const f of modelFiles) {
       const src = readFileSync(join(modelDir, f), "utf8");
@@ -98,24 +105,54 @@ describe("contract shape (compile-checked)", () => {
   it("outcomes and records have the designed shapes", () => {
     const steer: SteerOutcome[] = [
       { state: "inserted" },
-      { state: "held" },
+      { state: "queued", handle: "q1" },
       { state: "rejected", reason: "not-steerable", detail: "review turn" },
       { state: "rejected", reason: "some-future-reason" },
     ];
-    const delivery: DeliveryResult[] = [...steer, { state: "interrupted" }];
+    const delivery: DeliveryResult[] = [
+      { state: "inserted", taskId: "t", messageId: "m" },
+      { state: "queued", taskId: "t", messageId: "m", holder: "core", position: 2 },
+      { state: "queued", taskId: "t", messageId: "m", holder: "provider" },
+      { state: "interrupted", taskId: "t", messageId: "m" },
+      { state: "rejected", taskId: "t", messageId: "m", reason: "no-active-turn", detail: "x" },
+    ];
     const abort: AbortOutcome = { stopped: "confirmed", session: "reusable" };
     const message: CoreMessage = {
       id: "m", role: "user", parts: [{ kind: "text", text: "x" }], from: ANONYMOUS_CALLER, delivery: "steer", at: "T",
     };
-    const interaction: CoreInteraction = { id: "i", kind: "permission", title: "t" };
+    const interaction: CoreInteraction = { id: "i", kind: "permission", title: "t", options: [{ id: "a", label: "A", kind: "allow_once" }] };
+    const header = { v: 1 as const, owner: { id: "u", kind: "user" }, createdAt: "T", updatedAt: "T" };
     const pending: PendingInteraction = {
-      interaction, taskId: "t", contextId: "c", runId: "r", state: "pending", createdAt: "T", expiresAt: "T2", handle: "h",
+      ...header, interaction, taskId: "t", contextId: "c", runId: "r", seq: 1, state: "presented", expiresAt: "T2", handle: "h",
     };
-    const binding: ContextBinding = { contextId: "c", session: { ref: "s" }, updatedAt: "T" };
-    const run: RunRecord = { runId: "r", taskId: "t", contextId: "c", state: "working", startedAt: "T" };
-    const usage: CoreUsage = { scope: "cumulative", tokens: { input: 1 }, costUsd: null };
-    expect([delivery.length, abort.stopped, message.delivery, pending.state, binding.contextId, run.state, usage.scope]).toEqual([
-      5, "confirmed", "steer", "pending", "c", "working", "cumulative",
+    const binding: ContextBinding = { ...header, contextId: "c", session: { ref: "s", issuer: "p@1" } };
+    const run: RunRecord = {
+      ...header, runId: "r", taskId: "t", contextId: "c", turnId: "u1", state: "working", startedAt: "T",
+      cancel: { requestedAt: "T", by: "u", abort },
+    };
+    const usage: CoreUsage = { scope: "cumulative", series: "s", tokens: { input: 1 }, costUsd: null };
+    expect([steer.length, delivery.length, abort.stopped, message.delivery, pending.state, binding.contextId, run.state, usage.scope]).toEqual([
+      4, 5, "confirmed", "steer", "presented", "c", "working", "cumulative",
     ]);
+  });
+
+  it("a provider can implement the revised handlers (abort takes a reason, abortOrphan returns an outcome)", async () => {
+    const reasons: string[] = [];
+    const p: ProviderExecutor = {
+      info: () => ({ id: "p", displayName: "P", inputModes: [], outputModes: [] }),
+      initialize: async () => {},
+      run: async () => {},
+      abort: async (_info, reason) => {
+        reasons.push(reason);
+        return { stopped: "confirmed", session: "reusable" };
+      },
+      abortOrphan: async () => ({ stopped: "unconfirmed", session: "discard" }),
+      shutdown: async () => {},
+    };
+    const info = { runId: "r", turnId: "u", taskId: "t", contextId: "c" };
+    await p.abort!(info, "interrupt");
+    await p.abort!(info, "cancel");
+    expect(reasons).toEqual(["interrupt", "cancel"]);
+    expect(await p.abortOrphan!({ taskId: "t", contextId: "c" })).toEqual({ stopped: "unconfirmed", session: "discard" });
   });
 });
