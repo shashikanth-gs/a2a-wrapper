@@ -112,6 +112,12 @@ export function loadEnvOverrides(): Partial<AgentConfig> {
     if (streamArtifacts) cfg.features.streamArtifactChunks = streamArtifacts === "true";
   }
 
+  // Interactions: ask the A2A client for permissions and questions instead of the headless default
+  const interactionsMode = process.env["INTERACTIONS_MODE"];
+  if (interactionsMode === "auto" || interactionsMode === "ask") {
+    cfg.interactions = { mode: interactionsMode };
+  }
+
   // Logging
   const logLevel = process.env["LOG_LEVEL"];
   if (logLevel) {

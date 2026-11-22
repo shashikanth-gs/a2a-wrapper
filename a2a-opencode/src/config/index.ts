@@ -14,6 +14,7 @@ export type {
   FeatureFlags,
   TimeoutConfig,
   LoggingConfig,
+  InteractionsConfig,
 } from "./types.js";
 
 export { DEFAULTS } from "./defaults.js";

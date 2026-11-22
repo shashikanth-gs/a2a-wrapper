@@ -29,16 +29,12 @@ const ALLOWED_SOURCE_FILES: readonly string[] = [
 
   "a2a-codex/src/codex/executor.ts",
   "a2a-codex/src/__tests__/cancel-task.test.ts",
-
-  "a2a-opencode/src/opencode/executor.ts",
-  "a2a-opencode/src/__tests__/event-transport-lifecycle.test.ts",
 ];
 
 /** Repo-relative package.json files allowed to declare the SDK as a dependency. */
 const ALLOWED_PACKAGE_JSON: readonly string[] = [
   "a2a-antigravity/package.json",
   "a2a-codex/package.json",
-  "a2a-opencode/package.json",
 ];
 
 const SDK = "@a2a-js/sdk";

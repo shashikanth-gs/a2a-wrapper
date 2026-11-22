@@ -125,14 +125,44 @@ describe("event translation (2.x to canonical)", () => {
     expect(e.properties.part.state).toMatchObject({ status: "error", error: "nope" });
   });
 
-  it.each(["session.execution.succeeded", "session.execution.interrupted", "session.idle"])(
-    "%s becomes session.idle",
-    (type) => {
-      expect(translate({ type, data: { sessionID: "s" } })).toEqual([
-        { type: "session.idle", properties: { sessionID: "s" } },
+  it.each([
+    ["session.execution.succeeded", "succeeded"],
+    ["session.execution.interrupted", "interrupted"],
+    ["session.idle", "idle"],
+  ])("%s becomes session.idle (saying how the execution ended)", (type, execution) => {
+    expect(translate({ type, data: { sessionID: "s" } })).toEqual([
+      { type: "session.idle", properties: { sessionID: "s", execution } },
+    ]);
+  });
+
+  it("an interruption carries its reason", () => {
+    expect(translate({ type: "session.execution.interrupted", data: { sessionID: "s", reason: "user" } })).toEqual([
+      { type: "session.idle", properties: { sessionID: "s", execution: "interrupted", reason: "user" } },
+    ]);
+  });
+
+  it("execution.started and the durable inbox events are passed on", () => {
+    expect(translate({ type: "session.execution.started", data: { sessionID: "s" } })).toEqual([
+      { type: "session.execution.started", properties: { sessionID: "s" } },
+    ]);
+    for (const type of ["session.inbox.enqueued", "session.inbox.delivered", "session.inbox.cancelled"]) {
+      expect(translate({ type, data: { sessionID: "s", inboxID: "msg_1", item: { payload: { text: "x" } } } })).toEqual([
+        { type, properties: { sessionID: "s", inboxID: "msg_1" } },
       ]);
-    },
-  );
+    }
+  });
+
+  it("permission and form answers become the replied events (so a pending ask can be withdrawn)", () => {
+    expect(translate({ type: "permission.replied", data: { sessionID: "s", requestID: "p1", reply: "reject" } })).toEqual([
+      { type: "permission.replied", properties: { sessionID: "s", requestID: "p1", reply: "reject" } },
+    ]);
+    expect(translate({ type: "form.replied", data: { sessionID: "s", id: "f1", answer: {} } })).toEqual([
+      { type: "question.replied", properties: { sessionID: "s", requestID: "f1" } },
+    ]);
+    expect(translate({ type: "form.cancelled", data: { sessionID: "s", id: "f1" } })).toEqual([
+      { type: "question.rejected", properties: { sessionID: "s", requestID: "f1" } },
+    ]);
+  });
 
   it("execution.failed becomes session.error", () => {
     const [e] = translate({ type: "session.execution.failed", data: { sessionID: "s", error: { message: "bad" } } });

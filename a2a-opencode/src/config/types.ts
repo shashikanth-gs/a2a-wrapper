@@ -8,6 +8,7 @@
 import type {
   AgentCardConfig,
   EventsConfig,
+  InteractionsConfig,
   MemoryConfig,
   OtelOpenCodeConfig,
   SubAgentsConfig,
@@ -15,7 +16,7 @@ import type {
 
 // ─── Agent Card Config ──────────────────────────────────────────────────────
 
-export type { AgentCardConfig, SkillConfig } from "@a2a-wrapper/core";
+export type { AgentCardConfig, SkillConfig, InteractionsConfig } from "@a2a-wrapper/core";
 
 // ─── Server Config ──────────────────────────────────────────────────────────
 
@@ -108,9 +109,23 @@ export interface SessionConfig {
   titlePrefix?: string;
   /** Reuse sessions by A2A contextId (default: true) */
   reuseByContext?: boolean;
-  /** Session TTL in ms (default: 3_600_000 = 1 hour) */
+  /**
+   * How long a context may sit unused before its next message starts a new OpenCode session, in ms: measured from the LAST USE of
+   * the context (each message renews it), as it always was. 0 or less disables the expiry (a context keeps resuming its session).
+   * @default 3_600_000 (1 hour)
+   */
   ttl?: number;
-  /** Session cleanup interval in ms (default: 300_000 = 5 min) */
+  /**
+   * Optional hard maximum age of a context's session in ms, measured from when the session was created and never extended by use.
+   * Unset (the default): a context that keeps being used is only limited by `ttl`.
+   */
+  maxAge?: number;
+  /**
+   * How often the background sweep reclaims bindings of contexts unused for longer than `ttl`, in ms (the sweep only forgets the
+   * binding; the OpenCode session itself stays on the server). 0 or less disables it, leaving expiry to the check made when the
+   * context is next used.
+   * @default 300_000 (5 min)
+   */
   cleanupInterval?: number;
 }
 
@@ -142,6 +157,11 @@ export interface TimeoutConfig {
   pollingInterval?: number;
   /** Health check interval in ms (default: 30_000). 0 to disable. */
   healthCheck?: number;
+  /**
+   * How long a steered message waits for an OpenCode 2.x server to say it delivered it into the running turn, in ms
+   * (default: 5_000). Without the signal the message is answered as queued (and settled when the server delivers it).
+   */
+  steerAck?: number;
 }
 
 // ─── Logging Config ─────────────────────────────────────────────────────────
@@ -236,6 +256,14 @@ export interface AgentConfig {
   mcp?: Record<string, McpServerConfig>;
   /** Event transport configuration for sideband observability events. */
   events?: EventsConfig;
+  /**
+   * Whether a person is asked when OpenCode raises a permission request or a question, and for how long. The default
+   * (`mode: "auto"`, no rules) is the headless behaviour this wrapper has always had: nobody is asked and
+   * `features.autoApprovePermissions` / `features.autoAnswerQuestions` decide. With `mode: "ask"`, what no `autoAnswer` rule
+   * answers reaches the A2A client as `input-required` and the task resumes on the reply (new sessions then ask for edits, shell
+   * commands, MCP, fetch and sub-agents instead of allowing them up front). `autoAnswer` rules also work in `auto` mode.
+   */
+  interactions?: InteractionsConfig;
   /**
    * Optional memory configuration for persisting instructions and skills.
    * When present, the materializer writes these to backend-specific paths
