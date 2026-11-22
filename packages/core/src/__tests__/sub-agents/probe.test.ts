@@ -232,12 +232,18 @@ describe("probeSubAgents — timeout", () => {
 });
 
 describe("probeSubAgents — parallel execution", () => {
-  // Requirement 6.5: probes run concurrently. Three 100ms servers must
-  // finish in well under 300ms wall-clock total.
-  it("runs probes concurrently — 3 agents that each delay 100 ms finish in under 200 ms total", async () => {
+  // Requirement 6.5: probes run concurrently. Asserted on the peak number of
+  // requests in flight at the same time, not on wall-clock time, so a slow CI
+  // runner cannot make it flaky (sequential probing peaks at 1).
+  it("runs probes concurrently — all 3 slow agents are in flight at the same time", async () => {
+    let inFlight = 0;
+    let peak = 0;
     const makeSlowServer = () =>
       startServer((_req, res) => {
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
         setTimeout(() => {
+          inFlight -= 1;
           res.statusCode = 200;
           res.end();
         }, 100);
@@ -254,17 +260,15 @@ describe("probeSubAgents — parallel execution", () => {
         makeAgent(f.url, { name: `parallel-${i}` }),
       );
 
-      const start = Date.now();
       const results = await probeSubAgents(agents, 5000);
-      const elapsed = Date.now() - start;
 
       expect(results).toHaveLength(3);
       for (const result of results) {
         expect(result.ok).toBe(true);
         expect(result.status).toBe(200);
       }
-      // Sequential execution would take ~300 ms; parallel must be < 200 ms.
-      expect(elapsed).toBeLessThan(200);
+      // Sequential probing would never have more than one request in flight.
+      expect(peak).toBe(3);
     } finally {
       await Promise.all(fixtures.map((f) => f.close()));
     }
