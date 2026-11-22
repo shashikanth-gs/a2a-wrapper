@@ -595,7 +595,8 @@ Code: `packages/core/src/runtime/` (SDK-free: `RunRegistry`, `RunHandle`, `RunSt
   in the background with a timeout. The RPC awaits only the record write. The abort outcome is recorded on
   `RunRecord.cancel.abort`; `session: "discard"` (or a rejection/timeout = `ABORT_FAILED_OUTCOME`) deletes the
   `ContextBinding` and calls `provider.release`. With no `abort` handler core waits (bounded) for `run()` to settle and
-  counts that as `confirmed` / `reusable`.
+  records `unconfirmed` / `reusable` (settling proves nothing: `race` wakes on stop and a provider may return early; only an
+  `abort` handler can yield `confirmed`); not settling in time is `ABORT_FAILED_OUTCOME`.
 - **Context lane.** Turns of one context run one at a time. The lane slot of a canceled run is released only after its abort
   outcome is applied, so the next task never reuses a session the backend may still be stopping. A run still waiting in
   the lane when canceled is removed: `canceled` is published, the provider is never called.
@@ -623,8 +624,33 @@ Code: `packages/core/src/runtime/` (SDK-free: `RunRegistry`, `RunHandle`, `RunSt
 - **`RunStore`** (`InMemoryRunStore`) keeps `RunRecord`, `ContextBinding` and `QueuedMessageRecord`, stores the ENCODED form
   (a non-JSON record fails at write time) and has the atomic `claimQueued`. Persistent stores come with #69.
 - **Known SDK limits.** `cancelTask(taskId, bus)` receives no call context, so the caller recorded for a cancel is `anonymous`
-  until the SDK exposes it. A second `message/stream` on a task whose first stream is still open is served from the same bus
-  and rejected by the SDK ("statusUpdate before initial Task", a2a-js #632); core only guarantees no second provider call.
+  until the SDK exposes it. SDK 1.3 has NO guard against a second `execute()` on a live task (a2a-js #632 is the open
+  proposal); `sendMessageStream` just does `createOrGetByTaskId`. What happens to a second message on a live task:
+  `CoreExecutor.execute` deliberately publishes no Task event for it (the bus is shared with the first stream), so the SDK's
+  `_advanceStreamPattern` throws on THAT stream ("Received statusUpdate before initial 'Message'/'Task' event"), while core
+  has queued the message and it WILL run as the next turn; the SDK has also already appended it to `task.history`. The client
+  therefore gets an error for a message that will execute, and a retry duplicates it. Core guarantees only that no second
+  provider call starts. This is an open decision for #109 (see below).
+- **Records and terminal state.** The terminal `RunRecord` write is retried; until it succeeds an in-memory tombstone
+  (bounded, 1000 entries) is trusted over the store, so a failed write cannot make a finished run look active (a second
+  cancel, or the SDK's own save of `CANCELED` being treated as an orphan). A queued message's record moves to `done` when
+  its turn ends. `endTaskInStore` and the sweep use the record's owner and tenant so owner-scoped stores find the task; the
+  sweep runs `abortOrphan` for up to 4 runs at a time. `CoreExecutor.execute` never rejects while the task is live (an SDK
+  rejection publishes a second terminal event on the shared bus). `RunHandle` is `@internal` and not exported; the other
+  runtimes see `RunInteractionHandle`.
+- **Cancel during an interrupt's abort.** `RunHandle.aborting` keeps the in-flight `abort(info, "interrupt")`. A cancel or
+  expiry arriving meanwhile waits for it, THEN sends `abort(info, "cancel")` (so the provider flushes its native queue),
+  and only then releases the lane.
+- **Open decisions for #108.** What exactly publishes `input-required` and what `signalParked` promises (today the runtime
+  publishes through `handle.publisher` and then signals); the expiry policy calling `registry.expire`; the lane is held while
+  a run is parked (a second task in the context waits up to the interaction timeout); `handleReply` must never throw (an
+  `execute()` rejection on a live task is swallowed by `CoreExecutor`, which hides the error); what a restart does to
+  `interrupted` records (the sweep skips them, so a reply later starts a fresh run).
+- **Open decisions for #109.** A second message on a live streaming task (reject before queueing without throwing, or make
+  the response honest); how a `DeliveryResult` reaches a blocking `sendMessage` caller; `interrupt` with no follow-up
+  message (the task waits for a next turn forever today); where steer dispatch happens in `attach`.
+- **Trust.** A store-triggered cancel is recorded as `{id: "store", kind: "service"}` and goes through `authorize`; once
+  `authorize` is real, decide whether that identity is trusted (the SDK writes `CANCELED` on behalf of any caller).
 
 ## 4. A2A mapping and the run model (core internal)
 

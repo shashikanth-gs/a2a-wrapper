@@ -54,7 +54,7 @@ import express, { type Express, type RequestHandler } from "express";
 import { AGENT_CARD_PATH, A2A_VERSION_HEADER, AgentCard } from "@a2a-js/sdk";
 import type { AgentCardSignatureGenerator } from "@a2a-js/sdk";
 import { generateAgentCardSignature } from "@a2a-js/sdk";
-import { DefaultRequestHandler, InMemoryTaskStore, ServerCallContext } from "@a2a-js/sdk/server";
+import { DefaultRequestHandler, InMemoryTaskStore } from "@a2a-js/sdk/server";
 import type { TaskStore } from "@a2a-js/sdk/server";
 import {
   jsonRpcHandler,
@@ -374,7 +374,7 @@ export async function createA2AServer<T extends BuildAgentCardInput>(
   );
 
   if (runRegistry && options?.sweepOnStart !== false) {
-    await runRegistry.sweep({ endTask: endTaskInStore(baseTaskStore, new ServerCallContext()) });
+    await runRegistry.sweep({ endTask: endTaskInStore(baseTaskStore) });
   }
 
   // ── 4. Express app ──────────────────────────────────────────────────────

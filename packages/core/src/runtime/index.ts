@@ -5,7 +5,7 @@
  * (`CoreExecutor`, the event bus manager and the task store wrapper).
  */
 
-export { RunHandle, RunTurn, type RunPhase, type TerminalClaim, type StopReason, type TurnState, type TurnOutcome, type QueuedTurn, type HeldEntry } from "./run-handle.js";
+// RunHandle / RunTurn are runtime-internal and deliberately not exported.
 export { RunRegistry, type RunRegistryOptions, type SweepOptions, type PublisherFactory } from "./run-registry.js";
 export { InMemoryRunStore, type RunStore } from "./run-store.js";
 export {
@@ -19,6 +19,7 @@ export {
   type InterruptOutcome,
   type OrphanSource,
   type PendingHook,
+  type RunInteractionHandle,
   type RequestIds,
   type RunPublisher,
   type RuntimeLogger,

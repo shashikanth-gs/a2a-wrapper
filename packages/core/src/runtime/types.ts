@@ -19,7 +19,22 @@ import type {
   Meta,
   SessionRef,
 } from "../model/index.js";
-import type { RunHandle } from "./run-handle.js";
+
+/**
+ * What the interactions and steering runtimes may see and do on a run. The
+ * runtime-internal `RunHandle` satisfies it; depend on this, not on the class.
+ */
+export interface RunInteractionHandle {
+  readonly runId: string;
+  readonly taskId: string;
+  readonly contextId: string;
+  /** The event stream currently attached. */
+  readonly publisher?: RunPublisher;
+  /** Register something parked on the run; it is settled `canceled` inside a cancel's claim. Returns the unregister function. */
+  registerPending(hook: PendingHook): () => void;
+  /** The run is parked on an interaction: an `execute()` waiting on it may return. */
+  signalParked(): void;
+}
 
 /** Default upper bound on how long core waits for a provider's abort, abortOrphan or release. */
 export const DEFAULT_ABORT_TIMEOUT_MS = 5_000;
@@ -96,12 +111,12 @@ export type ExecuteOutcome =
  */
 export interface InteractionRuntime {
   /** Handle `run.ask` of a live turn. The runtime registers its pending asks with the handle. */
-  ask(handle: RunHandle, request: CoreInteractionRequest, options?: AskOptions): Promise<CoreInteractionResult>;
+  ask(handle: RunInteractionHandle,request: CoreInteractionRequest, options?: AskOptions): Promise<CoreInteractionResult>;
   /**
    * A new `execute()` arrived for a task with a live run. Resolve `true` when it is
    * the reply to a pending interaction (it is consumed here and must not start a turn).
    */
-  handleReply?(handle: RunHandle, init: ExecuteInit): boolean | Promise<boolean>;
+  handleReply?(handle: RunInteractionHandle,init: ExecuteInit): boolean | Promise<boolean>;
 }
 
 /** A pending interaction (or anything else parked on the run) that must be settled when the run is canceled. */

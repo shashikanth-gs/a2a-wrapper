@@ -9,7 +9,7 @@ import {
   type CoreInteractionRequest,
   type CoreInteractionResult,
   type InteractionRuntime,
-  type RunHandle,
+  type RunInteractionHandle,
 } from "../../index.js";
 import { makeInit, makeProvider, makePublisher, tick } from "./harness.js";
 
@@ -52,7 +52,7 @@ async function startRun(
 function fakeInteractions() {
   const asked: Array<{ request: CoreInteractionRequest; settled?: CoreInteractionResult }> = [];
   const runtime: InteractionRuntime = {
-    ask(handle: RunHandle, request) {
+    ask(handle: RunInteractionHandle, request) {
       return new Promise<CoreInteractionResult>((resolve) => {
         const entry: (typeof asked)[number] = { request };
         asked.push(entry);
@@ -164,14 +164,14 @@ describe("RunRegistry.cancel: sequencing", () => {
     }
   });
 
-  it("without an abort handler the lane waits for run() to settle (confirmed)", async () => {
+  it("without an abort handler the lane waits for run() to settle (recorded unconfirmed: settling proves nothing)", async () => {
     const s = setup();
     delete (s.provider as any).abort;
     const { call } = await startRun(s);
     await s.registry.cancel("t1", ANONYMOUS_CALLER);
     call.resolve(); // provider honours the signal and returns
     await s.registry.drain();
-    expect((await s.store.getRun("t1"))?.cancel?.abort).toEqual({ stopped: "confirmed", session: "reusable" });
+    expect((await s.store.getRun("t1"))?.cancel?.abort).toEqual({ stopped: "unconfirmed", session: "reusable" });
   });
 
   it("authorize is the choke point: a denied cancel claims nothing and publishes nothing", async () => {

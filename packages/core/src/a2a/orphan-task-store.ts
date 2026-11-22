@@ -10,7 +10,8 @@
  */
 
 import { TaskState } from "@a2a-js/sdk";
-import type { ServerCallContext, TaskStore } from "@a2a-js/sdk/server";
+import { ServerCallContext } from "@a2a-js/sdk/server";
+import type { TaskStore } from "@a2a-js/sdk/server";
 import { v4 as uuidv4 } from "uuid";
 import { Role } from "@a2a-js/sdk";
 import type { RunRegistry, SweepOptions } from "../runtime/run-registry.js";
@@ -44,9 +45,21 @@ export class OrphanGuardTaskStore implements TaskStore {
  * `SweepOptions.endTask` over a `TaskStore`: mark the task `failed` with the sweep's
  * reason, so a client that asks sees it instead of a task stuck in `working`.
  */
-export function endTaskInStore(store: TaskStore, context: ServerCallContext): NonNullable<SweepOptions["endTask"]> {
-  return async ({ taskId, contextId, reason }) => {
-    const task = await store.load(taskId, context);
+export function endTaskInStore(
+  store: TaskStore,
+  context?: ServerCallContext | ((info: { owner: { id: string; kind: string }; tenant?: string }) => ServerCallContext),
+): NonNullable<SweepOptions["endTask"]> {
+  return async ({ taskId, contextId, reason, owner, tenant }) => {
+    // Owner-scoped stores find a task only under its owner and tenant: use the run record's.
+    const ctx =
+      typeof context === "function"
+        ? context({ owner, ...(tenant ? { tenant } : {}) })
+        : (context ??
+          new ServerCallContext({
+            user: { isAuthenticated: owner.id !== "anonymous", userName: owner.id === "anonymous" ? "" : owner.id },
+            ...(tenant ? { tenant } : {}),
+          }));
+    const task = await store.load(taskId, ctx);
     if (!task) return;
     const s = task.status?.state;
     if (s === TaskState.TASK_STATE_COMPLETED || s === TaskState.TASK_STATE_FAILED || s === TaskState.TASK_STATE_CANCELED || s === TaskState.TASK_STATE_REJECTED) return;
@@ -64,6 +77,6 @@ export function endTaskInStore(store: TaskStore, context: ServerCallContext): No
         referenceTaskIds: [],
       },
     };
-    await store.save(task, context);
+    await store.save(task, ctx);
   };
 }

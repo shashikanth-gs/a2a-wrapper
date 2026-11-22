@@ -75,6 +75,7 @@ import {
   type ExecuteOutcome,
   type InteractionRuntime,
   type InterruptOutcome,
+  type RunInteractionHandle,
   type RunPublisher,
   type RuntimeLogger,
   type SweepEntry,
@@ -82,6 +83,10 @@ import {
 } from "./types.js";
 
 const NOOP_LOGGER: RuntimeLogger = { warn() {} };
+const MAX_TOMBSTONES = 1000;
+const TERMINAL_WRITE_ATTEMPTS = 3;
+/** Concurrent `abortOrphan` calls during the startup sweep. */
+const SWEEP_CONCURRENCY = 4;
 
 /** Builds the publisher for a task when the caller (the SDK's `cancelTask`) only has a bus. */
 export type PublisherFactory = (ids: { taskId: string; contextId: string }) => RunPublisher;
@@ -114,7 +119,15 @@ export interface SweepOptions {
    */
   replay?: (record: QueuedMessageRecord) => Promise<void>;
   /** Tell the A2A task store that the sweep ended a task, so a client sees it. */
-  endTask?: (info: { taskId: string; contextId: string; state: "failed"; reason: string }) => Promise<void>;
+  endTask?: (info: {
+    taskId: string;
+    contextId: string;
+    state: "failed";
+    reason: string;
+    /** The task owner and tenant from the run record, for owner-scoped task stores. */
+    owner: { id: string; kind: string };
+    tenant?: string;
+  }) => Promise<void>;
 }
 
 /** One context's lane: turns of a context run one at a time. */
@@ -166,6 +179,8 @@ export class RunRegistry {
   private readonly lanes = new Map<string, ContextLane>();
   /** Tasks whose terminal event is out but whose record write is still in flight. */
   private readonly settling = new Set<string>();
+  /** Terminal state of recently ended runs whose terminal record write has not succeeded yet (bounded). */
+  private readonly tombstones = new Map<string, { runId: string; state: string }>();
   /** Runs of which an orphan abort was already started (runId). */
   private readonly orphanClaims = new Set<string>();
   private readonly chains = new Map<string, Promise<void>>();
@@ -195,7 +210,7 @@ export class RunRegistry {
   // ─── Introspection ────────────────────────────────────────────────────────
 
   /** The live handle of a task, if any. A handle is live until its terminal event is out. */
-  get(taskId: string): RunHandle | undefined {
+  get(taskId: string): RunInteractionHandle | undefined {
     return this.handles.get(taskId);
   }
 
@@ -356,6 +371,7 @@ export class RunRegistry {
 
   private beginTurn(handle: RunHandle, init: ExecuteInit, turnId: string, queued?: QueuedTurn): void {
     const turn = new RunTurn(turnId);
+    if (queued) turn.messageId = queued.messageId;
     handle.turn = turn;
     handle.turns.push(turn);
     handle.awaitingNextTurn = false;
@@ -429,6 +445,13 @@ export class RunRegistry {
     if (handle.phase !== "active" || !turn.live) return;
     void inferred;
     turn.state = "ended";
+    if (turn.messageId) {
+      this.track(
+        this.store
+          .claimQueued(handle.taskId, turn.messageId, "running", "done")
+          .catch((e) => this.log.warn("queued record update failed", causeMessage(e))),
+      );
+    }
     handle.lastOutcome = outcome;
     this.advance(handle);
   }
@@ -492,6 +515,14 @@ export class RunRegistry {
     handle.end(state);
     if (this.handles.get(handle.taskId) === handle) this.handles.delete(handle.taskId);
     this.settling.add(handle.taskId);
+    // In-memory memory of the terminal state, trusted over the store until the terminal write lands:
+    // a failed write must not make a finished run look active (a second cancel, an "orphan").
+    this.tombstones.delete(handle.taskId);
+    this.tombstones.set(handle.taskId, { runId: handle.runId, state });
+    if (this.tombstones.size > MAX_TOMBSTONES) {
+      const oldest = this.tombstones.keys().next().value;
+      if (oldest !== undefined) this.tombstones.delete(oldest);
+    }
     for (const l of this.settledListeners) {
       try {
         l({ taskId: handle.taskId, contextId: handle.contextId });
@@ -503,17 +534,24 @@ export class RunRegistry {
 
   private persistTerminal(handle: RunHandle, state: string, cancel?: { by: string }): Promise<void> {
     const at = this.now();
-    const p = this.mutateRecord(handle.taskId, (r) =>
-      r
-        ? {
-            ...r,
-            state,
-            endedAt: at,
-            updatedAt: at,
-            ...(cancel ? { cancel: { requestedAt: at, by: cancel.by, ...(r.cancel?.abort ? { abort: r.cancel.abort } : {}) } } : {}),
-          }
-        : r,
-    );
+    const write = () =>
+      this.mutateRecord(handle.taskId, (r) =>
+        r
+          ? {
+              ...r,
+              state,
+              endedAt: at,
+              updatedAt: at,
+              ...(cancel ? { cancel: { requestedAt: at, by: cancel.by, ...(r.cancel?.abort ? { abort: r.cancel.abort } : {}) } } : {}),
+            }
+          : r,
+      );
+    const p = (async () => {
+      let ok = false;
+      for (let attempt = 0; attempt < TERMINAL_WRITE_ATTEMPTS && !ok; attempt++) ok = await write();
+      if (ok && this.tombstones.get(handle.taskId)?.runId === handle.runId) this.tombstones.delete(handle.taskId);
+      if (!ok) this.log.warn(`terminal record write for ${handle.taskId} failed; keeping it in memory as ${state}`);
+    })();
     void p.finally(() => this.settling.delete(handle.taskId));
     return p;
   }
@@ -573,6 +611,7 @@ export class RunRegistry {
         handle.held.delete(heldHandle);
         const heldTurn = new RunTurn(self.newId());
         heldTurn.state = "running";
+        if (entry.messageId) heldTurn.messageId = entry.messageId;
         heldTurn.session = turn.session;
         handle.turn = heldTurn;
         handle.turns.push(heldTurn);
@@ -687,16 +726,7 @@ export class RunRegistry {
     for (const t of turns) t.stop("cancel");
 
     // 6. abort in the background; the lane waits for it
-    if (!handle.started) {
-      this.lane(handle.contextId).remove(handle);
-      if (this.lanes.get(handle.contextId)?.idle) this.lanes.delete(handle.contextId);
-    } else if (running) {
-      this.track(
-        this.runAbort(handle, running, "cancel").finally(() => this.releaseLane(handle)),
-      );
-    } else {
-      this.releaseLane(handle);
-    }
+    this.stopBackend(handle, running);
 
     await persisted;
     return { claimed: true, runId: handle.runId };
@@ -714,6 +744,9 @@ export class RunRegistry {
   private async cancelWithoutHandle(taskId: string, by: CoreCaller, publish?: PublisherFactory): Promise<CancelOutcome> {
     // A run that just ended may still be writing its record: let it land, then read.
     await (this.chains.get(taskId) ?? Promise.resolve());
+    // The in-memory tombstone wins over a store that may have failed to take the terminal write.
+    const tomb = this.tombstones.get(taskId);
+    if (tomb) return { claimed: false, reason: tomb.state === "canceled" ? "already-canceled" : "already-terminal" };
     const rec = await this.store.getRun(taskId);
     if (!rec) return { claimed: false, reason: "unknown-task" };
     if (classifyState(rec.state) === "terminal") {
@@ -733,7 +766,7 @@ export class RunRegistry {
     return { claimed: true, runId: rec.runId };
   }
 
-  private markOrphanCanceled(rec: RunRecord, by: string): Promise<void> {
+  private markOrphanCanceled(rec: RunRecord, by: string): Promise<boolean> {
     const at = this.now();
     return this.mutateRecord(rec.taskId, (r) =>
       r ? { ...r, state: "canceled", endedAt: at, updatedAt: at, cancel: { requestedAt: at, by } } : r,
@@ -792,12 +825,14 @@ export class RunRegistry {
     }
     if (target) {
       handle.stopping = true;
-      this.track(
-        this.runAbort(handle, target, "interrupt").finally(() => {
-          handle.stopping = false;
-          this.kick(handle);
-        }),
-      );
+      handle.abortTarget = target;
+      const aborting = this.runAbort(handle, target, "interrupt").finally(() => {
+        handle.stopping = false;
+        if (handle.aborting === aborting) handle.aborting = undefined;
+        this.kick(handle);
+      });
+      handle.aborting = aborting;
+      this.track(aborting);
     } else {
       this.kick(handle);
     }
@@ -823,11 +858,36 @@ export class RunRegistry {
     handle.publisher?.finished();
     this.closeRun(handle, state);
     for (const t of turns) t.stop("cancel");
-    if (!handle.started) this.lane(handle.contextId).remove(handle);
-    else if (running) this.track(this.runAbort(handle, running, "cancel").finally(() => this.releaseLane(handle)));
-    else this.releaseLane(handle);
+    this.stopBackend(handle, running);
     await persisted;
     return true;
+  }
+
+  /**
+   * The run is over (cancel or expiry): stop its backend in the background and
+   * release the lane only when that has settled. If an interrupt's abort is still
+   * in flight, wait for it first and THEN send `abort(cancel)`, so the provider
+   * flushes its native queue (the interrupt abort kept it) and the lane never
+   * hands the session to the next task while the backend may still be stopping.
+   */
+  private stopBackend(handle: RunHandle, running: RunTurn | undefined): void {
+    if (!handle.started) {
+      this.lane(handle.contextId).remove(handle);
+      if (this.lanes.get(handle.contextId)?.idle) this.lanes.delete(handle.contextId);
+      return;
+    }
+    const pending = handle.aborting;
+    const turn = running ?? (pending ? handle.abortTarget : undefined);
+    if (!turn) {
+      this.releaseLane(handle);
+      return;
+    }
+    this.track(
+      (async () => {
+        if (pending) await pending.catch(() => {});
+        await this.runAbort(handle, turn, "cancel");
+      })().finally(() => this.releaseLane(handle)),
+    );
   }
 
   // ─── abort ────────────────────────────────────────────────────────────────
@@ -861,7 +921,9 @@ export class RunRegistry {
   /**
    * Stop the backend of a turn and apply what it reports. Never rejects. With no
    * `abort` handler the provider only honours the signal: core waits (bounded) for
-   * `run()` to settle, which counts as confirmed.
+   * `run()` to settle. That proves nothing (`race` wakes on stop, and a provider may
+   * return early), so it is recorded `unconfirmed` / `reusable`; only an `abort`
+   * handler can yield `confirmed`. Not settling in time is {@link ABORT_FAILED_OUTCOME}.
    */
   private async runAbort(handle: RunHandle, turn: RunTurn, reason: AbortReason): Promise<AbortOutcome> {
     const info: TaskRunInfo = {
@@ -878,7 +940,7 @@ export class RunRegistry {
       if (!r.ok) this.log.warn(`provider.abort failed (${reason}): ${r.error.message}`);
     } else {
       const r = await this.bounded(() => turn.runSettled);
-      outcome = r.ok ? { stopped: "confirmed", session: "reusable" } : { ...ABORT_FAILED_OUTCOME };
+      outcome = r.ok ? { stopped: "unconfirmed", session: "reusable" } : { ...ABORT_FAILED_OUTCOME };
     }
     await this.applyOutcome(handle.taskId, handle.contextId, turn.session, outcome, reason === "cancel");
     return outcome;
@@ -969,8 +1031,9 @@ export class RunRegistry {
       if (live.phase !== "active") return false;
       return (await this.cancel(taskId, { id: "store", kind: "service" })).claimed;
     }
-    if (this.settling.has(taskId)) return false;
+    if (this.settling.has(taskId) || this.tombstones.has(taskId)) return false;
     const rec = await this.store.getRun(taskId);
+    if (this.tombstones.has(taskId)) return false;
     if (!rec || classifyState(rec.state) === "terminal") return false;
     if (this.handles.has(taskId) || this.orphanClaims.has(rec.runId)) return false;
     this.orphanClaims.add(rec.runId);
@@ -999,6 +1062,23 @@ export class RunRegistry {
   async sweep(options: SweepOptions = {}): Promise<SweepReport> {
     const entries: SweepEntry[] = [];
     const records = await this.store.listNonTerminalRuns();
+
+    // One abortOrphan per orphaned run, a few at a time (each is bounded by the abort timeout).
+    const eligible = records.filter(
+      (r) => !this.handles.has(r.taskId) && classifyState(r.state) === "active" && !this.orphanClaims.has(r.runId),
+    );
+    for (const r of eligible) this.orphanClaims.add(r.runId);
+    const outcomes = new Map<string, AbortOutcome>();
+    let nextIndex = 0;
+    await Promise.all(
+      Array.from({ length: Math.min(SWEEP_CONCURRENCY, eligible.length) }, async () => {
+        while (nextIndex < eligible.length) {
+          const rec = eligible[nextIndex++];
+          outcomes.set(rec.runId, await this.abortOrphan(rec, "cancel"));
+        }
+      }),
+    );
+
     for (const rec of records) {
       const entry: SweepEntry = {
         taskId: rec.taskId,
@@ -1021,10 +1101,8 @@ export class RunRegistry {
         entry.action = "skipped-interrupted";
         continue;
       }
-      if (this.orphanClaims.has(rec.runId)) continue;
-      this.orphanClaims.add(rec.runId);
-
-      const outcome = await this.abortOrphan(rec, "cancel");
+      const outcome = outcomes.get(rec.runId);
+      if (!outcome) continue; // already claimed by another orphan path
       entry.abort = { stopped: outcome.stopped, session: outcome.session };
 
       const queued = await this.store.listQueued(rec.taskId);
@@ -1068,7 +1146,14 @@ export class RunRegistry {
       const at = this.now();
       await this.mutateRecord(rec.taskId, (r) => (r ? { ...r, state: "failed", endedAt: at, updatedAt: at } : r));
       try {
-        await options.endTask?.({ taskId: rec.taskId, contextId: rec.contextId, state: "failed", reason });
+        await options.endTask?.({
+          taskId: rec.taskId,
+          contextId: rec.contextId,
+          state: "failed",
+          reason,
+          owner: rec.owner,
+          ...(rec.tenant ? { tenant: rec.tenant } : {}),
+        });
       } catch (e) {
         this.log.warn("endTask failed", causeMessage(e));
       }
@@ -1088,18 +1173,21 @@ export class RunRegistry {
   }
 
   /** Read-modify-write one task's record; serialized per task and never rejects. */
-  private mutateRecord(taskId: string, fn: (r: RunRecord | undefined) => RunRecord | undefined): Promise<void> {
+  private mutateRecord(taskId: string, fn: (r: RunRecord | undefined) => RunRecord | undefined): Promise<boolean> {
     const prev = this.chains.get(taskId) ?? Promise.resolve();
-    const next = prev
-      .then(async () => {
-        const updated = fn(await this.store.getRun(taskId));
-        if (updated) await this.store.putRun(updated);
-      })
-      .catch((e) => this.log.warn("run record write failed", causeMessage(e)));
-    this.chains.set(taskId, next);
+    const next = prev.then(async () => {
+      const updated = fn(await this.store.getRun(taskId));
+      if (updated) await this.store.putRun(updated);
+      return true;
+    }).catch((e) => {
+      this.log.warn("run record write failed", causeMessage(e));
+      return false;
+    });
+    const link = next.then(() => {});
+    this.chains.set(taskId, link);
     this.track(next);
-    void next.then(() => {
-      if (this.chains.get(taskId) === next) this.chains.delete(taskId);
+    void link.then(() => {
+      if (this.chains.get(taskId) === link) this.chains.delete(taskId);
     });
     return next;
   }

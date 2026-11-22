@@ -59,6 +59,9 @@ export class RunTurn {
   readonly stopped: Promise<typeof CANCELED>;
   private wake!: () => void;
 
+  /** The queued message this turn runs, so its record can move to `done` when the turn ends. */
+  messageId?: string;
+
   constructor(readonly turnId: string) {
     this.stopped = new Promise<typeof CANCELED>((resolve) => {
       this.wake = () => resolve(CANCELED);
@@ -113,6 +116,10 @@ export interface RunHandleInit {
   publisher?: RunPublisher;
 }
 
+/**
+ * @internal Runtime-internal mutable state. Not part of the public API: other
+ * runtimes (interactions, steering) see a run only through `RunInteractionHandle`.
+ */
 export class RunHandle {
   readonly runId: string;
   readonly taskId: string;
@@ -132,6 +139,10 @@ export class RunHandle {
   lastOutcome?: TurnOutcome;
   /** An `interrupt` is waiting for the provider's abort to settle before the next turn may start. */
   stopping = false;
+  /** The in-flight `abort(info, "interrupt")`, so a cancel or expiry arriving meanwhile can wait for it. */
+  aborting?: Promise<unknown>;
+  /** The turn that interrupt is stopping. */
+  abortTarget?: RunTurn;
   /** Has the first turn been admitted by the context lane? A run waiting in the lane has not started. */
   started = false;
   /** Number of `execute()` calls currently waiting on this run. */

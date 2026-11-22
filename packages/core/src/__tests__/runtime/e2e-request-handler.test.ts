@@ -18,7 +18,7 @@ import {
   type CoreInteractionRequest,
   type CoreInteractionResult,
   type InteractionRuntime,
-  type RunHandle,
+  type RunInteractionHandle,
 } from "../../index.js";
 import { makeProvider, tick } from "./harness.js";
 
@@ -113,7 +113,7 @@ describe("end to end through DefaultRequestHandler", () => {
 
   it("cancel at input-required after execute() returned works (the bus stays alive because core has a live run)", async () => {
     const interactions: InteractionRuntime = {
-      ask(handle: RunHandle, _req: CoreInteractionRequest) {
+      ask(handle: RunInteractionHandle, _req: CoreInteractionRequest) {
         return new Promise<CoreInteractionResult>((resolve) => {
           handle.registerPending({ cancel: () => resolve({ outcome: "canceled" }) });
           handle.publisher?.status({ state: "input-required", text: "approve?" });
@@ -144,9 +144,12 @@ describe("end to end through DefaultRequestHandler", () => {
     const call = h.provider.runs[0];
     const taskId = call.req.taskId;
 
-    // Note: the SDK serves this second stream from the same bus and rejects it ("statusUpdate before
-    // initial Task"): a second message/stream on a working task is an SDK limitation (a2a-js #632).
-    // What matters here is that core never starts a second provider call.
+    // The SDK 1.3 has no guard against a second execute() on a live task (a2a-js #632 is the open
+    // proposal for one). What happens here: CoreExecutor deliberately publishes no Task event for a
+    // live task (the bus is shared with the first stream), so this stream's _advanceStreamPattern
+    // throws "Received statusUpdate before initial 'Message'/'Task' event" and the client sees an
+    // error, while core has queued the message and it WILL run as the next turn (and the SDK already
+    // appended it to task.history). Open decision for #109. Core guarantees no second provider call.
     const second = stream(h, message(taskId, "ctx-e2e"));
     second.consumer.catch(() => {});
     await tick();
