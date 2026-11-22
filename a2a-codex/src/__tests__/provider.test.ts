@@ -4,9 +4,9 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { summarizeEvent, summarizeTask } from "@a2a-wrapper/core";
+import { InMemoryRunStore, summarizeEvent, summarizeTask } from "@a2a-wrapper/core";
 import { CodexProvider } from "../codex/provider.js";
-import { codexUsageToCallRecord, failureCode } from "../codex/turn.js";
+import { codexUsageCall, codexUsageReading, failureCode } from "../codex/turn.js";
 import { FakeCodex, T1, T2, answer, artifacts, responses, serve, sleep, started, states, streamText, taskIdOf, turn, until, useWorkspace } from "./helpers/harness.js";
 
 const ctx = useWorkspace();
@@ -212,20 +212,67 @@ describe("artifacts, usage and failures", () => {
     ]);
   });
 
-  it("completed carries x-usage built from turn.completed.usage (per turn, not cumulative)", async () => {
-    const { server } = serve(ctx.config, [turn(T1, "one"), { events: [...started(T1), ...answer("two")] }]);
-    const a = await streamText(server, "a", "ctx-u");
-    const b = await streamText(server, "b", "ctx-u");
-    for (const { summary } of [a, b]) {
-      const done = summary.find((e) => e.k === "status" && e.state === "completed") as any;
-      expect(done.usage).toMatchObject({ llmCalls: 1, inputTokens: 10, outputTokens: 2, cacheReadTokens: 4, reasoningTokens: 1 });
-    }
+  it("completed carries x-usage built from turn.completed.usage", async () => {
+    const { server } = serve(ctx.config, [turn(T1, "one")]);
+    const { summary } = await streamText(server, "a", "ctx-u");
+    const done = summary.find((e) => e.k === "status" && e.state === "completed") as any;
+    expect(done.usage).toMatchObject({ llmCalls: 1, inputTokens: 10, outputTokens: 2, cacheReadTokens: 4, reasoningTokens: 1, model: "test-model" });
   });
 
-  it("maps the Codex usage figures to a call record, including cache writes when the SDK reports them", () => {
-    expect(
-      codexUsageToCallRecord({ input_tokens: 5, output_tokens: 2, cached_input_tokens: 1, cache_write_input_tokens: 3, reasoning_output_tokens: 4 }, "m"),
-    ).toMatchObject({ model: "m", inputTokens: 5, outputTokens: 2, cacheReadTokens: 1, cacheWriteTokens: 3, reasoningTokens: 4, cost: null });
+  const usageOf = (summary: any[]) => (summary.find((e) => e.k === "status" && e.state === "completed") as any).usage;
+
+  it("Codex reports a running total per THREAD: each task reports what it spent, not the total so far", async () => {
+    const { server } = serve(ctx.config, [turn(T1, "one", 1), turn(T1, "two", 3), turn(T1, "three", 4)]);
+    const a = await streamText(server, "a", "ctx-u");
+    const b = await streamText(server, "b", "ctx-u");
+    const c = await streamText(server, "c", "ctx-u");
+    // readings 10, 30, 40 input tokens
+    expect([a, b, c].map((r) => [usageOf(r.summary).inputTokens, usageOf(r.summary).outputTokens, usageOf(r.summary).cacheReadTokens])).toEqual([
+      [10, 2, 4],
+      [20, 4, 8],
+      [10, 2, 4],
+    ]);
+  });
+
+  it("after a restart with a durable store the next turn continues the total (the baseline is kept with the binding)", async () => {
+    const store = new InMemoryRunStore();
+    const first = serve(ctx.config, [turn(T1, "one", 1)], { runStore: store });
+    await streamText(first.server, "a", "ctx-r");
+    await first.server.registry.drain();
+    const second = serve(ctx.config, [turn(T1, "two", 3)], { runStore: store });
+    const b = await streamText(second.server, "b", "ctx-r");
+    expect(usageOf(b.summary)).toMatchObject({ inputTokens: 20, outputTokens: 4 });
+  });
+
+  it("a resumed thread with no stored reading claims nothing for that turn (it cannot tell its spend from the earlier turns), then is exact", async () => {
+    const store = new InMemoryRunStore();
+    const first = serve(ctx.config, [turn(T1, "one", 1)], { runStore: store });
+    await streamText(first.server, "a", "ctx-r");
+    await first.server.registry.drain();
+    const b = (await store.getBinding("ctx-r"))!;
+    await store.putBinding({ ...b, usageBaseline: undefined } as never); // the baseline was lost
+    const second = serve(ctx.config, [turn(T1, "two", 3), turn(T1, "three", 4)], { runStore: store });
+    const t2 = await streamText(second.server, "b", "ctx-r");
+    const t3 = await streamText(second.server, "c", "ctx-r");
+    expect(usageOf(t2.summary)).toMatchObject({ inputTokens: 0, outputTokens: 0 });
+    expect(usageOf(t3.summary)).toMatchObject({ inputTokens: 10, outputTokens: 2 });
+  });
+
+  it("a new thread (no binding, or a thread Codex no longer had) reports its whole reading", async () => {
+    ctx.config.session.reuseByContext = false;
+    const { server } = serve(ctx.config, [turn(T1, "one", 1), turn(T2, "two", 1)]);
+    const a = await streamText(server, "a", "ctx-n");
+    const b = await streamText(server, "b", "ctx-n");
+    expect([usageOf(a.summary).inputTokens, usageOf(b.summary).inputTokens]).toEqual([10, 10]);
+  });
+
+  it("maps the Codex usage figures to a reading and a call record, including cache writes when the SDK reports them", () => {
+    const reading = codexUsageReading({ input_tokens: 5, output_tokens: 2, cached_input_tokens: 1, cache_write_input_tokens: 3, reasoning_output_tokens: 4 }, "t", true, "m");
+    expect(reading).toEqual({ scope: "cumulative", series: "t", fresh: true, model: "m", tokens: { input: 5, output: 2, cacheRead: 1, cacheWrite: 3, reasoning: 4 } });
+    expect(codexUsageReading({}, "t", false, undefined)).not.toHaveProperty("fresh");
+    expect(codexUsageCall({ scope: "delta", tokens: reading.tokens, model: "m" }, undefined)).toMatchObject({
+      model: "m", inputTokens: 5, outputTokens: 2, cacheReadTokens: 1, cacheWriteTokens: 3, reasoningTokens: 4, cost: null,
+    });
   });
 
   it("failure codes: auth, rate limit, unavailable, backend", () => {

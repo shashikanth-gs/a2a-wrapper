@@ -49,12 +49,19 @@ export type Script =
   | "manual";
 
 export const started = (id: string): ThreadEventLike[] => [{ type: "thread.started", thread_id: id }, { type: "turn.started" }];
-export const answer = (text: string): ThreadEventLike[] => [
+/** The usage Codex reports on `turn.completed` is a running total of the THREAD (see `turn.ts`): `total` scales every counter. */
+export const usage = (total = 1) => ({
+  input_tokens: 10 * total,
+  cached_input_tokens: 4 * total,
+  output_tokens: 2 * total,
+  reasoning_output_tokens: 1 * total,
+});
+export const answer = (text: string, total = 1): ThreadEventLike[] => [
   { type: "item.completed", item: { id: "m", type: "agent_message", text } },
-  { type: "turn.completed", usage: { input_tokens: 10, cached_input_tokens: 4, output_tokens: 2, reasoning_output_tokens: 1 } },
+  { type: "turn.completed", usage: usage(total) },
 ];
 /** A scripted turn on thread `id` that answers `text`. */
-export const turn = (id: string, text: string): Script => ({ events: [...started(id), ...answer(text)] });
+export const turn = (id: string, text: string, total = 1): Script => ({ events: [...started(id), ...answer(text, total)] });
 
 /** One live (manual) stream. */
 export class ManualRun {

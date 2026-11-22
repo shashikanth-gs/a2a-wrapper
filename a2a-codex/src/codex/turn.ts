@@ -21,6 +21,7 @@ import {
   type AbortOutcome,
   type CoreError,
   type CoreRequest,
+  type CoreUsage,
   type CoreTaskRun,
   type EventTransport,
   type EventTransportFn,
@@ -38,16 +39,44 @@ const log = logger.child("turn");
 /** How long `abort` waits for the CLI process of the turn to be gone. */
 export const ABORT_WAIT_MS = 3_000;
 
-/** Map Codex turn.completed usage to a core usage call record. Codex reports the usage of THIS turn (not a running total). */
-export function codexUsageToCallRecord(usage: Record<string, unknown>, modelFallback: string | undefined): UsageCallRecord {
-  const num = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+const num = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+
+/**
+ * What `turn.completed.usage` of the Codex CLI means (measured against codex-cli 0.167 with gpt-6-luna, not read from the SDK
+ * types, which say "during the turn"): a RUNNING TOTAL of the whole thread. The first turn of a thread reports its own spend,
+ * the second reports the first plus its own (`input_tokens` 13849, then 27721, then 41619 for three one-call turns, with
+ * `cached_input_tokens` growing the same way), and a resumed thread continues the total, also in another process. So the
+ * wrapper hands core a `cumulative` reading (series = the thread id) and core diffs it against the previous reading of that thread,
+ * which it keeps with the context binding; what a task reports is what the task spent.
+ *
+ * @param fresh the thread was created by this turn (a resume continues a total this process never saw).
+ */
+export function codexUsageReading(usage: Record<string, unknown>, series: string, fresh: boolean, model: string | undefined): CoreUsage {
   return {
-    model: (typeof usage.model === "string" ? usage.model : undefined) || modelFallback || "",
-    inputTokens: num(usage.input_tokens),
-    outputTokens: num(usage.output_tokens),
-    cacheReadTokens: num(usage.cached_input_tokens),
-    cacheWriteTokens: num(usage.cache_write_input_tokens),
-    reasoningTokens: num(usage.reasoning_output_tokens),
+    scope: "cumulative",
+    series,
+    ...(fresh ? { fresh: true } : {}),
+    tokens: {
+      input: num(usage.input_tokens),
+      output: num(usage.output_tokens),
+      cacheRead: num(usage.cached_input_tokens),
+      cacheWrite: num(usage.cache_write_input_tokens),
+      reasoning: num(usage.reasoning_output_tokens),
+    },
+    ...(model ? { model } : {}),
+  };
+}
+
+/** The usage call record of what a turn spent (core's delta of a reading). Codex reports no model per call, no latency and no cost. */
+export function codexUsageCall(delta: CoreUsage, modelFallback: string | undefined): UsageCallRecord {
+  const t = delta.tokens;
+  return {
+    model: delta.model || modelFallback || "",
+    inputTokens: t.input ?? 0,
+    outputTokens: t.output ?? 0,
+    cacheReadTokens: t.cacheRead ?? 0,
+    cacheWriteTokens: t.cacheWrite ?? 0,
+    reasoningTokens: t.reasoning ?? 0,
     durationMs: 0,
     timeToFirstTokenMs: null,
     cost: null,
@@ -124,6 +153,7 @@ export class CodexTurn {
     let output = false;
     let turnFailed: string | undefined;
     let lifecycleClosed = false;
+    let threadId: string | undefined;
     const agentMessageText = new Map<string, string>();
 
     try {
@@ -137,7 +167,7 @@ export class CodexTurn {
 
       for await (const event of events as AsyncIterable<ThreadEventLike>) {
         if (event.type === "thread.started") {
-          const threadId = typeof event.thread_id === "string" ? event.thread_id : undefined;
+          threadId = typeof event.thread_id === "string" ? event.thread_id : undefined;
           mapper.handleEvent(event);
           if (!threadId) continue;
           const resumeRef = this.opts.resumeRef;
@@ -178,7 +208,8 @@ export class CodexTurn {
         }
 
         if (event.type === "turn.completed" && event.usage) {
-          const call = codexUsageToCallRecord(event.usage as Record<string, unknown>, this.cfg.codex.model);
+          const reading = codexUsageReading(event.usage as Record<string, unknown>, threadId ?? "thread", !this.opts.resumeRef, this.cfg.codex.model);
+          const call = codexUsageCall(await run.reportUsage(reading), this.cfg.codex.model);
           obs.recordCall(call);
           // Optional: otel.annotateUsageCalls adds a span event per call (noisy; off by default).
           applyUsageCallToActiveSpan(call);

@@ -1496,6 +1496,75 @@ failed status). What a real 2.3.2 server does (measured, not read from the types
 - **`OrphanInfo.heldHandles`** (additive, optional): the provider-held steer handles core still knows for the run (queued records
   with holder `provider`), so a provider cancels exactly those items instead of flushing a queue it may share.
 
+### 3.19 Codex on the contract (#111, #100)
+
+`a2a-codex` is the fourth wrapper on the contract and has no `@a2a-js/sdk` dependency (the guard test lists it no more). It stays on the
+exec SDK (`@openai/codex-sdk`; owner decision, not the experimental app-server), so the provider is small: `run`, `abort`, `abortOrphan`,
+`probeSession`, `release`. Nothing was added to core. Parity with the executor it replaced is proved as for the others: 15 scripted
+fake-thread scenarios (buffered and chunked answers, two messages, trace events for reasoning, commands, file changes, todo lists, MCP and
+delegation calls, web search, sensitive and oversized data, features switched off, no usage, repeated usage, a non-fatal `error` event, a
+failed turn, a CLI that exits non-zero or cannot be spawned, events disabled, an empty answer) were recorded through the old
+`AgentExecutor` and the real `DefaultRequestHandler` (`a2a-codex/src/__tests__/golden/old-executor.golden.json`) and are replayed through
+`CodexProvider`: 30 comparisons, identical except the asserted differences (the redundant `submitted` status; core's usage key on the
+completed status; `code` on a failed status; one closing `agent_error` for a thrown failure; a clean stream that reported `turn.failed`
+now FAILS the task instead of completing it with an empty answer). The response artifact id is `response-<taskId>-<turn>` (`turnArtifactId`).
+
+**How the Codex provider uses the contract (all wrapper-side).**
+
+- **Resume (#100).** The CLI reports the thread id in the first event (`thread.started`); the turn calls `run.bind({ref: threadId, meta:
+  {model}})` and awaits it before it handles any other event, so nothing is published unbound. The next request of the context carries
+  `request.session`, and the provider opens the thread with `resumeThread(ref, options)`; the thread options (model, sandbox, approval
+  policy, network, web search, directories) are per run, not stored with the thread, and are passed on resume. A thread is a rollout file
+  under `$CODEX_HOME/sessions`, so no in-process thread map exists and `release` has nothing to drop. Measured with the real CLI 0.167.2
+  (not read from the types): `codex exec resume <unknown uuid>` exits 1 with `thread/resume failed: no rollout found for thread id <id>`
+  before any event, and the SDK turns that into `Codex Exec exited with code 1: ...`; that text is `session-not-found` (only while no output
+  was published). `codex exec resume <anything that is not a thread id>` is NOT an error: the CLI takes it for a thread name or the prompt
+  and starts ANOTHER thread, running the turn. So the provider never hands a ref that is not a UUID to the CLI (it answers
+  `session-not-found` itself), and a resume whose `thread.started` names a different id than the one asked for is aborted at once and
+  reported as `session-not-found` (the other thread has no output yet; core runs the turn on a fresh one).
+- **Lane.** The old wrapper chained turns of a context on its own promise queue. Core's per-context lane does it now; the wrapper keeps
+  no queue and no `contextId` map (`SessionManager` is gone). `session.ttl` was the maximum AGE of a thread (the old `getOrCreate` compared
+  `now - createdAt` with it; the background sweep separately dropped contexts idle for longer than `ttl`), so it is `bindingMaxAgeMs`;
+  `ttl <= 0` and `reuseByContext: false` never reuse (nothing is bound); the optional `session.idleTtl` is `bindingTtlMs`; the sweep is the
+  wrapper's own timer over `sweepBindings({olderThanMs: ttl})`, as for Claude.
+- **Abort.** The turn passes an `AbortSignal` (linked to the run's) to `runStreamed`; aborting kills the `codex exec` child. `abort`
+  waits (3 s) until the turn's stream has ended and answers `{stopped: "confirmed" | "unconfirmed", session: "reusable"}` for every reason:
+  the thread is a file and takes the next message (measured: a canceled turn's thread is resumed by the follow-up). `abortOrphan` answers
+  `confirmed`: the CLI child dies with the wrapper (a child that outlived a hard kill cannot be found again; Codex gives no handle).
+- **No steer, no `ask`.** The exec SDK cannot talk to a running process and has no approval channel (policy `never`). No `steer` handler
+  is implemented, so core answers a steer honestly (`queued`, holder `core`, `steer-unsupported`) and runs it as the next turn; `queue` is
+  the same; `interrupt` aborts and runs the message next on the same thread. No `interactions` config section exists and a Codex task never
+  goes `input-required`. This is the capability model working as designed (D1): nothing says "Codex cannot steer", the handler is absent.
+- **Usage is a running total per THREAD (measured, contrary to the SDK types).** `turn.completed.usage` of codex-cli 0.167 is cumulative for
+  the thread: three one-call turns of one thread reported `input_tokens` 13849, 27721, 41619 and `cached_input_tokens` 0, 13696, 27392
+  (each turn's own spend is ~13.9k input, ~13.7k of it cached), also after the process was restarted and the thread resumed. The old
+  executor published the running total as every task's `x-usage`, so a long conversation over-reported with each turn. The provider hands
+  core a `cumulative` reading (series = the thread id, `fresh` for a thread this turn created) through `run.reportUsage` and records a
+  usage call of the DELTA; core keeps the previous reading with the binding, so a task reports what it spent, also after a restart. A
+  resumed thread whose baseline is lost reports nothing for that one turn, then is exact. (`recordCumulative` is not used: it diffs only the
+  cost, while here the tokens themselves are the running total.) The event mapper still emits Codex's own lifecycle events
+  (`agent_started` on `turn.started`, `agent_finished` with the raw usage on `turn.completed`, `agent_error` on `turn.failed`), so the
+  wrapper uses `RunObservability` for the emitter, the accumulator and `usageNow()` (the `x-usage` summary and the core usage for
+  `complete`) and does not call `finish()`; a failure that no Codex event announced is closed with `obs.error`.
+
+**Spec problems found.**
+
+0. `recordCumulative` diffs only the COST of a reading and takes the call's tokens as given (Claude reports per-turn tokens next to a
+   cumulative cost). A backend whose TOKENS are the running total (Codex) has to call `run.reportUsage` itself and build the call from the
+   delta; a `recordCumulative` variant that takes the call from the delta (`fromDelta: true`) would serve it. Kept in the wrapper: it is
+   six lines, and no second wrapper needs it yet (Antigravity should check what its SDK reports).
+1. `usageNow()`'s doc names "a wrapper whose backend emits its own `agent_finished`" as the user; that is exactly Codex, but `error()` and
+   `canceled()` always emit, so the wrapper must track whether its own mapper already closed the lifecycle to avoid two terminal events. A
+   `RunObservability.lifecycleClosed()` accessor (or mapper-driven `finish`) would remove that bookkeeping from every such wrapper.
+2. `createResponseStream({chunks})` fixes chunking at creation, but the old behaviour is decided at the END (chunks on and something was
+   streamed: last-chunk marker; chunks on and nothing streamed: one buffered artifact). The wrapper creates both streams on one id and picks
+   at `finish`; a `finish` option for "buffered unless a delta was sent" would serve every wrapper with the same rule.
+3. In chunk mode the stored task holds the answer text twice (the chunks and the last-chunk marker with the full text are both appended).
+   Pre-existing in every wrapper and kept; it is a property of `createResponseStream`/SDK append semantics, not of the migration.
+4. The contract's session-not-found rule ("report it only while opening the session") has no counterpart for a CLI that does not fail but
+   silently starts another session (`codex exec resume <name>`); a provider must validate the ref's shape or the started id itself. Core
+   cannot help (it cannot see the id the backend picked), so this stays a wrapper duty, now written down.
+
 ## 4. A2A mapping and the run model (core internal)
 
 The SDK calls `execute()` per request and tears the bus down when it returns, except at `input-required` and
@@ -1563,7 +1632,7 @@ assumption: a message metadata entry under that URI whose value is the string, o
 |---|---|---|
 | Claude (done, 3.15) | `canUseTool` to `ask`; `AskUserQuestion` to `questions`; streaming input with `priority: next` to `steer`; `interrupt()` to `abort` (`session: reusable`) | input queue instead of one-shot; deny `message` from `feedback`; session resume via `bind` and `resume`; usage as differences of the cumulative total; `defer` hook for restart durability is not done |
 | Copilot | `onPermissionRequest` or pending-RPC to `ask`; `mode: immediate` to `steer` (read the `delivery` event for the outcome); `session.abort()` to `abort` | stop using `approveAll`; wire `ask_user`/elicitation; pass `handle` (requestId) and implement `reattach` via `continuePendingWork` |
-| Codex | exec SDK: abort + `resumeThread` only | to get permissions and steering the provider must move to `codex app-server` (experimental): `requestApproval` to `ask`, `turn/steer` to `steer`; call `resumeThread`; fix `cancelTask` using `contextId` as the task id |
+| Codex (done, 3.19) | exec SDK: abort + `resumeThread` only | `run.bind` of the `thread.started` id and `resumeThread` on the next turn (#100); `session-not-found` for `no rollout found`; rollout-file `probeSession`; no `steer` and no `ask` (core queues and says so); per-turn usage as `recordCall`; to get permissions and steering the provider would have to move to `codex app-server` (experimental: `requestApproval` to `ask`, `turn/steer` to `steer`) |
 | OpenCode | `permission.asked` / `question.asked` / `form.created` to `ask`; v2 `delivery` to `steer`; `interrupt` to `abort` | stop auto-replying `always`; v1/v2 split behind one handler; `handle` plus re-list for `reattach`; note a reject cancels every pending permission in that session |
 | Antigravity | SDK has `ask_user` and hooks; abort via `halt_request` | bridge work: expose `ask_user` and an interaction hook; `steer` as cancel + re-run on the same session; fix queued-turn-after-cancel and double `canceled`; persist `conversation_id` via `bind` |
 
