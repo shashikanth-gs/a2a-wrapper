@@ -136,6 +136,54 @@ describe("contract shape (compile-checked)", () => {
     ]);
   });
 
+  it("a provider that queues a steer announces the held turn, or drops it, through the run", async () => {
+    const turns: string[] = [];
+    const ended: string[] = [];
+    const makeRun = (turnId: string): CoreTaskRun => ({
+      runId: "r", turnId, taskId: "t", contextId: "c",
+      signal: new AbortController().signal as unknown as CoreTaskRun["signal"],
+      progress() {}, event() {}, artifact() {},
+      ask: async () => ({ outcome: "expired" }), bind() {}, race: async (w) => w,
+      complete: () => void ended.push(`complete:${turnId}`), fail() {}, reject() {},
+      beginHeldTurn: (handle) => { turns.push(`begin:${handle}`); return makeRun(`held-${handle}`); },
+      dropHeld: (handle) => void turns.push(`drop:${handle}`),
+    });
+    const p: ProviderExecutor = {
+      info: () => ({ id: "p", displayName: "P", inputModes: [], outputModes: [] }),
+      initialize: async () => {},
+      run: async () => {},
+      steer: async () => ({ state: "queued", handle: "h1" }),
+      shutdown: async () => {},
+    };
+    const run = makeRun("u1");
+    expect(await p.steer!(run, { id: "m", role: "user", parts: [], from: ANONYMOUS_CALLER, at: "T" })).toEqual({ state: "queued", handle: "h1" });
+    const held = run.beginHeldTurn("h1");
+    expect(held.turnId).toBe("held-h1");
+    expect(held.taskId).toBe(run.taskId); // same task
+    held.complete({ text: "done" });
+    run.dropHeld("h2");
+    expect(turns).toEqual(["begin:h1", "drop:h2"]);
+    expect(ended).toEqual(["complete:held-h1"]);
+  });
+
+  it("the abort signal carries a typed reason, and abortOrphan is told run, turn and reason", async () => {
+    const reasons: (string | undefined)[] = [];
+    const ac = new AbortController();
+    const signal = ac.signal as unknown as CoreTaskRun["signal"];
+    ac.abort("interrupt");
+    reasons.push(signal.reason);
+    expect(reasons).toEqual(["interrupt"]);
+    const p: ProviderExecutor = {
+      info: () => ({ id: "p", displayName: "P", inputModes: [], outputModes: [] }),
+      initialize: async () => {}, run: async () => {}, shutdown: async () => {},
+      abortOrphan: async (info) => {
+        expect([info.runId, info.turnId, info.reason]).toEqual(["r", "u", "cancel"]);
+        return { stopped: "confirmed", session: "discard" };
+      },
+    };
+    await p.abortOrphan!({ runId: "r", turnId: "u", taskId: "t", contextId: "c", reason: "cancel" });
+  });
+
   it("a provider can implement the revised handlers (abort takes a reason, abortOrphan returns an outcome)", async () => {
     const reasons: string[] = [];
     const p: ProviderExecutor = {
@@ -153,6 +201,6 @@ describe("contract shape (compile-checked)", () => {
     await p.abort!(info, "interrupt");
     await p.abort!(info, "cancel");
     expect(reasons).toEqual(["interrupt", "cancel"]);
-    expect(await p.abortOrphan!({ taskId: "t", contextId: "c" })).toEqual({ stopped: "unconfirmed", session: "discard" });
+    expect(await p.abortOrphan!({ runId: "r", turnId: "u", taskId: "t", contextId: "c", reason: "shutdown" })).toEqual({ stopped: "unconfirmed", session: "discard" });
   });
 });

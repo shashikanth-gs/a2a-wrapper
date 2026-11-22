@@ -41,6 +41,12 @@ import {
   usageDelta,
   usageFromMetadata,
   usageToMetadata,
+  BYTES_KEY,
+  REPLY_CODE_LENGTH,
+  loadMessage,
+  storeMessage,
+  type CoreMessage,
+  type QueuedMessageRecord,
   type CoreCaller,
   type CoreInteraction,
   type CoreInteractionRequest,
@@ -125,7 +131,7 @@ describe("R3/R4 records: header, codec, JSON safety", () => {
     const stored = encodeRecord(run);
     const wire = JSON.parse(JSON.stringify(stored));
     expect(wire).toEqual(stored); // already plain JSON
-    expect(wire.input[1].bytes).toEqual({ base64: Buffer.from([0, 1, 2, 254, 255]).toString("base64") });
+    expect(wire.input[1].bytes).toEqual({ [BYTES_KEY]: Buffer.from([0, 1, 2, 254, 255]).toString("base64") });
     const back = decodeRecord<RunRecord>(wire);
     expect(back).toEqual(run);
     const file = back.input![1] as Extract<CorePart, { kind: "file" }>;
@@ -158,7 +164,11 @@ describe("R3/R4 records: header, codec, JSON safety", () => {
     expect(encodeRecord({ ...base, endedAt: undefined })).not.toHaveProperty("endedAt");
     expect(() => encodeRecord({ ...base, extra: () => 1 } as never)).toThrow(/not JSON-safe/);
     expect(() => encodeRecord({ ...base, extra: Number.NaN } as never)).toThrow(/not JSON-safe/);
-    expect(() => encodeRecord({ ...base, extra: new Uint8Array([1]) } as never)).toThrow(/file part/);
+    expect(() => encodeRecord({ ...base, extra: new Date() } as never)).toThrow(/not JSON-safe/);
+    expect(() => encodeRecord({ ...base, extra: new Map() } as never)).toThrow(/not JSON-safe/);
+    expect(() => encodeRecord({ ...base, extra: new (class X { a = 1; })() } as never)).toThrow(/not JSON-safe/);
+    expect(() => encodeRecord({ ...base, input: [{ kind: "text", text: "t", meta: { when: new Date() } }] } as never)).toThrow(/not JSON-safe/);
+    expect(() => encodeRecord({ ...base, extra: { [BYTES_KEY]: "x", other: 1 } } as never)).toThrow(/reserved/);
     expect(() => encodeRecord({ ...base, extra: 10n } as never)).toThrow(/not JSON-safe/);
   });
 
@@ -171,7 +181,7 @@ describe("R3/R4 records: header, codec, JSON safety", () => {
   it("encodePart / decodePart convert a single part", () => {
     const p: CorePart = { kind: "file", name: "n", bytes: new Uint8Array([9, 8]) };
     const stored = encodePart(p);
-    expect(stored).toEqual({ kind: "file", name: "n", bytes: { base64: Buffer.from([9, 8]).toString("base64") } });
+    expect(stored).toEqual({ kind: "file", name: "n", bytes: { [BYTES_KEY]: Buffer.from([9, 8]).toString("base64") } });
     expect(decodePart(stored)).toEqual(p);
   });
 
@@ -235,6 +245,29 @@ describe("R5d interaction shapes: normalizing constructor", () => {
     }
   });
 
+  it("rejects a kind that is a known kind in other case or with spaces, instead of treating it as unknown", () => {
+    for (const kind of ["Permission", "PERMISSION", " confirm", "Question ", "FORM", "Auth"]) {
+      const r = normalizeInteraction({ kind, title: "t" } as never, { id: "x" });
+      expect(r.ok, kind).toBe(false);
+      expect((r as { errors: string[] }).errors.join(" ")).toMatch(/known kind/);
+    }
+    expect(normalizeInteraction({ kind: "hologram", title: "t" } as never, { id: "x" }).ok).toBe(true);
+  });
+
+  it("validates subject.detail and option meta as JSON, not only meta", () => {
+    const base = { kind: "permission", title: "t", options: [{ id: "a", label: "A", kind: "allow_once" }] } as const;
+    for (const req of [
+      { ...base, subject: { detail: { when: new Date() } } },
+      { ...base, subject: { detail: { f: () => 1 } } },
+      { kind: "question", title: "t", questions: [{ id: "q", prompt: "p", options: [{ id: "o", label: "O", meta: { n: Number.NaN } }] }] },
+    ] as unknown as CoreInteractionRequest[]) {
+      const r = normalizeInteraction(req, { id: "x" });
+      expect(r.ok).toBe(false);
+      expect((r as { errors: string[] }).errors.join(" ")).toMatch(/JSON-safe/);
+    }
+    expect(normalizeInteraction({ ...base, subject: { detail: { a: [1, { b: null }] } } }, { id: "x" }).ok).toBe(true);
+  });
+
   it("accepts every well-formed known kind and an unknown kind as is", () => {
     for (const req of [
       { kind: "question", title: "t", questions: [{ id: "q", prompt: "p" }] },
@@ -248,6 +281,12 @@ describe("R5d interaction shapes: normalizing constructor", () => {
 });
 
 describe("R5c stale text replies cannot approve", () => {
+  const mustNormalizeSeq = (req: CoreInteractionRequest, id: string, seq: number): CoreInteraction => {
+    const r = normalizeInteraction(req, { id, seq });
+    if (!r.ok) throw new Error(r.errors.join("; "));
+    return r.interaction;
+  };
+
   const permission = (id: string) =>
     mustNormalize({
       kind: "permission", title: "Run?",
@@ -258,11 +297,50 @@ describe("R5c stale text replies cannot approve", () => {
       ],
     }, id);
 
-  it("assigns a stable two-character code, different for different ids", () => {
-    expect(replyCodeFor("a")).toMatch(/^[2-9A-HJKMNP-Z]{2}$/);
-    expect(replyCodeFor("a")).toBe(replyCodeFor("a"));
-    const codes = new Set(["i-1", "i-2", "i-3", "i-4", "i-5", "i-6"].map(replyCodeFor));
-    expect(codes.size).toBeGreaterThan(1);
+  it("assigns a stable code of at least four unambiguous characters, salted by id and seq", () => {
+    expect(REPLY_CODE_LENGTH).toBeGreaterThanOrEqual(4);
+    expect(replyCodeFor("a", 1)).toMatch(/^[2-9A-HJKMNP-Z]{4,}$/);
+    expect(replyCodeFor("a", 1)).toBe(replyCodeFor("a", 1)); // stable: re-rendering shows the same code
+    expect(replyCodeFor("a", 1)).not.toBe(replyCodeFor("a", 2)); // seq salts it
+    expect(replyCodeFor("a", 1)).not.toBe(replyCodeFor("b", 1)); // so does the id
+    const codes = new Set<string>();
+    for (let n = 0; n < 2000; n++) codes.add(replyCodeFor(`task-${n % 7}-i`, n));
+    expect(codes.size).toBeGreaterThan(1990); // no collisions to speak of across 2000 interactions
+  });
+
+  it("normalizeInteraction derives the code from id and seq, and never emits the look-alike characters", () => {
+    const req = { kind: "confirm", title: "?" } as const;
+    const a = normalizeInteraction(req, { id: "i", seq: 1 });
+    const b = normalizeInteraction(req, { id: "i", seq: 2 });
+    expect(a.ok && b.ok && a.interaction.replyCode !== b.interaction.replyCode).toBe(true);
+    for (let n = 0; n < 500; n++) expect(replyCodeFor("x", n)).not.toMatch(/[01ILO]/);
+  });
+
+  it("a stale four-character code from the previous interaction does not approve the next", () => {
+    const o = [{ id: "ok", label: "Allow", kind: "allow_once" as const }];
+    const first = mustNormalizeSeq({ kind: "permission", title: "1", options: o }, "t-1", 1);
+    const second = mustNormalizeSeq({ kind: "permission", title: "2", options: o }, "t-1", 2);
+    expect(first.replyCode).not.toBe(second.replyCode);
+    expect(parseInteractionReply(first, text(`1 ${first.replyCode}`), by)).toBeDefined();
+    expect(parseInteractionReply(second, text(`1 ${first.replyCode}`), by)).toBeUndefined();
+  });
+
+  it("text 'no' prefers a reject without interrupts, and falls back to an interrupting one only when it is the only reject", () => {
+    const mixed = mustNormalize({
+      kind: "permission", title: "?",
+      options: [
+        { id: "ok", label: "Allow", kind: "allow_once" },
+        { id: "stop", label: "Reject and stop", kind: "reject_once", interrupts: true },
+        { id: "plain", label: "Reject", kind: "reject_once" },
+      ],
+    });
+    expect(parseInteractionReply(mixed, text("no"), by)).toMatchObject({ optionId: "plain" });
+    expect(parseInteractionReply(mixed, text("deny"), by)).toMatchObject({ optionId: "plain" });
+    const onlyStop = mustNormalize({
+      kind: "permission", title: "?",
+      options: [{ id: "ok", label: "Allow", kind: "allow_once" }, { id: "stop", label: "Reject and stop", kind: "reject_once", interrupts: true }],
+    });
+    expect(parseInteractionReply(onlyStop, text("no"), by)).toMatchObject({ optionId: "stop" });
   });
 
   it("renders the code in the text: Reply `1 K7`", () => {
@@ -337,6 +415,68 @@ describe("R5 reply parser: free-form answers are not refusals", () => {
     expect(parseInteractionReply(form, text("no"), by)).toEqual({ outcome: "declined", by });
     const auth = mustNormalize({ kind: "auth", title: "A", auth: { service: "s" } });
     expect(parseInteractionReply(auth, text("n"), by)).toEqual({ outcome: "declined", by });
+  });
+});
+
+describe("record codec: bytes marker is unambiguous", () => {
+  const header = newRecordHeader({ id: "u", kind: "user" }, "T");
+
+  it("a data part that merely looks like a file part with base64 bytes survives unchanged", () => {
+    const lookalike = { kind: "file", name: "n", bytes: { base64: "AAEC" } }; // user data, not a core file part
+    const run = { ...header, runId: "r", taskId: "t", contextId: "c", turnId: "u", state: "working", startedAt: "T",
+      input: [{ kind: "data", data: lookalike, meta: { nested: { kind: "file", bytes: { base64: "QQ==" } } } }] } as unknown as RunRecord;
+    const back = decodeRecord<RunRecord>(JSON.parse(JSON.stringify(encodeRecord(run))));
+    expect(back).toEqual(run);
+    const data = (back.input![0] as { data: typeof lookalike }).data;
+    expect(data.bytes).toEqual({ base64: "AAEC" }); // not turned into a Uint8Array
+  });
+
+  it("restores real bytes wherever they appear, including nested and in arrays", () => {
+    const run = { ...header, runId: "r", taskId: "t", contextId: "c", turnId: "u", state: "working", startedAt: "T",
+      input: [{ kind: "data", data: { deep: [new Uint8Array([1, 2])] } }, { kind: "file", bytes: new Uint8Array([3]) }] } as unknown as RunRecord;
+    const wire = JSON.parse(JSON.stringify(encodeRecord(run)));
+    expect(wire.input[0].data.deep[0]).toEqual({ [BYTES_KEY]: "AQI=" });
+    const back = decodeRecord<RunRecord>(wire) as unknown as { input: { data: { deep: Uint8Array[] }; bytes: Uint8Array }[] };
+    expect(back.input[0]!.data.deep[0]).toBeInstanceOf(Uint8Array);
+    expect([...back.input[0]!.data.deep[0]!]).toEqual([1, 2]);
+    expect([...back.input[1]!.bytes]).toEqual([3]);
+  });
+
+  it("a Date in part meta throws instead of becoming {}", () => {
+    expect(() => encodePart({ kind: "text", text: "t", meta: { at: new Date() } })).toThrow(/not JSON-safe/);
+  });
+});
+
+describe("QueuedMessageRecord", () => {
+  it("a core-queued message with bytes survives a restart through the codec", () => {
+    const message: CoreMessage = {
+      id: "m1", role: "user", from: { id: "alice", kind: "user", claims: { org: "x" } }, at: "T", delivery: "queue",
+      parts: [{ kind: "text", text: "next" }, { kind: "file", name: "f", bytes: new Uint8Array([5, 6]) }], meta: { k: 1 },
+    };
+    const rec: QueuedMessageRecord = {
+      ...newRecordHeader({ id: "alice", kind: "user" }, "T"),
+      taskId: "t", contextId: "c", message: storeMessage(message), holder: "core", position: 1, state: "queued",
+    };
+    const wire = JSON.parse(JSON.stringify(encodeRecord(rec)));
+    const back = decodeRecord<QueuedMessageRecord>(wire);
+    expect(loadMessage(back.message)).toEqual(message);
+    expect(rec.message.parts[1]).toMatchObject({ kind: "file", bytes: { [BYTES_KEY]: "BQY=" } });
+  });
+
+  it("a provider-held message keeps its handle", () => {
+    const rec: QueuedMessageRecord = {
+      ...newRecordHeader({ id: "a", kind: "user" }, "T"),
+      taskId: "t", contextId: "c", holder: "provider", handle: "h-1", state: "queued",
+      message: storeMessage({ id: "m", role: "user", parts: [], from: { id: "a", kind: "user" }, at: "T" }),
+    };
+    expect(decodeRecord<QueuedMessageRecord>(JSON.parse(JSON.stringify(encodeRecord(rec)))).handle).toBe("h-1");
+  });
+});
+
+describe("steering alias is never advertised", () => {
+  it("is not among the wire extensions or agent card declarations", () => {
+    expect(WIRE_EXTENSIONS.some((e) => e.uri === STEERING_EXTENSION_ALIAS)).toBe(false);
+    expect(agentExtensionDeclarations().some((e) => e.uri === STEERING_EXTENSION_ALIAS)).toBe(false);
   });
 });
 

@@ -276,23 +276,43 @@ export const DEFAULT_CONFIRM_OPTIONS: NonEmpty<InteractionOption> = Object.freez
 
 const CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"; // no 0/1/I/L/O
 
+/** Length of a reply code. 31^4 is about 920,000 values. */
+export const REPLY_CODE_LENGTH = 4;
+
 /**
- * Short reply code for an interaction id: two characters, deterministic. It
- * guards against a stale reply being applied to a different interaction; it is
- * not a secret and not authentication.
+ * Short reply code for an interaction: {@link REPLY_CODE_LENGTH} characters from
+ * an alphabet with no look-alikes, deterministic from the id and the per-task
+ * `seq` (so re-rendering the prompt shows the same code, and two interactions of
+ * one task never share a code by construction of `seq`). It guards against a
+ * stale reply being applied to a different interaction; it is not a secret and
+ * not authentication.
  */
-export function replyCodeFor(interactionId: string): string {
+export function replyCodeFor(interactionId: string, seq = 0): string {
+  const input = `${interactionId}|${seq}`;
   let h = 2166136261;
-  for (let i = 0; i < interactionId.length; i++) {
-    h ^= interactionId.charCodeAt(i);
+  for (let i = 0; i < input.length; i++) {
+    h ^= input.charCodeAt(i);
     h = Math.imul(h, 16777619) >>> 0;
   }
+  // Mix so the characters do not just follow the low bits of one multiply.
+  h ^= h >>> 15;
+  h = Math.imul(h, 2246822519) >>> 0;
+  h ^= h >>> 13;
   const n = CODE_ALPHABET.length;
-  return CODE_ALPHABET[h % n]! + CODE_ALPHABET[Math.floor(h / n) % n]!;
+  let code = "";
+  let x = h >>> 0;
+  for (let k = 0; k < REPLY_CODE_LENGTH; k++) {
+    code += CODE_ALPHABET[x % n]!;
+    x = Math.floor(x / n);
+    if (x === 0) x = Math.imul(h ^ (k + 1), 2654435761) >>> 0;
+  }
+  return code;
 }
 
 /** Result of {@link normalizeInteraction}. */
 export type NormalizeResult = { ok: true; interaction: CoreInteraction } | { ok: false; errors: string[] };
+
+const KNOWN_KINDS: readonly string[] = ["permission", "confirm", "question", "form", "auth"];
 
 const dupes = (ids: readonly string[]) => ids.filter((id, n) => ids.indexOf(id) !== n);
 
@@ -312,7 +332,7 @@ const dupes = (ids: readonly string[]) => ids.filter((id, n) => ids.indexOf(id) 
  */
 export function normalizeInteraction(
   request: CoreInteractionRequest,
-  assigned: { id: string; expiresAt?: string; replyCode?: string },
+  assigned: { id: string; seq?: number; expiresAt?: string; replyCode?: string },
 ): NormalizeResult {
   const errors: string[] = [];
   const r = request as unknown as Record<string, unknown> & {
@@ -322,8 +342,11 @@ export function normalizeInteraction(
     schema?: FlatSchema;
     auth?: AuthChallenge;
     meta?: unknown;
+    subject?: unknown;
   };
   if (typeof r.kind !== "string" || !r.kind) errors.push("kind is required");
+  else if (!KNOWN_KINDS.includes(r.kind) && KNOWN_KINDS.includes(r.kind.trim().toLowerCase()))
+    errors.push(`kind "${r.kind}" looks like the known kind "${r.kind.trim().toLowerCase()}"; use the exact spelling`);
   if (typeof r.title !== "string") errors.push("title is required");
   if (!assigned.id) errors.push("id is required");
 
@@ -369,6 +392,15 @@ export function normalizeInteraction(
       break;
   }
   if (r.meta !== undefined && !isJson(r.meta)) errors.push("meta must be JSON-safe");
+  const subject = r.subject as { detail?: unknown } | undefined;
+  if (subject?.detail !== undefined && !isJson(subject.detail)) errors.push("subject.detail must be JSON-safe");
+  for (const o of (r.options ?? []) as readonly { meta?: unknown }[]) {
+    if (o && (o as { meta?: unknown }).meta !== undefined && !isJson((o as { meta?: unknown }).meta))
+      errors.push("option meta must be JSON-safe");
+  }
+  for (const q of (r.questions ?? []) as readonly { options?: readonly { meta?: unknown }[] }[]) {
+    for (const o of q?.options ?? []) if (o?.meta !== undefined && !isJson(o.meta)) errors.push("option meta must be JSON-safe");
+  }
 
   if (errors.length) return { ok: false, errors };
 
@@ -376,7 +408,7 @@ export function normalizeInteraction(
     ...(request as object),
     ...(r.kind === "confirm" && r.options === undefined ? { options: DEFAULT_CONFIRM_OPTIONS } : {}),
     id: assigned.id,
-    replyCode: assigned.replyCode ?? replyCodeFor(assigned.id),
+    replyCode: assigned.replyCode ?? replyCodeFor(assigned.id, assigned.seq ?? 0),
     ...(assigned.expiresAt ?? r.expiresAt ? { expiresAt: assigned.expiresAt ?? (r.expiresAt as string) } : {}),
   } as unknown as CoreInteraction;
   return { ok: true, interaction };

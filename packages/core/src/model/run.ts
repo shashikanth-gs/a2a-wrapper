@@ -16,6 +16,18 @@
  * same task and run; the task goes terminal only when the last turn ends and
  * nothing is queued for it.
  *
+ * ### Held turns
+ *
+ * A provider may answer a steer with `queued` (it keeps the message in its own
+ * queue, for example Copilot enqueue, OpenCode inbox, Claude `later`). That
+ * message later runs as a turn of the same task. The provider says so with
+ * {@link CoreTaskRun.beginHeldTurn} (it returns the run view for that turn, with
+ * a new `turnId`) or discards it with {@link CoreTaskRun.dropHeld} (an interrupt or
+ * cancel flushed the queue). A task goes terminal only when the last turn ends AND
+ * no core-queued message AND no provider-held handle remains un-run and
+ * un-dropped. Without these calls the held message's output would arrive after the
+ * task is terminal and be dropped.
+ *
  * ### How a run ends
  *
  * Exactly one of `complete`, `fail` or `reject` ends a turn (and, with nothing
@@ -42,6 +54,13 @@ export interface SessionRef {
   /** Persisted with the binding, so JSON-safe. */
   meta?: JsonObject;
 }
+
+/**
+ * The abort signal of a run. Its `reason` is the {@link AbortReason} core stopped
+ * it for: `cancel`, `interrupt` (an interrupt aborts the signal too, then the task
+ * continues with the next turn) or `shutdown`. Unaborted: `undefined`.
+ */
+export type CoreAbortSignal = Omit<AbortSignal, "reason"> & { readonly reason: AbortReason | undefined };
 
 /** What a provider receives for one turn. */
 export interface CoreRequest {
@@ -189,8 +208,8 @@ export interface CoreTaskRun {
   readonly turnId: string;
   readonly taskId: string;
   readonly contextId: string;
-  /** Aborted on cancel. */
-  readonly signal: AbortSignal;
+  /** Aborted on cancel, and on interrupt (see {@link CoreAbortSignal}). */
+  readonly signal: CoreAbortSignal;
   /** Report that the turn is working, with an optional status text. Always `working`. */
   progress(text?: string, meta?: Meta): void;
   /** Text/thought delta, tool, plan, todo, diff, usage, log. */
@@ -211,6 +230,19 @@ export interface CoreTaskRun {
   fail(error: CoreError): void;
   /** Refuse the request without doing it (`rejected`): out of scope, policy, invalid. */
   reject(reason: CoreError): void;
+  /**
+   * The provider-held message `handle` (from `SteerOutcome.queued`) now runs.
+   * Returns the run view for that message's turn: same task and run, a new
+   * `turnId`, and the task stays non-terminal. End that turn with the returned
+   * view's `complete`, `fail` or `reject`.
+   */
+  beginHeldTurn(handle: string): CoreTaskRun;
+  /**
+   * The provider discarded the held message `handle` without running it (it
+   * flushed its queue on cancel, or the backend dropped it). The task may now go
+   * terminal if nothing else remains.
+   */
+  dropHeld(handle: string): void;
 }
 
 /** Read-only identity of a run, passed to `abort`. */
@@ -220,6 +252,16 @@ export interface TaskRunInfo {
   readonly taskId: string;
   readonly contextId: string;
   readonly session?: SessionRef;
+}
+
+/** What `abortOrphan` is told: the run and turn that have no live handle, and why core is stopping them. */
+export interface OrphanInfo {
+  runId: string;
+  turnId: string;
+  taskId: string;
+  contextId: string;
+  reason: AbortReason;
+  session?: { ref: string };
 }
 
 /** Why core is stopping a turn. The provider handles its native queue accordingly. */

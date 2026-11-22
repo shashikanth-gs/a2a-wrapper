@@ -10,7 +10,7 @@
 
 import type { CoreMessage, SteerOutcome } from "./message.js";
 import type { PendingInteraction } from "./records.js";
-import type { AbortOutcome, AbortReason, CoreRequest, CoreTaskRun, SessionRef, TaskRunInfo } from "./run.js";
+import type { AbortOutcome, AbortReason, CoreRequest, CoreTaskRun, OrphanInfo, SessionRef, TaskRunInfo } from "./run.js";
 
 /** Descriptive only; core never branches on it. */
 export interface ProviderInfo {
@@ -28,7 +28,9 @@ export interface ProviderExecutor {
   /** Required: the backend call for one turn. */
   run(req: CoreRequest, run: CoreTaskRun): Promise<void>;
   /**
-   * Fold a message into the running turn, or queue it natively. Absent: core
+   * Fold a message into the running turn, or queue it natively. A native queue
+   * must be reported (`queued`, with a `handle` if it can) and later announced
+   * with `run.beginHeldTurn(handle)` or `run.dropHeld(handle)`. Absent: core
    * holds the message in its own lane (`queued`, `holder: "core"`) and runs it as
    * the next turn of the task.
    */
@@ -46,7 +48,7 @@ export interface ProviderExecutor {
    * Stop backend work for a task the store thinks is active but that has no live
    * run (for example after a crash). Returns what the backend confirmed, like `abort`.
    */
-  abortOrphan?(info: { taskId: string; contextId: string; session?: { ref: string } }): Promise<AbortOutcome>;
+  abortOrphan?(info: OrphanInfo): Promise<AbortOutcome>;
   /** After a restart, resume waiting on interactions that carry a `handle`. */
   reattach?(pending: readonly PendingInteraction[]): Promise<void>;
   /** Drop provider state for a discarded session. */

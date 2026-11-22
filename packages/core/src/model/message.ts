@@ -72,6 +72,11 @@ export type DeliveryResult =
 /**
  * Turn a provider's {@link SteerOutcome} into the {@link DeliveryResult} core
  * reports. A provider that queued the message holds it (`holder: "provider"`).
+ *
+ * An outcome this core version does not know is reported as `rejected` /
+ * `unsupported`, although the provider may in fact have accepted the message. A
+ * caller must therefore not blindly resend on `rejected`: resend only with the same
+ * `idempotencyKey` or `messageId`, so a duplicate can be recognised.
  */
 export function deliveryFromSteer(taskId: string, messageId: string, outcome: SteerOutcome): DeliveryResult {
   switch (outcome.state) {

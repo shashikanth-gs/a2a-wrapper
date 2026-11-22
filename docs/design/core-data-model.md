@@ -144,7 +144,7 @@ interface CoreRequest {                                  // what a provider rece
 }
 
 interface CoreTaskRun {                                  // what a provider acts through
-  readonly signal: AbortSignal;                          // aborted on cancel
+  readonly signal: CoreAbortSignal;                      // aborted on cancel AND on interrupt; signal.reason is the AbortReason
   progress(text?: string, meta?: Meta): void;            // always "working"
   event(e: CoreEvent): void;
   artifact(a: CoreArtifact): void;
@@ -154,8 +154,21 @@ interface CoreTaskRun {                                  // what a provider acts
   complete(result: CoreResult): void;                    // completed
   fail(error: CoreError): void;                          // failed
   reject(reason: CoreError): void;                       // rejected: the request is refused, not attempted
+  beginHeldTurn(handle: string): CoreTaskRun;            // a provider-held message now runs: new turnId, task stays non-terminal
+  dropHeld(handle: string): void;                        // the provider discarded a held message (flush on interrupt/cancel)
 }
 ```
+
+**When a task goes terminal.** A task goes terminal only when the last turn ends AND no core-queued message remains
+AND no provider-held handle remains un-run and un-dropped. A provider that answers a steer with `queued` (Copilot
+enqueue, OpenCode inbox, Claude `later`) holds the message; when that message starts, the provider calls
+`run.beginHeldTurn(handle)` and ends the returned view's turn with `complete`, `fail` or `reject`; when the provider
+discards it (a cancel or interrupt flushed its queue), it calls `run.dropHeld(handle)`. Without these calls
+`complete()` of the running turn would end the task and the held message's output would arrive after it is terminal and
+be dropped. These are types only here; the runtime is issue #107.
+
+`signal.reason` is the `AbortReason` core stopped the run for (`cancel`, `interrupt`, `shutdown`), and an interrupt
+aborts the signal too, so a provider reading only the signal can tell a stop-and-continue from a stop-for-good.
 
 A provider cannot name a task state. Terminal states come only from `complete`, `fail` and `reject`; interrupted
 states only from `ask`; `progress` is always `working`. A state core does not know can therefore never be emitted.
@@ -194,6 +207,10 @@ interface CoreError { message: string; code?: Open<"timeout"|"backend"|"auth"|"i
 
 `bind` replaces each wrapper's in-memory `contextId` to session map. On the next request for that context
 (including after a restart) core passes the stored `session` back in `CoreRequest`.
+
+**Records of runs.** A `RunRecord` is one record per task (`runId`), updated per turn. The startup sweep reads its state
+through `classifyState`: `active` with no live handle is an orphan, `unknown` is handled by policy and never assumed
+finished.
 
 **Context lane.** Turns in one context run one at a time. A message that carries only a `contextId` (no `taskId`)
 starts a new task in that context and waits in the context's lane behind the running turn; core never runs two turns of
@@ -289,12 +306,24 @@ canceled, withdrawn) the lowest-`seq` queued one is presented. A reply is always
 interaction, so a stale reply for an earlier one cannot reach a later one. Pure helpers: `initialInteractionState`,
 `presentedInteraction`, `nextQueuedInteraction`. The queueing runtime is issue #108.
 
-**Stale text replies.** Core assigns each interaction a short `replyCode` (two characters, no `0 1 I L O`). The text
-rendering says "Reply with the option number and the code, for example `1 K7`", and `parseInteractionReply` selects an
+**Stale text replies.** Core assigns each interaction a `replyCode`: four characters from an alphabet without look-alikes
+(no `0 1 I L O`), about 920,000 values, deterministic from the interaction id and its per-task `seq` (so re-rendering the
+prompt shows the same code, and a stale code from the previous interaction does not collide with the next by
+construction). The text rendering says "Reply with the option number and the code, for example `1 K7M2`", and `parseInteractionReply` selects an
 `allow_*` option from text only when the reply carries the presented interaction's code ("1 K7", "yes K7"). No code,
 a wrong code, or an interaction with no code: the reply is ignored. A text reject needs no code (a stale "no" only
-denies). Structured replies are bound by `interactionId` and need no code. The code is not a secret and not
+denies); "no" / "deny" selects a `reject_once` option that does NOT have `interrupts: true`, and falls back to an
+interrupting one only when it is the only reject. Structured replies are bound by `interactionId` and need no code. The code is not a secret and not
 authentication; it stops a "yes" meant for one prompt from approving the next.
+
+**Unparseable replies.** When a text reply to the presented interaction cannot be parsed (no code, wrong option, no
+match), `parseInteractionReply` returns `undefined` and core ignores the message with no side effect; the runtime
+re-publishes the prompt with a hint ("Reply with `1 K7M2`", issue #108). Claude's global `AskUserQuestion` `response`
+maps to `declined` with `feedback`.
+
+**Kind spelling.** `normalizeInteraction` refuses a `kind` that equals a known kind after trim and case-folding
+("Permission", " confirm"): it is a typo, and treating it as an unknown kind would skip the shape checks. Subject
+`detail` and option `meta` must be JSON-safe like `meta`.
 
 **Free-form answers.** When an interaction has questions, "no", "n", "deny" and "decline" are answers like any other;
 declining a question is the structured `declined`, never a word.
@@ -320,7 +349,12 @@ The task stays `working` through all three: an interrupt does **not** end the ta
 open A2A steering proposal (a2aproject #2125), which keeps the task working on a steer and goes `input-required` with
 `interrupted: true` when a turn is stopped waiting for direction; the proposal is not final and the inbound alias in
 section 4 is best effort. The task goes terminal only when the last turn ends and nothing is queued for it. A message
-with only a `contextId` starts a new task in the context lane (3.2).
+with only a `contextId` starts a new task in the context lane (3.2). Precisely: the task goes terminal only when the
+last turn ends AND no core-queued message AND no provider-held handle remains (3.2).
+
+**Not the #2125 `interrupt`.** In the A2A proposal `interrupt` means "stop and wait": the task goes `input-required` with
+`interrupted: true`. Core's `interrupt` aborts the turn and runs the message as the next turn. The inbound alias exists
+for best-effort compatibility only and is never advertised in the agent card.
 
 ```ts
 interface CoreMessage {
@@ -349,7 +383,10 @@ type DeliveryResult =                                    // what core tells the 
 Provider handler: `steer?(run, message): Promise<SteerOutcome>`. Outcomes map to evidence: Copilot
 `delivery: steering | queued`, OpenCode 2 `steer | queue`, Claude `priority now | next | later`, Codex app-server
 `turn/steer` (or `rejected: not-steerable` for review/compact turns), Antigravity workaround (cancel and re-run, then
-`inserted`). A provider that returns `queued` holds the message (`holder: "provider"`; `deliveryFromSteer`). A provider
+`inserted`). A provider that returns `queued` holds the message (`holder: "provider"`; `deliveryFromSteer`) and must later call
+`run.beginHeldTurn(handle)` or `run.dropHeld(handle)` (3.2). A `SteerOutcome` with a state this core version does not know
+is reported as `rejected` / `unsupported` even though the provider may have accepted the message, so a caller must not
+blindly resend: resend only with the same `idempotencyKey` or `messageId`. A provider
 without `steer` gets the core default: core holds the message in its own per-context lane (`queued`,
 `holder: "core"`) and runs it as the next turn; the response says so, and core never silently changes the caller's
 choice.
@@ -374,7 +411,7 @@ away, so it **flushes** it; `shutdown` is treated as `cancel` unless the provide
 call is treated as `{ stopped: "unconfirmed", session: "discard" }`; core then clears the binding and calls
 `release?(session)` so the provider can drop its state. This replaces the earlier `onAbortFailed` hook.
 
-`abortOrphan?(info): Promise<AbortOutcome>` covers tasks the store thinks are active but that have no live run. It
+`abortOrphan?(info): Promise<AbortOutcome>` (`info` is `{runId, turnId, taskId, contextId, reason, session?}`) covers tasks the store thinks are active but that have no live run. It
 returns an outcome, like `abort`, so core can record what the backend confirmed.
 
 **Bus lifetime and orphans (types here; runtime is issue #107).** Core owns the event bus lifetime through SDK 1.3
@@ -412,20 +449,33 @@ interface ContextBinding extends RecordHeader {
   contextId: string;
   session?: { ref: string; meta?: JsonObject; issuer: string };   // issuer: opaque provider id + version
 }
-interface RunRecord extends RecordHeader {
+interface RunRecord extends RecordHeader {              // one per task (runId), updated per turn
   runId: string; taskId: string; contextId: string; turnId: string;
   state: CoreTaskState; startedAt: string; endedAt?: string;
   cancel?: { requestedAt: string; by: string; abort?: AbortOutcome };
-  input?: readonly CorePart[];
+  input?: readonly CorePart[];                           // diagnostics only
+}
+interface QueuedMessageRecord extends RecordHeader {     // a message held for a task, survives a restart
+  taskId: string; contextId: string;
+  message: StoredMessage;                                // JSON-safe: parts as StoredPart
+  holder: "provider" | "core"; position?: number; handle?: string;
+  state: "queued" | "running" | "done" | "dropped";
 }
 ```
+
+`RunRecord.input` is diagnostics only: core never replays it after a crash (a replay could repeat side effects). It may
+hold bytes and secrets, so a store treats it like any other sensitive field (encryption, retention, redaction). A
+core-held `QueuedMessageRecord` is replayed as the next turn after a restart; a provider-held one is not (the provider's
+queue did not survive) and is marked `dropped`.
 
 `issuer` names the provider and version that created the session. Core compares it for equality only, to notice that a
 stored session may not be usable by the provider now running; it never branches on its content.
 
 `encodeRecord` turns a record into plain JSON (`JSON.stringify`-safe): file bytes inside file parts become
-`{kind: "file", bytes: {base64}, uri?, ...}`; `undefined` is dropped; anything else that is not JSON (a function,
-`NaN`, a stray `Uint8Array`) throws at write time. `decodeRecord` reverses it, restoring `Uint8Array`, and refuses a
+`{kind: "file", bytes: {"$bytes:v1": "<base64>"}, uri?, ...}` (the marker is decoded wherever it appears, and a user
+object that merely looks like `{kind: "file", bytes: {base64}}` is left alone); `undefined` is dropped; anything else
+that is not JSON (a function, `Date`, `Map`, class instance, `NaN`, bigint, or an object using the reserved
+`$bytes:v1` key beside other keys) throws at write time. `decodeRecord` reverses it, restoring `Uint8Array`, and refuses a
 record with no version or a version newer than this core's. `encodePart` / `decodePart` do the same for one part.
 
 After a restart, core finds open records (`presented`, `queued`). Those with a `handle` go to the provider's
@@ -466,7 +516,8 @@ names the thing that accumulates (for example one per provider session); two rea
 This is what the evidence needs: Claude's `total_cost_usd` is cumulative across turns, resumes from the transcript and
 resets on `/clear`. A provider that resumes a session and keeps reporting the same series with continuing totals yields
 plain differences; one that starts a fresh total reports a new `series` (or the total drops and the epoch rule applies).
-`contextWindow` is a point-in-time reading and is passed through.
+`contextWindow` is a point-in-time reading and is passed through. A provider that reports an aggregate over several models
+MUST leave `model` unset and use `byModel`; `model` on an aggregate would attribute everything to one model.
 
 ### 3.8 Provider contract (summary)
 

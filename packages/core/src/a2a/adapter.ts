@@ -103,6 +103,11 @@ export const LEGACY_WIRE_KEYS = Object.freeze({
  * `"steer"` / `"interrupt"` / `"queue"`, or an object with one of `action`,
  * `mode`, `type` or `delivery` holding that string. Anything else is ignored.
  * The core key ({@link DELIVERY_META_KEY}) wins when both are present.
+ *
+ * Never advertised (not in {@link WIRE_EXTENSIONS}): accepted inbound only. The
+ * words differ: in #2125 `interrupt` means "stop and wait" (the task goes
+ * INPUT_REQUIRED with `interrupted: true`), while core's `interrupt` aborts the
+ * turn and runs the message as the next turn of the task.
  */
 export const STEERING_EXTENSION_ALIAS = "https://a2a-protocol.org/extensions/steering/v1/control";
 
@@ -1061,7 +1066,9 @@ function parseText(interaction: CoreInteraction, rawText: string, by: CoreCaller
       return allow ? { outcome: "selected", optionId: allow.id, by } : undefined;
     }
     if (DENY_WORDS.has(t)) {
-      const reject = options.find((o) => o.kind === "reject_once");
+      // Prefer a plain reject; an interrupting one (it also aborts the turn) only when there is no other.
+      const rejects = options.filter((o) => o.kind === "reject_once");
+      const reject = rejects.find((o) => !o.interrupts) ?? rejects[0];
       return reject ? { outcome: "selected", optionId: reject.id, by } : { outcome: "declined", by };
     }
     return undefined;

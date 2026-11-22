@@ -38,6 +38,11 @@ export interface CoreUsage {
   /** `null` when the provider does not report cost. */
   costUsd?: number | null;
   contextWindow?: { used?: number; limit?: number };
+  /**
+   * The model of a single-model reading. A provider that reports an aggregate
+   * over several models MUST leave this unset and use `byModel`; setting it on an
+   * aggregate would attribute everything to one model.
+   */
   model?: string;
   /** Per-model breakdown, when the provider reports one. Same scope and series as the rest. */
   byModel?: Readonly<Record<string, ModelUsage>>;

@@ -16,7 +16,8 @@
 import type { Json, JsonObject } from "./json.js";
 import { isJson } from "./json.js";
 import type { CoreInteraction, CoreInteractionResult } from "./interaction.js";
-import type { CorePart, CoreTaskState } from "./primitives.js";
+import type { CoreMessage } from "./message.js";
+import type { CoreCaller, CorePart, CoreTaskState } from "./primitives.js";
 import type { AbortOutcome, SessionRef } from "./run.js";
 
 /** Current record schema version. A reader rejects a record with a higher one. */
@@ -102,6 +103,13 @@ export interface ContextBinding extends RecordHeader {
   session?: StoredSessionRef;
 }
 
+/**
+ * One record per task, keyed by `runId`, updated per turn (`turnId` and `state`
+ * follow the current turn). Terminal when the last turn ended with nothing queued
+ * or held (see `QueuedMessageRecord`). The startup sweep reads `state` through
+ * `classifyState`: `active` records with no live run are orphans, `unknown` is
+ * handled by policy, never assumed finished.
+ */
 export interface RunRecord extends RecordHeader {
   runId: string;
   taskId: string;
@@ -112,15 +120,26 @@ export interface RunRecord extends RecordHeader {
   endedAt?: string;
   /** Set when a cancel was requested for this run. */
   cancel?: { requestedAt: string; by: string; abort?: AbortOutcome };
-  /** The input of the turn that started the run (file bytes are stored per {@link StoredPart}). */
+  /**
+   * The input of the turn that started the run. DIAGNOSTICS ONLY: core never
+   * replays it after a crash (a replay could repeat side effects). It may hold
+   * bytes and secrets, so a store treats it like any other sensitive field
+   * (encryption, retention, redaction). Bytes are stored as `{"$bytes:v1": base64}`.
+   */
   input?: readonly CorePart[];
 }
 
-// ─── Stored form and codec ──────────────────────────────────────────────────
+/// ─── Stored form and codec ──────────────────────────────────────────────────
+
+/** The one reserved key of stored bytes: `{"$bytes:v1": "<base64>"}`. */
+export const BYTES_KEY = "$bytes:v1";
+
+/** Bytes as stored. Unambiguous: no ordinary data has this key. */
+export type StoredBytes = { readonly [BYTES_KEY]: string };
 
 /**
- * A part as stored: file bytes become `{base64}`. Text, data and unknown parts
- * are already JSON-safe.
+ * A part as stored: file bytes become {@link StoredBytes}. Text, data and
+ * unknown parts are already JSON-safe.
  */
 export type StoredPart =
   | { kind: "text"; text: string; mediaType?: string; meta?: JsonObject }
@@ -129,14 +148,21 @@ export type StoredPart =
       kind: "file";
       name?: string;
       mediaType?: string;
-      bytes?: { base64: string };
+      bytes?: StoredBytes;
       uri?: string;
       meta?: JsonObject;
     }
   | { kind: "unknown"; raw: Json };
 
-const isPlainObject = (v: unknown): v is Record<string, unknown> =>
-  typeof v === "object" && v !== null && !Array.isArray(v) && !(v instanceof Uint8Array);
+/** Strictly plain: prototype is `Object.prototype` or `null`. A Date, Map or class instance is not. */
+const isPlainObject = (v: unknown): v is Record<string, unknown> => {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return false;
+  const proto = Object.getPrototypeOf(v);
+  return proto === Object.prototype || proto === null;
+};
+
+const isStoredBytes = (v: unknown): v is StoredBytes =>
+  isPlainObject(v) && Object.keys(v).length === 1 && typeof v[BYTES_KEY] === "string";
 
 function toBase64(bytes: Uint8Array): string {
   return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString("base64");
@@ -153,39 +179,28 @@ export function decodePart(stored: StoredPart): CorePart {
 }
 
 function encodeValue(value: unknown, path: string): Json {
-  if (value instanceof Uint8Array) {
-    throw new TypeError(`${path}: raw bytes may only appear inside a file part`);
-  }
+  if (value instanceof Uint8Array) return { [BYTES_KEY]: toBase64(value) };
   if (Array.isArray(value)) return value.map((v, n) => encodeValue(v, `${path}[${n}]`));
+  if (isStoredBytes(value)) return value; // already stored: encoding is idempotent
   if (isPlainObject(value)) {
+    if (Object.hasOwn(value, BYTES_KEY)) throw new TypeError(`${path}: key "${BYTES_KEY}" is reserved for stored bytes`);
     const out: Record<string, Json> = {};
-    const isFile = value.kind === "file";
     for (const [k, v] of Object.entries(value)) {
       if (v === undefined) continue; // JSON has no undefined; an absent field is the same thing
-      if (isFile && k === "bytes" && v instanceof Uint8Array) {
-        out[k] = { base64: toBase64(v) };
-        continue;
-      }
       out[k] = encodeValue(v, `${path}.${k}`);
     }
     return out;
   }
-  if (!isJson(value)) throw new TypeError(`${path}: not JSON-safe (${typeof value})`);
+  if (!isJson(value)) throw new TypeError(`${path}: not JSON-safe (${Object.prototype.toString.call(value)})`);
   return value;
 }
 
 function decodeValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(decodeValue);
+  if (isStoredBytes(value)) return new Uint8Array(Buffer.from(value[BYTES_KEY], "base64"));
   if (isPlainObject(value)) {
     const out: Record<string, unknown> = {};
-    const isFile = value.kind === "file";
-    for (const [k, v] of Object.entries(value)) {
-      if (isFile && k === "bytes" && isPlainObject(v) && typeof v.base64 === "string") {
-        out[k] = new Uint8Array(Buffer.from(v.base64, "base64"));
-        continue;
-      }
-      out[k] = decodeValue(v);
-    }
+    for (const [k, v] of Object.entries(value)) out[k] = decodeValue(v);
     return out;
   }
   return value;
@@ -195,21 +210,73 @@ function decodeValue(value: unknown): unknown {
 export type StoredRecord = JsonObject & { v: number };
 
 /**
- * Record to plain JSON, ready for `JSON.stringify`. File bytes inside file parts
- * become `{base64}`; `undefined` fields are dropped; anything else that is not
- * JSON (a function, a stray `Uint8Array`, `NaN`) throws, so a bad record fails
- * at write time and not at the next restart.
+ * Record to plain JSON, ready for `JSON.stringify`. Bytes (`Uint8Array`,
+ * wherever they appear, normally in file parts) become `{"$bytes:v1": base64}`;
+ * `undefined` fields are dropped. Anything else that is not JSON (a function, a
+ * `Date`, a `Map`, `NaN`, bigint, a class instance) throws, as does an object that uses
+ * the reserved `$bytes:v1` key together with other keys (an object that is exactly
+ * stored bytes passes through, so encoding stored data again is harmless), so a bad record fails at write
+ * time and not at the next restart.
  */
 export function encodeRecord<T extends RecordHeader>(record: T): StoredRecord {
   return encodeValue(record, "record") as StoredRecord;
 }
 
 /**
- * Plain JSON (parsed) back to a record. Throws when `v` is missing, not a
- * number, or newer than {@link RECORD_VERSION} (this core cannot read it).
+ * Plain JSON (parsed) back to a record. `{"$bytes:v1": base64}` objects become
+ * `Uint8Array` wherever they appear; every other object, including one shaped
+ * like a file part with a `bytes` field, is returned unchanged. Throws when `v`
+ * is missing, not a number, or newer than {@link RECORD_VERSION}.
  */
 export function decodeRecord<T extends RecordHeader>(stored: unknown): T {
   if (!isPlainObject(stored) || typeof stored.v !== "number") throw new TypeError("record has no version");
   if (stored.v > RECORD_VERSION) throw new RangeError(`record version ${stored.v} is newer than ${RECORD_VERSION}`);
   return decodeValue(stored) as T;
+}
+
+// ─── Core-queued messages ───────────────────────────────────────────────────
+
+/** A message as stored: parts in {@link StoredPart} form, everything JSON. */
+export interface StoredMessage {
+  id: string;
+  role: "user" | "agent";
+  parts: readonly StoredPart[];
+  from: CoreCaller;
+  delivery?: string;
+  idempotencyKey?: string;
+  at: string;
+  meta?: JsonObject;
+}
+
+/** Message to its stored form. Throws on a non-JSON value. */
+export function storeMessage(m: CoreMessage): StoredMessage {
+  return encodeValue(m, "message") as unknown as StoredMessage;
+}
+
+/** Stored message back to a message (bytes restored). */
+export function loadMessage(s: StoredMessage): CoreMessage {
+  return decodeValue(s) as CoreMessage;
+}
+
+/** Lifecycle of a message held for a task. `queued` waits; `running` became a turn; `dropped` was discarded (flush). */
+export type QueuedMessageState = "queued" | "running" | "done" | "dropped";
+
+/**
+ * A message held for a task, so it survives a restart. `holder: "core"` messages
+ * wait in core's per-context lane and run as the next turn. `holder: "provider"`
+ * messages live in the provider's own queue: the record keeps the `handle` the
+ * provider gave in `SteerOutcome.queued`, so core still knows the task is not
+ * finished and can report or drop it. A provider-held message is not replayed by
+ * core after a restart (the provider's queue did not survive); it is marked `dropped`.
+ */
+export interface QueuedMessageRecord extends RecordHeader {
+  taskId: string;
+  contextId: string;
+  message: StoredMessage;
+  holder: "provider" | "core";
+  /** 1-based position when known. */
+  position?: number;
+  /** The provider's handle for a provider-held message. */
+  handle?: string;
+  state: QueuedMessageState;
 }
