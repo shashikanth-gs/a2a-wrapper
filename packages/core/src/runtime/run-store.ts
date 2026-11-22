@@ -38,7 +38,11 @@ export interface RunStore {
   listNonTerminalRuns(): Promise<RunRecord[]>;
 
   getBinding(contextId: string): Promise<ContextBinding | undefined>;
-  /** Insert or replace the binding of `binding.contextId`. */
+  /**
+   * Insert or replace the binding of `binding.contextId`. A SQL store (#69) should add a compare-and-set (for example
+   * `putBinding(binding, { ifUnchanged: updatedAt })`) so two core processes cannot both pass the owner check and overwrite
+   * each other's binding: core orders writes only inside one process.
+   */
   putBinding(binding: ContextBinding): Promise<void>;
   /**
    * Remove the binding of a context. With `ifRef`, only when its session `ref` is that one (a compare-and-delete, so a

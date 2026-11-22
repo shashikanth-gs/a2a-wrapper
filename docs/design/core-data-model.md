@@ -453,8 +453,8 @@ call is treated as `{ stopped: "unconfirmed", session: "discard" }`; core then c
 
 **`session: "discard"` and the issuer rule (#110).** On `discard` (from `abort`, `abortOrphan` or a failed abort) core deletes
 the binding only if it still names the session that turn used (a binding rebound meanwhile survives) and calls `release`
-with the ref, except when the stored binding was written by another provider: that ref is not this provider's and never
-reaches its `release` (the binding is still deleted). `abortOrphan` after a restart goes through the same path, so a
+with the ref, except when the stored binding has another issuer (another provider or session format): that ref may not be this
+provider's to drop and never reaches its `release` (the binding is still deleted). `abortOrphan` after a restart goes through the same path, so a
 `discard` clears the binding there too.
 
 **`session-not-found` (#110).** `CoreError.code` gains `"session-not-found"` (exported as `SESSION_NOT_FOUND`, with a
@@ -508,7 +508,7 @@ interface PendingInteraction extends RecordHeader {
 }
 interface ContextBinding extends RecordHeader {
   contextId: string;                                     // owner/tenant = the caller that owns the CONTEXT (3.13)
-  session?: { ref: string; meta?: JsonObject; issuer: string };   // issuer: `<provider id>@<version>` of ProviderInfo
+  session?: { ref: string; meta?: JsonObject; issuer: string };   // issuer: `<ProviderInfo.id>@<sessionFormat ?? "1">`, equality only
   lastUsedAt?: string;                                   // last bind or resume (touch); the TTL and GC measure this
 }
 interface RunRecord extends RecordHeader {              // one per task (runId), updated per turn
@@ -566,8 +566,9 @@ Context bindings are not part of that sweep: they are resolved when the next req
 ### 3.7 Static provider info and usage
 
 ```ts
-interface ProviderInfo {                                 // descriptive only; core never branches on it
+interface ProviderInfo {                                 // descriptive only; core never branches on it (except sessionFormat, equality only)
   id: string; displayName: string; version?: string;
+  sessionFormat?: string;                                // format of the session refs the provider persists; NOT the package version (3.13)
   inputModes: readonly string[]; outputModes: readonly string[];   // media types, feed the agent card
 }
 
@@ -1028,7 +1029,7 @@ session reaches the provider through the existing `RequestIds.session` / `coreRe
 
 **Bind (`run.bind`).** Persists a `ContextBinding` through the `RunStore`: `owner` and `tenant` = the caller (and tenant) of the
 turn that bound, `createdAt`, `updatedAt` and `lastUsedAt` = now, `session = {ref, meta, issuer}` with `issuer =
-"<ProviderInfo.id>@<ProviderInfo.version>"` (or `RunRegistryOptions.issuer`). A rebind replaces the session and keeps the owner
+"<ProviderInfo.id>@<ProviderInfo.sessionFormat ?? '1'>"` (or `RunRegistryOptions.issuer`). A rebind replaces the session and keeps the owner
 and `createdAt`. A bind after a cancel (or from a stopped or retried-away turn) is a silent drop (the `live()` gate). A bind
 from a stale turn cannot overwrite a newer one: every turn has a process-wide start order, writes of one context are applied
 through one promise chain in call order (a slow store cannot reorder them), and a bind from a turn older than the last turn
@@ -1045,11 +1046,14 @@ and its bind was written (it reads through the same per-context chain): load the
    alone (B cannot delete A's session by sending its contextId), and this check comes before issuer and TTL for the same
    reason. Today every caller is `anonymous` (`UserBuilder.noAuthentication`), so nothing changes until authentication is
    wired; the tenant comes from the SDK call context;
-3. **issuer**: `binding.session.issuer` must equal the current issuer. A binding written by another provider, another
-   version or another configured issuer is never replayed: it is deleted, `provider.release(ref)` is called ONLY when the
-   issuer names this provider (`<id>@...`, i.e. another version of it; the one place core reads an issuer beyond equality, and
-   only to keep another provider's ref out of this provider's `release`; with an explicit `issuer` override it is never
-   released), and the turn starts fresh;
+3. **issuer**: `binding.session.issuer` must equal the current issuer, compared for equality only. The issuer is the provider
+   id plus its declared session FORMAT (`ProviderInfo.sessionFormat`, default `"1"`), NOT the package version: a deploy that
+   bumps `ProviderInfo.version` keeps every conversation (Claude, Copilot, Codex and OpenCode sessions survive SDK upgrades).
+   A binding with a different issuer (another provider, another session format, another configured issuer) is never replayed:
+   it is deleted and the turn starts fresh, and `provider.release` is NEVER called for it (the new format may not understand
+   the ref, and releasing could kill a session the old format still owns). A provider changes `sessionFormat` only when a stored
+   ref or meta of the old shape cannot be resumed by the new code. `release` is called only for a binding whose issuer EQUALS
+   the current one: TTL expiry, `discard` and `sweepBindings`;
 4. **TTL** (`RunRegistryOptions.bindingTtlMs`, default none): `now - (lastUsedAt ?? updatedAt) > ttl` deletes and releases it,
    the turn starts fresh;
 5. `authorize(by, "resume", {taskId, contextId, ownerId})`: false or a throwing authorizer rejects the turn (`forbidden`,
@@ -1080,11 +1084,19 @@ operator's own timer (a store with native TTLs would do this itself).
 binding, never creates one) and `deleteBinding(contextId, ifRef?)` now returns `boolean` and is a compare-and-delete with
 `ifRef`. `ContextBinding.lastUsedAt` is optional and additive (`v` stays 1; `updatedAt` stands in for an old record).
 
+**The retry never overlaps the first call.** The first call's view is dead from the moment it reports `session-not-found`, but its
+`provider.run` may still be running. Core waits for it to settle (bounded by `abortTimeoutMs`) before starting the second call, so
+one provider session never sees overlapping prompts. If it does not settle in time the turn ends `failed` with the
+`session-not-found` code (the binding is still forgotten) and no retry is made. A stale or dead view's `bind` is dropped
+silently, even with bad arguments (only a live view gets the `TypeError`).
+
 **Process-local versus stored state.** Stored: the binding (session, issuer, owner, tenant, `lastUsedAt`). Process-local on
 purpose: the per-context promise chain and the last bind order (`lastBindSeq`, dropped when the context goes idle), the
 `attempt` / `retried` / `observable` flags of a turn (a retry never outlives the turn), and the turn order counter. A store
 shared by several core instances still needs its own compare-and-set for a bind race between instances; the chain only
-orders writes inside one process.
+orders writes inside one process. A SQL store (#69) should add a compare-and-set on `putBinding` (for example `ifUnchanged:
+updatedAt`) so two core processes cannot both pass the owner check and overwrite each other's binding (documented on
+`RunStore.putBinding`; not implemented, the in-memory store cannot race across processes).
 
 **Spec problems found.**
 
@@ -1098,8 +1110,9 @@ orders writes inside one process.
    13.1 would have a stranger see "not found", which core cannot do without namespacing.
 4. A binding that is expired but still owned by A keeps refusing B until it is removed (resume by A, or `sweepBindings`):
    expiry must not turn a context id into a prize for whoever sends it first.
-5. "Issuer equality only" conflicts with "release only if the issuer matches this provider": core compares the full string for
-   equality, and reads only the `<id>@` prefix to decide whether `release` is safe.
+5. The issuer first contained the package version, so every wrapper deploy would have discarded (and released) all bindings.
+   It is now `<id>@<sessionFormat ?? "1">`, compared for equality only, and `release` is never called for a mismatched issuer.
+   A session-not-found retry used to be able to overlap the first `provider.run` of the turn; it now waits for it (below).
 6. The doc said a failed bind write is logged; a non-JSON `meta` therefore lost the binding silently. `bind` now throws.
 7. A late `bind` race between turns was only guarded by `live()`; it was also unsound for provider-held turns (two live views
    of one run), see the bind order above.
@@ -1110,8 +1123,8 @@ orders writes inside one process.
 `run.bind({ref, meta})` as soon as the backend tells it (before the first output, so a restart mid-turn can resume) and
 resumes from `request.session` instead of its own in-memory map:
 
-- Codex: call `resumeThread(request.session.ref)` (the thread id, which lives on disk) instead of always `startThread`, bind
-  the thread id once the thread exists, and map "thread not found" to `session-not-found`. This is the fix for #100 (Codex
+- Codex (#100): call `resumeThread(request.session.ref)` (the thread id, which lives on disk) instead of always `startThread`, and
+  bind the thread id on the first turn once the thread exists, and map "thread not found" to `session-not-found`. This is the fix for #100 (Codex
   never resumes threads).
 - Claude: bind the session id (the `session_id` of the init message), resume with `resume: request.session.ref`; an unknown
   session id is `session-not-found`.
@@ -1119,6 +1132,12 @@ resumes from `request.session` instead of its own in-memory map:
 - OpenCode: bind the server-side session id; `session.get` failing with not found is `session-not-found`. Optionally
   `probeSession` through the same call.
 - Antigravity: bind `conversation_id` (the SDK supports it, the wrapper ignores it).
+- **The wrapper contract.** (1) Call `run.bind` before the first output (an event or artifact), so a restart mid-turn can resume.
+  (2) Resume from `request.session`. (3) Report `session-not-found` ONLY while opening the session, before any tool call or side
+  effect: core cannot see silent work, and the retry re-runs the whole turn. (4) Return from `run()` right after reporting it
+  (core waits for the first call to settle before retrying). (5) `progress()` does not count as output, so the retry publishes
+  its progress again. (6) Implement `release` only if dropping a backend session is safe. (7) `probeSession` is optional. (8) Bump
+  `ProviderInfo.sessionFormat` only when old refs cannot be resumed.
 - Every wrapper: drop its own `contextId -> session` map, implement `release` (drop provider-local state) and, where the backend
   can tell cheaply, `probeSession`; report `session-not-found` before emitting anything.
 - The `bind` `meta` is the place for what a resume needs besides the id (a working directory, a model); it is persisted

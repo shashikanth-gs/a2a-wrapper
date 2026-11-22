@@ -90,13 +90,11 @@ export interface ContextBindingsOptions {
   store: RunStore;
   log: RuntimeLogger;
   now(): string;
-  /** The issuer core stamps on a binding it writes now: `<provider id>@<provider version>` by default. */
-  issuer(): string;
   /**
-   * Was this stored issuer written by this provider (any version)? Used only to decide whether `provider.release` may be
-   * called with a stale binding's ref: a ref from ANOTHER provider must never reach this provider's `release`.
+   * The issuer core stamps on a binding it writes now: `<provider id>@<ProviderInfo.sessionFormat ?? "1">` by default.
+   * `provider.release` is only ever called for a binding whose issuer EQUALS this one.
    */
-  sameProvider(issuer: string): boolean;
+  issuer(): string;
   /** Drop provider state for a discarded session. Bounded, never rejects. */
   release(ref: string): Promise<void>;
   /** `provider.probeSession`, bounded: `"unknown"` on failure or timeout. Absent when the provider cannot probe. */
@@ -212,9 +210,10 @@ export class ContextBindings {
       }
 
       if (session.issuer !== this.o.issuer()) {
-        this.o.log.warn(`task ${i.taskId}: discarding a context binding written by another provider or version`);
+        // Another provider, or the same provider with another session FORMAT: never replayed, never released (the old format
+        // may still own that session, and the new one may not understand the ref).
+        this.o.log.warn(`task ${i.taskId}: discarding a context binding written by another provider or session format`);
         await this.deleteQuietly(i.contextId, session.ref);
-        if (this.o.sameProvider(session.issuer)) toRelease = session.ref;
         return { kind: "none" };
       }
 
@@ -319,7 +318,7 @@ export class ContextBindings {
         const b = await this.o.store.getBinding(contextId);
         if (b?.session && (!ref || b.session.ref === ref)) {
           releaseRef = b.session.ref;
-          releasable = this.o.sameProvider(b.session.issuer);
+          releasable = b.session.issuer === this.o.issuer();
           await this.o.store.deleteBinding(contextId, b.session.ref);
         }
       });
@@ -359,7 +358,7 @@ export class ContextBindings {
         const cur = await this.o.store.getBinding(b.contextId);
         if (!cur || !this.expired(cur, ttl) || this.o.busy(b.contextId)) return false;
         const ok = cur.session ? await this.o.store.deleteBinding(b.contextId, cur.session.ref) : await this.o.store.deleteBinding(b.contextId);
-        if (ok && cur.session && this.o.sameProvider(cur.session.issuer)) releaseRef = cur.session.ref;
+        if (ok && cur.session && cur.session.issuer === this.o.issuer()) releaseRef = cur.session.ref;
         return ok;
       }).catch((e) => {
         this.o.log.warn(`removing an expired context binding failed: ${causeMessage(e)}`);

@@ -326,7 +326,6 @@ export class RunRegistry {
       log: this.log,
       now: () => this.now(),
       issuer: () => this.issuerOf(),
-      sameProvider: (issuer) => this.sameProvider(issuer),
       release: (ref) => this.releaseSession(ref),
       ...(this.provider.probeSession
         ? {
@@ -1007,9 +1006,24 @@ export class RunRegistry {
         if (verdict === "done") break;
         // The backend cannot resume the bound session: forget it and run the SAME turn once more with no session.
         const lost = session!.ref;
-        this.log.warn(`task ${handle.taskId}: the backend could not resume the bound session; retrying the turn with a fresh one`);
+        // The first call must have SETTLED before the second starts: two provider.run calls of one turn would break the lane
+        // invariant (one provider session never sees overlapping prompts). Its view is dead already, so late output is dropped.
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const settled = await Promise.race([
+          ran.then(() => true, () => true),
+          new Promise<false>((r) => {
+            timer = setTimeout(() => r(false), this.abortTimeoutMs);
+          }),
+        ]);
+        clearTimeout(timer);
         await this.bindings.forget(handle.contextId, lost);
         if (gone()) return;
+        if (!settled) {
+          this.log.warn(`task ${handle.taskId}: the first provider.run did not settle after session-not-found; not retrying`);
+          this.turnEnded(handle, turn, { kind: "failed", error: turn.lostError ?? { message: "the backend does not know this session", code: SESSION_NOT_FOUND } });
+          return;
+        }
+        this.log.warn(`task ${handle.taskId}: the backend could not resume the bound session; retrying the turn with a fresh one`);
         session = undefined;
       }
     } catch (e) {
@@ -1222,8 +1236,8 @@ export class RunRegistry {
         return self.interactions.ask(handle, request, options).then((r) => (live() ? r : { outcome: "canceled" as const }));
       },
       bind(session: SessionRef) {
+        if (!live()) return; // a late bind from an aborted or stale view is dropped silently (it must not resurrect a discarded session, nor throw into dead code)
         assertBindable(session);
-        if (!live()) return; // a late bind from an aborted run must not resurrect a discarded session
         turn.session = session;
         turn.observable = true; // a session was established: a replay would not be of the same turn
         self.bindSession(handle, turn, session);
@@ -1308,6 +1322,7 @@ export class RunRegistry {
     if (error.code !== SESSION_NOT_FOUND) return false;
     if (!turn.resumed || turn.retried || turn.observable || !turn.live || !turn.retrySignal) return false;
     turn.retried = true;
+    turn.lostError = { message: error.message ?? "the backend does not know this session", code: SESSION_NOT_FOUND };
     turn.retrySignal();
     return true;
   }
@@ -1323,16 +1338,6 @@ export class RunRegistry {
         seq: turn.seq,
       }),
     );
-  }
-
-  /** Is the provider that wrote `issuer` this provider (any version)? See `ContextBindings.sameProvider`. */
-  private sameProvider(issuer: string): boolean {
-    if (this.issuerOverride !== undefined) return false;
-    try {
-      return issuer.startsWith(`${this.provider.info().id}@`);
-    } catch {
-      return false;
-    }
   }
 
   /** `provider.release`, bounded; never rejects. */
@@ -1369,7 +1374,7 @@ export class RunRegistry {
   private issuerOf(): string {
     try {
       const i = this.provider.info();
-      return `${i.id}@${i.version ?? ""}`;
+      return `${i.id}@${i.sessionFormat ?? "1"}`;
     } catch {
       return "unknown";
     }

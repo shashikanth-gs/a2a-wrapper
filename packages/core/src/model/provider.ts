@@ -17,6 +17,14 @@ export interface ProviderInfo {
   id: string;
   displayName: string;
   version?: string;
+  /**
+   * The format of the session references this provider persists with `run.bind`. Core stamps it on every binding
+   * (issuer = `<id>@<sessionFormat ?? "1">`) and compares it for equality when the binding is read back. It is NOT the
+   * package version: a deploy that bumps `version` keeps every conversation. Change it only when a stored `ref` or `meta`
+   * of the old shape cannot be resumed by the new code; core then drops the old bindings without replaying them and
+   * WITHOUT calling `release` (the old format may still own those sessions).
+   */
+  sessionFormat?: string;
   /** Media types; feed the agent card. */
   inputModes: readonly string[];
   outputModes: readonly string[];

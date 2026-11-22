@@ -361,15 +361,31 @@ describe("resolve at turn start", () => {
       await r.done;
     });
 
-    it("a binding of THIS provider at another version is discarded and released, then the turn starts fresh", async () => {
+    it("R1: a provider VERSION bump keeps the binding and hands it over (the issuer is the session format, not the package version)", async () => {
       const s = setup();
-      await putBinding(s, "ctx", SECRET, { issuer: "fake@0" });
+      await bindAndFinish(s, "t0", "ctx", SECRET);
+      (s.provider as any).info = () => ({ id: "fake", displayName: "Fake", version: "99.0.0", inputModes: [], outputModes: [] });
+      const r = await startRun(s, "t1", "ctx");
+      expect(r.call.req.session?.ref).toBe(SECRET);
+      expect(s.provider.release).not.toHaveBeenCalled();
+      expect((await s.store.getBinding("ctx"))?.session?.issuer).toBe("fake@1");
+      r.call.view.complete({});
+      await r.done;
+    });
+
+    it("R1: a changed sessionFormat drops the binding WITHOUT replaying it and WITHOUT release", async () => {
+      const s = setup();
+      await bindAndFinish(s, "t0", "ctx", SECRET);
+      (s.provider as any).info = () => ({ id: "fake", displayName: "Fake", version: "1", sessionFormat: "2", inputModes: [], outputModes: [] });
       const r = await startRun(s, "t1", "ctx");
       expect(r.call.req.session).toBeUndefined();
       expect(await s.store.getBinding("ctx")).toBeUndefined();
-      expect(s.provider.release).toHaveBeenCalledWith({ ref: SECRET });
+      expect(s.provider.release).not.toHaveBeenCalled();
+      r.call.view.bind({ ref: "new-format" });
       r.call.view.complete({});
       await r.done;
+      await s.registry.drain();
+      expect((await s.store.getBinding("ctx"))?.session?.issuer).toBe("fake@2");
     });
 
     it("an explicit issuer override that differs from the stored one discards (and never calls release: the provider id is unknown)", async () => {
@@ -468,6 +484,7 @@ describe("session-not-found: forget the binding and retry the SAME turn once wit
     const first = await resumedRun(s);
     expect(first.call.req.session?.ref).toBe(SECRET);
     first.call.view.fail({ code: SESSION_NOT_FOUND, message: "no such thread" });
+    first.call.resolve();
     await until(() => s.provider.runs.length === 2, "the retry");
     const second = s.provider.runs[1];
     expect(second.req.session).toBeUndefined();
@@ -501,6 +518,7 @@ describe("session-not-found: forget the binding and retry the SAME turn once wit
     const s = setup();
     const first = await resumedRun(s);
     first.call.view.fail({ code: SESSION_NOT_FOUND, message: "gone" });
+    first.call.resolve();
     await until(() => s.provider.runs.length === 2, "the retry");
     s.provider.runs[1].view.fail({ code: SESSION_NOT_FOUND, message: "still gone" });
     await first.done;
@@ -514,12 +532,52 @@ describe("session-not-found: forget the binding and retry the SAME turn once wit
     const s = setup();
     const first = await resumedRun(s);
     first.call.view.fail({ code: SESSION_NOT_FOUND, message: "gone" });
+    first.call.resolve();
     await until(() => s.provider.runs.length === 2, "the retry");
     s.provider.runs[1].reject(new SessionNotFoundError("again"));
     await first.done;
     expect(terminalOf(first.publisher)).toEqual(["failed"]);
     expect(first.publisher.terminal()[0].metadata).toMatchObject({ code: SESSION_NOT_FOUND });
     expect(s.provider.runs).toHaveLength(2);
+  });
+
+  it("R2: the retry waits for the FIRST provider.run to settle: never two calls of one turn in flight", async () => {
+    const s = setup();
+    const first = await resumedRun(s);
+    let inFlight = 1;
+    let maxInFlight = 1;
+    first.call.view.fail({ code: SESSION_NOT_FOUND, message: "gone" });
+    await tick();
+    expect(s.provider.runs).toHaveLength(1); // the first call is still running: no second call yet
+    setTimeout(() => { inFlight--; first.call.resolve(); }, 50); // it keeps running 50 ms, then returns
+    await until(() => s.provider.runs.length === 2, "the retry");
+    inFlight++;
+    maxInFlight = Math.max(maxInFlight, inFlight);
+    expect(inFlight).toBe(1);
+    expect(maxInFlight).toBe(1);
+    s.provider.runs[1].view.complete({});
+    await first.done;
+    expect(terminalOf(first.publisher)).toEqual(["completed"]);
+  });
+
+  it("R2: a first call that never settles ends the turn failed with the session-not-found code, no retry", async () => {
+    const s = setup({}, { abortTimeoutMs: 30 });
+    const first = await resumedRun(s);
+    first.call.view.fail({ code: SESSION_NOT_FOUND, message: "no such thread" });
+    await first.done;
+    expect(terminalOf(first.publisher)).toEqual(["failed"]);
+    expect(first.publisher.terminal()[0]).toMatchObject({ text: "no such thread", metadata: { code: SESSION_NOT_FOUND } });
+    expect(s.provider.runs).toHaveLength(1);
+    expect(await s.store.getBinding("ctx")).toBeUndefined();
+  });
+
+  it("N1: a bind from a dead or stale view is dropped silently even if its arguments are bad; a live view still throws", async () => {
+    const s = setup();
+    const r = await startRun(s, "t1", "ctx");
+    await s.registry.cancel("t1", ANONYMOUS_CALLER);
+    expect(() => r.call.view.bind({ ref: "" })).not.toThrow();
+    const live = await startRun(s, "t2", "ctx2");
+    expect(() => live.call.view.bind({ ref: "" })).toThrow(TypeError);
   });
 
   it("no retry once the turn published something (an event, an artifact or an ask): the failure is final", async () => {
@@ -531,6 +589,7 @@ describe("session-not-found: forget the binding and retry the SAME turn once wit
       const first = await resumedRun(s);
       act(first.call.view);
       first.call.view.fail({ code: SESSION_NOT_FOUND, message: "gone" });
+      first.call.resolve();
       await first.done;
       expect(terminalOf(first.publisher)).toEqual(["failed"]);
       expect(s.provider.runs).toHaveLength(1);
@@ -542,6 +601,7 @@ describe("session-not-found: forget the binding and retry the SAME turn once wit
     const s = setup();
     const r = await startRun(s, "t1", "ctx");
     r.call.view.fail({ code: SESSION_NOT_FOUND, message: "x" });
+    r.call.resolve();
     await r.done;
     expect(terminalOf(r.publisher)).toEqual(["failed"]);
     expect(s.provider.runs).toHaveLength(1);
@@ -551,12 +611,12 @@ describe("session-not-found: forget the binding and retry the SAME turn once wit
     const s = setup();
     const first = await resumedRun(s);
     first.call.view.fail({ code: SESSION_NOT_FOUND, message: "gone" });
+    first.call.resolve();
     await until(() => s.provider.runs.length === 2, "the retry");
     first.call.view.event({ type: "text", text: "ghost" });
     first.call.view.bind({ ref: "ghost-session" });
     first.call.view.complete({ text: "ghost done" });
     first.call.view.fail({ message: "ghost failed" });
-    first.call.resolve(); // the first provider.run settles late
     await tick();
     expect(first.publisher.terminal()).toEqual([]);
     s.provider.runs[1].view.complete({ text: "real" });
@@ -571,6 +631,7 @@ describe("session-not-found: forget the binding and retry the SAME turn once wit
     const s = setup();
     const first = await resumedRun(s);
     first.call.view.fail({ code: SESSION_NOT_FOUND, message: "gone" });
+    first.call.resolve();
     await s.registry.cancel("t1", ANONYMOUS_CALLER);
     await first.done;
     await tick();
@@ -673,7 +734,7 @@ describe("abort / discard integration", () => {
       expect(await none.store.getBinding("ctx")).toBeUndefined();
     });
 
-    it("the issuer rule: an orphan binding written by another provider version is released, another provider's is not", async () => {
+    it("the issuer rule: an orphan binding of another provider or another session format is deleted but never released", async () => {
       const a = setup({ abortOrphan: async () => ({ stopped: "confirmed", session: "discard" }) });
       await a.store.putRun(orphan());
       await putBinding(a, "ctx", "x", { issuer: "other@1" });
@@ -685,7 +746,14 @@ describe("abort / discard integration", () => {
       await b.store.putRun(orphan());
       await putBinding(b, "ctx", "x", { issuer: "fake@0" });
       await b.registry.sweep();
-      expect(b.provider.release).toHaveBeenCalledWith({ ref: "x" });
+      expect(await b.store.getBinding("ctx")).toBeUndefined();
+      expect(b.provider.release).not.toHaveBeenCalled();
+
+      const c = setup({ abortOrphan: async () => ({ stopped: "confirmed", session: "discard" }) });
+      await c.store.putRun(orphan());
+      await putBinding(c, "ctx", "x"); // same issuer: released
+      await c.registry.sweep();
+      expect(c.provider.release).toHaveBeenCalledWith({ ref: "x" });
     });
   });
 });
@@ -904,6 +972,7 @@ describe("logs never carry a session ref", () => {
     await seed(x.store, "c4");
     r = await run(x, "t4", "c4");
     r.call.view.fail({ code: SESSION_NOT_FOUND, message: "gone" });
+    r.call.resolve();
     await tick();
     await tick();
     x.provider.runs[x.provider.runs.length - 1].view.complete({});

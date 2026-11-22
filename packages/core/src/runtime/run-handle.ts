@@ -56,6 +56,8 @@ export class RunTurn {
   resumed = false;
   /** The one `session-not-found` retry of this turn was used (or is in flight): there is no second one. */
   retried = false;
+  /** What the provider reported with `session-not-found` (the failure to give when the retry cannot run). */
+  lostError?: CoreError;
   /** The turn published something a replay would repeat (an event, an artifact, an ask): `session-not-found` can no longer retry it. */
   observable = false;
   /** Wakes the turn runner for the `session-not-found` retry. */
